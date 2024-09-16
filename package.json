@@ -1,0 +1,29 @@
+{
+    "name": "obsidian-note-enhancer",
+    "version": "1.0.0",
+    "description": "A tool to enhance markdown notes with front matter and wikilinks for Obsidian",
+    "main": "src/index.js",
+    "type": "module",
+    "scripts": {
+        "start": "node src/index.js",
+        "test": "echo \"Error: no test specified\" && exit 1"
+    },
+    "keywords": [
+        "obsidian",
+        "markdown",
+        "note-taking",
+        "automation"
+    ],
+    "author": "Your Name",
+    "license": "MIT",
+    "dependencies": {
+        "@iarna/rtf-to-html": "^1.1.0",
+        "dotenv": "^16.4.5",
+        "file-type": "^18.2.1",
+        "html-to-markdown": "^1.0.0",
+        "mammoth": "^1.8.0",
+        "node-fetch": "^3.3.1",
+        "pdf-parse": "^1.1.1",
+        "pdf.js-extract": "^0.2.1"
+    }
+}

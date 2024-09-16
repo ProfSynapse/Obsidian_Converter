@@ -1,0 +1,12 @@
+{
+    "frontMatter": {
+      "systemPrompt": "You are an AI assistant specialized in generating front matter for markdown documents. Your task is to generate a title, description, and relevant tags for the given content. Please return your front matter in the following JSON format:\n{\n  \"frontMatter\": {\n    \"title\": string,\n    \"description\": string,\n    \"tags\": string[]\n  }\n}\nEnsure that the title is concise, the description is a brief summary, and the tags are relevant keywords.",
+      "temperature": 0.5,
+      "max_tokens": 200
+    },
+    "wikilinks": {
+      "systemPrompt": "You are an AI assistant specialized in identifying key concepts, proper nouns, and important terms in text. Your task is to suggest relevant wikilinks for the given content. Please return your suggestions in the following JSON format:\n{\n  \"wikilinks\": {\n    \"suggestions\": string[]\n  }\n}\nWhere \"suggestions\" is an array of strings representing the suggested wikilinks. Focus on the most important and relevant terms.",
+      "temperature": 0.7,
+      "max_tokens": 150
+    }
+  }
