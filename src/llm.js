@@ -1,4 +1,4 @@
-// llm.js - OpenRouter API interaction
+// llm.js - OpenAI API interaction
 
 import fetch from 'node-fetch';
 import { readFile } from 'fs/promises';
@@ -16,23 +16,12 @@ async function loadConfig() {
     config = JSON.parse(configFile);
     
     // Ensure required fields are present
-    if (!config.llm || !config.llm.model) {
+    if (!config.llm || !config.llm.model || !config.llm.temperature || !config.llm.max_tokens) {
       throw new Error('Missing required LLM configuration');
     }
   } catch (error) {
     console.error('Error loading configuration:', error);
-    config = { 
-      llm: { 
-        model: 'openai/gpt-4o-mini', 
-        temperature: 0.7, 
-        max_tokens: 500 
-      },
-      app: {
-        url: 'http://localhost:3000',
-        name: 'Obsidian Note Enhancer'
-      }
-    };
-    console.warn('Using default LLM configuration');
+    throw error;
   }
 }
 
@@ -40,7 +29,7 @@ async function loadConfig() {
 await loadConfig();
 
 /**
- * Call the LLM API with given messages and options
+ * Call the OpenAI API with given messages and options
  * @param {Array} messages - The messages to send to the LLM
  * @param {boolean} jsonMode - Whether to request JSON output
  * @param {Object} options - Additional options (temperature, max_tokens)
@@ -60,55 +49,38 @@ export async function callLLM(messages, jsonMode = false, options = {}) {
     requestBody.response_format = { type: 'json_object' };
   }
 
-  console.log('API Key available:', !!process.env.OPENROUTER_API_KEY);
-  console.log('Request Body:', JSON.stringify(requestBody, null, 2));
+  // Add this line to log the API key (be careful with this in production!)
+  console.log('Using API Key:', process.env.OPENAI_API_KEY);
 
   try {
-    const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+    const response = await fetch('https://api.openai.com/v1/chat/completions', {
       method: 'POST',
       headers: {
-        'Authorization': `Bearer ${process.env.OPENROUTER_API_KEY}`,
-        'Content-Type': 'application/json',
-        'HTTP-Referer': config.app?.url || 'http://localhost:3000',
-        'X-Title': config.app?.name || 'Obsidian Note Enhancer'
+        'Authorization': `Bearer ${process.env.OPENAI_API_KEY}`,
+        'Content-Type': 'application/json'
       },
       body: JSON.stringify(requestBody)
     });
 
-    const data = await response.json();
-    
     if (!response.ok) {
-      console.error('API Error Response:', data);
-      throw new Error(`API request failed: ${data.error?.message || response.statusText}`);
+      const errorData = await response.json();
+      throw new Error(`API request failed: ${errorData.error?.message || response.statusText}`);
     }
 
-    console.log('API Response:', JSON.stringify(data, null, 2));
+    const data = await response.json();
 
     if (!data.choices || data.choices.length === 0) {
-      console.error('Unexpected API response structure:', data);
       throw new Error('API response does not contain expected choices');
     }
 
-    let content = data.choices[0].message?.content;
+    const content = data.choices[0].message?.content;
     if (content === undefined) {
-      console.error('Unexpected message structure in API response:', data.choices[0]);
       throw new Error('API response does not contain expected content');
-    }
-
-    if (jsonMode) {
-      content = JSON.parse(content);
-      
-      // Post-process relationships to add quotes
-      if (content.frontMatter && Array.isArray(content.frontMatter.relationships)) {
-        content.frontMatter.relationships = content.frontMatter.relationships.map(rel => `"${rel}"`);
-      }
-      
-      content = JSON.stringify(content);
     }
 
     return jsonMode ? JSON.parse(content) : content;
   } catch (error) {
-    console.error('Error calling LLM API:', error);
+    console.error('Error calling OpenAI API:', error);
     throw error;
   }
 }

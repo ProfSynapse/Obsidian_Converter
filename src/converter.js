@@ -1,7 +1,17 @@
-// converter.js - File type conversion logic
+import { transcribeAudio } from './transcriber.js';
+import { writeFile, unlink } from 'fs/promises';
+import { join } from 'path';
+import { v4 as uuidv4 } from 'uuid';
+import { fileURLToPath } from 'url';
+import { dirname } from 'path';
+import { mkdir } from 'fs/promises';
+import { existsSync } from 'fs';
 
-import { readFile } from 'fs/promises';
-import { extname } from 'path';
+import dotenv from 'dotenv';
+dotenv.config();
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
 
 let htmlToMarkdown, mammoth, rtfToHTML;
 
@@ -40,6 +50,11 @@ export async function convertToMarkdown(fileBuffer, fileType) {
       return convertDocxToMarkdown(fileBuffer);
     case 'rtf':
       return convertRtfToMarkdown(fileBuffer);
+    case 'mp3':
+    case 'wav':
+    case 'm4a':
+    case 'ogg':
+      return await convertAudioToMarkdown(fileBuffer, fileType);
     default:
       throw new Error(`Unsupported file type: ${fileType}`);
   }
@@ -100,5 +115,39 @@ async function convertRtfToMarkdown(buffer) {
     return htmlToMarkdown.convert(htmlContent);
   } else {
     throw new Error('RTF conversion is not available. Please install the @iarna/rtf-to-html and html-to-markdown packages.');
+  }
+}
+
+/**
+ * Convert audio to markdown by transcribing it
+ * @param {Buffer} buffer - The audio file content as a buffer
+ * @param {string} fileType - The audio file type (extension)
+ * @returns {Promise<string>} The transcribed audio content as markdown
+ */
+async function convertAudioToMarkdown(buffer, fileType) {
+  const tempDir = join(__dirname, '..', 'temp');
+  const tempFilePath = join(tempDir, `${uuidv4()}.${fileType}`);
+  
+  try {
+    if (!existsSync(tempDir)) {
+      await mkdir(tempDir, { recursive: true });
+      console.log(`Created temporary directory: ${tempDir}`);
+    }
+
+    console.log(`Writing temporary file: ${tempFilePath}`);
+    await writeFile(tempFilePath, buffer);
+    console.log('Temporary file written successfully');
+    console.log('Calling transcribeAudio function');
+    const transcription = await transcribeAudio(tempFilePath);
+    console.log('Transcription completed');
+    return `# Audio Transcription\n\n${transcription}`;
+  } catch (error) {
+    console.error('Error in convertAudioToMarkdown:', error);
+    throw error;
+  } finally {
+    if (existsSync(tempFilePath)) {
+      console.log(`Attempting to delete temporary file: ${tempFilePath}`);
+      await unlink(tempFilePath).catch(err => console.error('Error deleting temp file:', err));
+    }
   }
 }
