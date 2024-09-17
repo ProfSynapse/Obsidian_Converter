@@ -4,8 +4,8 @@ import { readdir, readFile, writeFile } from 'fs/promises';
 import { extname, basename, join, resolve } from 'path';
 import { fileTypeFromBuffer } from 'file-type';
 import { PDFExtract } from 'pdf.js-extract';
-import { convertToMarkdown } from './converter.js';
-import { enhanceNote } from './enhancer.js';
+import { convertToMarkdown } from './src/converter.js';
+import { enhanceNote } from './src/enhancer.js';
 import dotenv from 'dotenv';
 import { fileURLToPath } from 'url';
 import { dirname } from 'path';
@@ -19,7 +19,7 @@ console.log('__dirname:', __dirname);
 
 // Load environment variables
 console.log('Attempting to load .env file...');
-const envPath = resolve(__dirname, '../.env');
+const envPath = resolve(__dirname, '.env');
 console.log('Looking for .env file at:', envPath);
 
 const result = dotenv.config({ path: envPath });
@@ -37,8 +37,8 @@ if (!process.env.OPENROUTER_API_KEY) {
 }
 
 // Define input and output directories
-const inputFolder = resolve(__dirname, '../input');
-const outputFolder = resolve(__dirname, '../output');
+const inputFolder = resolve(__dirname, 'input');
+const outputFolder = resolve(__dirname, 'output');
 
 console.log('Input folder:', inputFolder);
 console.log('Output folder:', outputFolder);
@@ -69,7 +69,6 @@ async function processFiles() {
   console.log('Starting file processing...');
   try {
     console.log(`Reading files from: ${inputFolder}`);
-    // Read all files from the input directory
     const files = await readdir(inputFolder);
     
     if (files.length === 0) {
@@ -79,25 +78,15 @@ async function processFiles() {
 
     console.log(`Found ${files.length} files in the input directory.`);
 
-    // Process each file
-    for (const file of files) {
+    const processPromises = files.map(async (file) => {
       console.log(`Processing file: ${file}`);
-      
-      // Construct full file path
       const filePath = join(inputFolder, file);
       
       try {
-        // Read file content as a buffer
-        console.log(`Reading file: ${filePath}`);
         const fileBuffer = await readFile(filePath);
-        
-        // Determine file type
-        console.log('Determining file type...');
         const fileType = await fileTypeFromBuffer(fileBuffer);
         
         let markdownContent;
-        
-        // Convert file content to markdown based on file type
         if (fileType && fileType.ext === 'pdf') {
           console.log('PDF file detected. Converting to markdown...');
           const pdfText = await convertPdfToText(fileBuffer);
@@ -108,21 +97,27 @@ async function processFiles() {
         }
         
         console.log('Enhancing markdown content...');
-        // Enhance the markdown content (add front matter and wikilinks)
         const enhancedContent = await enhanceNote(markdownContent, basename(file, extname(file)));
         
-        // Construct output file path
         const outputFilePath = join(outputFolder, `${basename(file, extname(file))}.md`);
         
-        // Write the enhanced content to the output file
         console.log(`Writing enhanced content to: ${outputFilePath}`);
         await writeFile(outputFilePath, enhancedContent);
         
         console.log(`Enhanced markdown file created: ${outputFilePath}`);
+        return { success: true, file };
       } catch (fileError) {
         console.error(`Error processing file ${file}:`, fileError);
+        return { success: false, file, error: fileError };
       }
-    }
+    });
+
+    const results = await Promise.all(processPromises);
+
+    const successful = results.filter(r => r.success).length;
+    const failed = results.filter(r => !r.success).length;
+
+    console.log(`File processing completed. Successful: ${successful}, Failed: ${failed}`);
   } catch (error) {
     console.error('Error processing files:', error);
   }

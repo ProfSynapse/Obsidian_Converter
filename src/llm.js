@@ -23,7 +23,7 @@ async function loadConfig() {
     console.error('Error loading configuration:', error);
     config = { 
       llm: { 
-        model: 'openai/gpt-3.5-turbo', 
+        model: 'openai/gpt-4o-mini', 
         temperature: 0.7, 
         max_tokens: 500 
       },
@@ -89,10 +89,21 @@ export async function callLLM(messages, jsonMode = false, options = {}) {
       throw new Error('API response does not contain expected choices');
     }
 
-    const content = data.choices[0].message?.content;
+    let content = data.choices[0].message?.content;
     if (content === undefined) {
       console.error('Unexpected message structure in API response:', data.choices[0]);
       throw new Error('API response does not contain expected content');
+    }
+
+    if (jsonMode) {
+      content = JSON.parse(content);
+      
+      // Post-process relationships to add quotes
+      if (content.frontMatter && Array.isArray(content.frontMatter.relationships)) {
+        content.frontMatter.relationships = content.frontMatter.relationships.map(rel => `"${rel}"`);
+      }
+      
+      content = JSON.stringify(content);
     }
 
     return jsonMode ? JSON.parse(content) : content;

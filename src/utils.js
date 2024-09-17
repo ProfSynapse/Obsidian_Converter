@@ -114,7 +114,10 @@ export function parseFrontMatter(content) {
   frontMatterString.split('\n').forEach(line => {
     const [key, ...valueParts] = line.split(':');
     if (key && valueParts.length) {
-      frontMatter[key.trim()] = valueParts.join(':').trim();
+      const value = valueParts.join(':').trim();
+      frontMatter[key.trim()] = value.startsWith('[') && value.endsWith(']') 
+        ? value.slice(1, -1).split(',').map(item => item.trim())
+        : value;
     }
   });
 

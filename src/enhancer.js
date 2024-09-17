@@ -4,6 +4,7 @@ import { readFile } from 'fs/promises';
 import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';
 import { callLLMWithRetry } from './llm.js';
+import { parseFrontMatter } from './utils.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -53,16 +54,26 @@ export async function enhanceNote(content, fileName) {
 
   try {
     console.log('Enhancing note:', fileName);
-    const frontMatter = await generateFrontMatter(content, fileName);
-    console.log('Front matter generated');
-
-    const wikilinks = await suggestWikilinks(content);
+    
+    // Parse existing front matter
+    const { frontMatter: existingFrontMatter, content: contentWithoutFrontMatter } = parseFrontMatter(content);
+    
+    // Generate new front matter
+    const newFrontMatter = await generateFrontMatter(contentWithoutFrontMatter, fileName);
+    
+    // Merge existing and new front matter
+    const mergedFrontMatter = mergeFrontMatter(existingFrontMatter, newFrontMatter);
+    
+    // Format the merged front matter
+    const formattedFrontMatter = formatFrontMatter(mergedFrontMatter);
+    
+    const wikilinks = await suggestWikilinks(contentWithoutFrontMatter);
     console.log('Wikilinks suggested:', wikilinks);
 
-    const contentWithWikilinks = applyWikilinks(content, wikilinks);
+    const contentWithWikilinks = applyWikilinks(contentWithoutFrontMatter, wikilinks);
     console.log('Wikilinks applied to content');
 
-    const enhancedContent = `${frontMatter}\n\n${contentWithWikilinks}`;
+    const enhancedContent = `${formattedFrontMatter}\n${contentWithWikilinks}`;
     console.log('Note enhancement completed');
 
     return enhancedContent;
@@ -97,14 +108,14 @@ async function generateFrontMatter(content, fileName) {
         typeof frontMatterResponse.frontMatter.title === 'string' && 
         typeof frontMatterResponse.frontMatter.description === 'string' && 
         Array.isArray(frontMatterResponse.frontMatter.tags)) {
-      return formatFrontMatter(frontMatterResponse.frontMatter);
+      return frontMatterResponse.frontMatter;
     } else {
       console.error('Unexpected front matter response format:', frontMatterResponse);
-      return formatFrontMatter({ title: fileName, description: "Error generating description", tags: [] });
+      return { title: fileName, description: "Error generating description", tags: [] };
     }
   } catch (error) {
     console.error('Error generating front matter:', error);
-    return formatFrontMatter({ title: fileName, description: "Error generating description", tags: [] });
+    return { title: fileName, description: "Error generating description", tags: [] };
   }
 }
 
@@ -193,16 +204,27 @@ function applyWikilinks(content, wikilinks) {
  * @returns {string} Formatted YAML front matter block
  */
 function formatFrontMatter(frontMatterData) {
-  const { title, description, tags } = frontMatterData;
-  const formattedTags = Array.isArray(tags) ? tags.map(tag => `  - ${tag}`).join('\n') : '';
+  console.log('Formatting front matter:', JSON.stringify(frontMatterData, null, 2));
   
-  return `---
-title: ${title || 'Untitled'}
-description: ${description || 'No description available'}
-tags:
-${formattedTags || '  - untagged'}
-date: ${new Date().toISOString()}
----`;
+  let formattedFrontMatter = '---\n';
+  if (frontMatterData) {
+    for (const [key, value] of Object.entries(frontMatterData)) {
+      if (Array.isArray(value)) {
+        formattedFrontMatter += `${key}:\n${value.map(item => `  - ${item}`).join('\n')}\n`;
+      } else if (typeof value === 'string') {
+        formattedFrontMatter += `${key}: "${value}"\n`;
+      } else {
+        formattedFrontMatter += `${key}: ${value}\n`;
+      }
+    }
+  } else {
+    console.error('Invalid front matter data:', frontMatterData);
+    return '---\n---\n';
+  }
+  formattedFrontMatter += '---\n';
+  
+  console.log('Formatted front matter:', formattedFrontMatter);
+  return formattedFrontMatter;
 }
 
 /**
@@ -225,4 +247,21 @@ export async function reloadConfig() {
   } catch (error) {
     console.error('Error reloading configuration:', error);
   }
+}
+
+/**
+ * Merge existing and new front matter
+ * @param {Object} existing - Existing front matter object
+ * @param {Object} newFrontMatter - New front matter object
+ * @returns {Object} Merged front matter object
+ */
+function mergeFrontMatter(existing, newFrontMatter) {
+  const merged = { ...existing, ...newFrontMatter };
+  
+  // Merge tags if both exist
+  if (existing && existing.tags && newFrontMatter.tags) {
+    merged.tags = [...new Set([...existing.tags, ...newFrontMatter.tags])];
+  }
+  
+  return merged;
 }
