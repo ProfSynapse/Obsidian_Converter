@@ -31,15 +31,19 @@ async function processFile(filePath) {
   try {
     const fileBuffer = await readFile(filePath);
     const fileType = await fileTypeFromBuffer(fileBuffer);
+    const fileExtension = fileType ? fileType.ext : extname(filePath).slice(1);
+    
+    console.log(`Processing file: ${filePath}`);
+    console.log(`Detected file type: ${fileExtension}`);
     
     let markdownContent;
-    if (fileType && fileType.ext === 'pdf') {
+    if (fileExtension === 'pdf') {
       const pdfText = await convertPdfToText(fileBuffer);
       markdownContent = pdfText;
-    } else if (fileType && ['mp3', 'wav', 'm4a', 'ogg'].includes(fileType.ext)) {
-      markdownContent = await convertToMarkdown(fileBuffer, fileType.ext);
+    } else if (['mp3', 'wav', 'm4a', 'ogg', 'mp4', 'mov', 'avi', 'webm'].includes(fileExtension)) {
+      markdownContent = await convertToMarkdown(fileBuffer, fileExtension);
     } else {
-      markdownContent = await convertToMarkdown(fileBuffer, fileType ? fileType.ext : extname(filePath).slice(1));
+      markdownContent = await convertToMarkdown(fileBuffer, fileExtension);
     }
     
     const enhancedContent = await enhanceNote(markdownContent, basename(filePath, extname(filePath)));

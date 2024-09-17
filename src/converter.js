@@ -1,20 +1,16 @@
-import { transcribeAudio } from './transcriber.js';
-import { writeFile, unlink } from 'fs/promises';
-import { join } from 'path';
-import { v4 as uuidv4 } from 'uuid';
+import { transcribeAudio, transcribeVideo } from './transcriber.js';
+import { writeFile, readFile } from 'fs/promises';
+import { join, dirname, extname, basename } from 'path';
 import { fileURLToPath } from 'url';
-import { dirname } from 'path';
-import { mkdir } from 'fs/promises';
-import { existsSync } from 'fs';
+import { fileTypeFromBuffer } from 'file-type';
+import tmp from 'tmp';
 
-import dotenv from 'dotenv';
-dotenv.config();
+tmp.setGracefulCleanup();
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
 let htmlToMarkdown, mammoth, rtfToHTML;
-
 try {
   htmlToMarkdown = await import('html-to-markdown');
 } catch (error) {
@@ -40,7 +36,12 @@ try {
  * @returns {Promise<string>} The file content converted to markdown
  */
 export async function convertToMarkdown(fileBuffer, fileType) {
-  switch (fileType.toLowerCase()) {
+  const detectedType = await fileTypeFromBuffer(fileBuffer);
+  const actualFileType = detectedType ? detectedType.ext : fileType.toLowerCase();
+
+  console.log(`Converting file of type: ${actualFileType}`);
+
+  switch (actualFileType) {
     case 'txt':
       return convertTextToMarkdown(fileBuffer);
     case 'html':
@@ -54,9 +55,15 @@ export async function convertToMarkdown(fileBuffer, fileType) {
     case 'wav':
     case 'm4a':
     case 'ogg':
-      return await convertAudioToMarkdown(fileBuffer, fileType);
+      return await convertAudioToMarkdown(fileBuffer, actualFileType);
+    case 'mp4':
+    case 'mov':
+    case 'avi':
+    case 'webm':
+      return await convertVideoToMarkdown(fileBuffer, actualFileType);
     default:
-      throw new Error(`Unsupported file type: ${fileType}`);
+      console.warn(`Unsupported file type: ${actualFileType}. Treating as plain text.`);
+      return convertTextToMarkdown(fileBuffer);
   }
 }
 
@@ -91,8 +98,19 @@ async function convertHtmlToMarkdown(buffer) {
  */
 async function convertDocxToMarkdown(buffer) {
   if (mammoth) {
-    const result = await mammoth.convertToMarkdown({ buffer });
-    return result.value;
+    try {
+      console.log('Starting DOCX conversion');
+      const result = await mammoth.convertToMarkdown({ buffer });
+      console.log('DOCX conversion successful');
+      return result.value;
+    } catch (error) {
+      console.error('Error in DOCX conversion:', error);
+      if (error.message.includes('Corrupted zip')) {
+        console.log('Attempting to read file as plain text...');
+        return buffer.toString('utf-8');
+      }
+      throw error;
+    }
   } else {
     throw new Error('DOCX conversion is not available. Please install the mammoth package.');
   }
@@ -125,29 +143,45 @@ async function convertRtfToMarkdown(buffer) {
  * @returns {Promise<string>} The transcribed audio content as markdown
  */
 async function convertAudioToMarkdown(buffer, fileType) {
-  const tempDir = join(__dirname, '..', 'temp');
-  const tempFilePath = join(tempDir, `${uuidv4()}.${fileType}`);
-  
+  let tempFilePath;
   try {
-    if (!existsSync(tempDir)) {
-      await mkdir(tempDir, { recursive: true });
-      console.log(`Created temporary directory: ${tempDir}`);
-    }
+    const tmpobj = await tmpFile({ postfix: `.${fileType}`, keep: true });
+    tempFilePath = tmpobj.path;
+    console.log(`Created temporary file: ${tempFilePath}`);
 
-    console.log(`Writing temporary file: ${tempFilePath}`);
     await writeFile(tempFilePath, buffer);
     console.log('Temporary file written successfully');
+    
     console.log('Calling transcribeAudio function');
     const transcription = await transcribeAudio(tempFilePath);
     console.log('Transcription completed');
+    
     return `# Audio Transcription\n\n${transcription}`;
   } catch (error) {
     console.error('Error in convertAudioToMarkdown:', error);
     throw error;
   } finally {
-    if (existsSync(tempFilePath)) {
-      console.log(`Attempting to delete temporary file: ${tempFilePath}`);
-      await unlink(tempFilePath).catch(err => console.error('Error deleting temp file:', err));
+    if (tempFilePath) {
+      tmp.cleanupSync(); // This will remove the temporary file
     }
+  }
+}
+
+/**
+ * Convert video to markdown by transcribing its audio
+ * @param {Buffer} buffer - The video file content as a buffer
+ * @param {string} fileType - The video file type (extension)
+ * @returns {Promise<string>} The transcribed video content as markdown
+ */
+async function convertVideoToMarkdown(buffer, fileType) {
+  try {
+    console.log(`Starting video transcription for ${fileType} file`);
+    const transcription = await transcribeVideo(buffer, fileType);
+    console.log('Video transcription completed');
+    return `# Video Transcription\n\n${transcription}`;
+  } catch (error) {
+    console.error(`Error transcribing ${fileType} file:`, error);
+    console.error('Error details:', JSON.stringify(error, null, 2));
+    return `# Video Transcription\n\nError: Unable to transcribe ${fileType} file. ${error.message}`;
   }
 }
