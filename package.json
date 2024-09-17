@@ -5,30 +5,44 @@
     "main": "src/index.js",
     "type": "module",
     "scripts": {
-      "start": "node src/index.js",
-      "test": "echo \"Error: no test specified\" && exit 1"
+        "start": "node src/index.js",
+        "test": "echo \"Error: no test specified\" && exit 1"
     },
     "keywords": [
-      "obsidian",
-      "markdown",
-      "note-taking",
-      "automation"
+        "obsidian",
+        "markdown",
+        "note-taking",
+        "automation",
+        "web-scraping",
+        "transcription"
     ],
     "author": "Your Name",
     "license": "MIT",
     "dependencies": {
-      "@iarna/rtf-to-html": "^1.1.0",
-      "dotenv": "^16.4.5",
-      "file-type": "^18.2.1",
-      "fluent-ffmpeg": "^2.1.2",
-      "@ffmpeg-installer/ffmpeg": "^1.1.0",
-      "html-to-markdown": "^1.0.0",
-      "mammoth": "^1.8.0",
-      "node-fetch": "^3.3.1",
-      "pdf-parse": "^1.1.1",
-      "pdf.js-extract": "^0.2.1",
-      "openai": "^4.0.0",
-      "tmp": "^0.2.1",
-      "uuid": "^9.0.0"
+        "@ffmpeg-installer/ffmpeg": "^1.1.0",
+        "@iarna/rtf-to-html": "^1.1.0",
+        "csv-parse": "^5.3.0",
+        "dotenv": "^16.4.5",
+        "file-type": "^18.2.1",
+        "fluent-ffmpeg": "^2.1.2",
+        "glob": "^10.3.10",
+        "html-to-markdown": "^1.0.0",
+        "lru-cache": "^10.0.1",
+        "mammoth": "^1.8.0",
+        "node-fetch": "^3.3.1",
+        "openai": "^4.0.0",
+        "pdf-parse": "^1.1.1",
+        "puppeteer": "^23.3.1",
+        "puppeteer-extra": "^3.3.6",
+        "puppeteer-extra-plugin-stealth": "^2.11.2",
+        "rimraf": "^5.0.5",
+        "sharp": "^0.32.1",
+        "tmp": "^0.2.1",
+        "user-agents": "^1.0.1082",
+        "uuid": "^9.0.0",
+        "youtube-transcript": "^1.0.6"
+    },
+    "engines": {
+        "node": ">=18.0.0"
     }
-  }
+}

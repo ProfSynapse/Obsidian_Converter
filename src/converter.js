@@ -1,9 +1,12 @@
+// converter.js
 import { transcribeAudio, transcribeVideo } from './transcriber.js';
-import { writeFile, readFile } from 'fs/promises';
+import { readFile, writeFile } from 'fs/promises';
 import { join, dirname, extname, basename } from 'path';
 import { fileURLToPath } from 'url';
 import { fileTypeFromBuffer } from 'file-type';
 import tmp from 'tmp';
+import pdfParse from 'pdf-parse';
+import { INPUT_DIR } from '../index.js';
 
 tmp.setGracefulCleanup();
 
@@ -11,6 +14,7 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
 let htmlToMarkdown, mammoth, rtfToHTML;
+
 try {
   htmlToMarkdown = await import('html-to-markdown');
 } catch (error) {
@@ -30,15 +34,15 @@ try {
 }
 
 /**
- * Convert a file buffer to markdown based on its file type
- * @param {Buffer} fileBuffer - The file content as a buffer
+ * Convert a file to markdown based on its file type
+ * @param {string} filePath - The path to the file
  * @param {string} fileType - The file extension or type
  * @returns {Promise<string>} The file content converted to markdown
  */
-export async function convertToMarkdown(fileBuffer, fileType) {
+export async function convertToMarkdown(filePath, fileType) {
+  const fileBuffer = await readFile(filePath);
   const detectedType = await fileTypeFromBuffer(fileBuffer);
   const actualFileType = detectedType ? detectedType.ext : fileType.toLowerCase();
-
   console.log(`Converting file of type: ${actualFileType}`);
 
   switch (actualFileType) {
@@ -51,6 +55,8 @@ export async function convertToMarkdown(fileBuffer, fileType) {
       return convertDocxToMarkdown(fileBuffer);
     case 'rtf':
       return convertRtfToMarkdown(fileBuffer);
+    case 'pdf':
+      return convertPdfToMarkdown(filePath);
     case 'mp3':
     case 'wav':
     case 'm4a':
@@ -67,20 +73,10 @@ export async function convertToMarkdown(fileBuffer, fileType) {
   }
 }
 
-/**
- * Convert plain text to markdown (no conversion needed)
- * @param {Buffer} buffer - The text file content as a buffer
- * @returns {string} The text content as a string
- */
 function convertTextToMarkdown(buffer) {
   return buffer.toString('utf-8');
 }
 
-/**
- * Convert HTML to markdown
- * @param {Buffer} buffer - The HTML file content as a buffer
- * @returns {Promise<string>} The HTML content converted to markdown
- */
 async function convertHtmlToMarkdown(buffer) {
   const htmlContent = buffer.toString('utf-8');
   if (htmlToMarkdown) {
@@ -91,11 +87,6 @@ async function convertHtmlToMarkdown(buffer) {
   }
 }
 
-/**
- * Convert DOCX to markdown
- * @param {Buffer} buffer - The DOCX file content as a buffer
- * @returns {Promise<string>} The DOCX content converted to markdown
- */
 async function convertDocxToMarkdown(buffer) {
   if (mammoth) {
     try {
@@ -116,11 +107,6 @@ async function convertDocxToMarkdown(buffer) {
   }
 }
 
-/**
- * Convert RTF to markdown
- * @param {Buffer} buffer - The RTF file content as a buffer
- * @returns {Promise<string>} The RTF content converted to markdown
- */
 async function convertRtfToMarkdown(buffer) {
   if (rtfToHTML && htmlToMarkdown) {
     const rtfContent = buffer.toString('utf-8');
@@ -136,43 +122,41 @@ async function convertRtfToMarkdown(buffer) {
   }
 }
 
-/**
- * Convert audio to markdown by transcribing it
- * @param {Buffer} buffer - The audio file content as a buffer
- * @param {string} fileType - The audio file type (extension)
- * @returns {Promise<string>} The transcribed audio content as markdown
- */
+async function convertPdfToMarkdown(filePath) {
+  try {
+    console.log('Starting PDF conversion');
+    const dataBuffer = await readFile(filePath);
+    const data = await pdfParse(dataBuffer);
+    console.log('PDF conversion successful');
+    return data.text;
+  } catch (error) {
+    console.error('Error in PDF conversion:', error);
+    throw error;
+  }
+}
+
 async function convertAudioToMarkdown(buffer, fileType) {
   let tempFilePath;
   try {
-    const tmpobj = await tmpFile({ postfix: `.${fileType}`, keep: true });
-    tempFilePath = tmpobj.path;
+    const tmpobj = tmp.fileSync({ postfix: `.${fileType}`, keep: true });
+    tempFilePath = tmpobj.name;
     console.log(`Created temporary file: ${tempFilePath}`);
-
     await writeFile(tempFilePath, buffer);
     console.log('Temporary file written successfully');
-    
     console.log('Calling transcribeAudio function');
     const transcription = await transcribeAudio(tempFilePath);
     console.log('Transcription completed');
-    
     return `# Audio Transcription\n\n${transcription}`;
   } catch (error) {
     console.error('Error in convertAudioToMarkdown:', error);
     throw error;
   } finally {
     if (tempFilePath) {
-      tmp.cleanupSync(); // This will remove the temporary file
+      tmp.setGracefulCleanup();
     }
   }
 }
 
-/**
- * Convert video to markdown by transcribing its audio
- * @param {Buffer} buffer - The video file content as a buffer
- * @param {string} fileType - The video file type (extension)
- * @returns {Promise<string>} The transcribed video content as markdown
- */
 async function convertVideoToMarkdown(buffer, fileType) {
   try {
     console.log(`Starting video transcription for ${fileType} file`);

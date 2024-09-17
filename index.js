@@ -1,91 +1,117 @@
 // index.js
-import { fileURLToPath } from 'url';
-import { dirname, join, resolve, extname, basename } from 'path';
+
 import { readFile, writeFile, readdir } from 'fs/promises';
-import { existsSync, mkdirSync } from 'fs';
-import { fileTypeFromBuffer } from 'file-type';
-import { PDFExtract } from 'pdf.js-extract';
-import { convertToMarkdown } from './src/converter.js';
+import { parse } from 'csv-parse/sync';
 import { enhanceNote } from './src/enhancer.js';
-import dotenv from 'dotenv';
+import { convertToMarkdown } from './src/converter.js';
+import { scrapeYouTubeTranscript, scrapeWebsiteText } from './src/scraper.js';
+import path from 'path';
+import pdfParse from 'pdf-parse';
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = dirname(__filename);
+export const INPUT_DIR = './input';
+const OUTPUT_DIR = './output';
+const URL_CSV_FILE = 'urls.csv';
 
-// Load environment variables
-dotenv.config({ path: resolve(__dirname, '.env') });
 
-const pdfExtract = new PDFExtract();
 
-async function convertPdfToText(buffer) {
+async function processInputs() {
   try {
-    const data = await pdfExtract.extractBuffer(buffer, {});
-    return data.pages.map(page => page.content.map(item => item.str).join(' ')).join('\n\n');
+    const files = await readdir(INPUT_DIR);
+    for (const file of files) {
+      const filePath = path.join(INPUT_DIR, file);
+      if (file === URL_CSV_FILE) {
+        await processCsvFile(filePath);
+      } else {
+        await processFile(filePath);
+      }
+    }
   } catch (error) {
-    console.error('Error extracting PDF text:', error);
-    throw error;
+    console.error('Error processing inputs:', error);
+  }
+}
+
+async function processCsvFile(filePath) {
+  try {
+    const fileContent = await readFile(filePath, 'utf-8');
+    const records = parse(fileContent, { columns: true, skip_empty_lines: true });
+    for (const record of records) {
+      try {
+        const { input, outputName } = record;
+        console.log(`Processing URL from CSV: ${input}`);
+        const content = await processInput(input);
+        const enhancedContent = await enhanceNote(content, outputName || getFileName(input));
+        await saveOutput(enhancedContent, outputName);
+        console.log(`Processed and saved: ${outputName}`);
+      } catch (error) {
+        console.error(`Error processing ${record.input}:`, error);
+      }
+    }
+  } catch (error) {
+    console.error('Error reading or parsing CSV file:', error);
   }
 }
 
 async function processFile(filePath) {
   try {
-    const fileBuffer = await readFile(filePath);
-    const fileType = await fileTypeFromBuffer(fileBuffer);
-    const fileExtension = fileType ? fileType.ext : extname(filePath).slice(1);
-    
     console.log(`Processing file: ${filePath}`);
-    console.log(`Detected file type: ${fileExtension}`);
-    
-    let markdownContent;
-    if (fileExtension === 'pdf') {
-      const pdfText = await convertPdfToText(fileBuffer);
-      markdownContent = pdfText;
-    } else if (['mp3', 'wav', 'm4a', 'ogg', 'mp4', 'mov', 'avi', 'webm'].includes(fileExtension)) {
-      markdownContent = await convertToMarkdown(fileBuffer, fileExtension);
+    const fileExt = path.extname(filePath).toLowerCase();
+    const fileName = path.basename(filePath, fileExt);
+
+    let content;
+    if (fileExt === '.pdf') {
+      const fileBuffer = await readFile(filePath);
+      const pdfData = await pdfParse(fileBuffer);
+      content = pdfData.text;
     } else {
-      markdownContent = await convertToMarkdown(fileBuffer, fileExtension);
+      content = await convertToMarkdown(filePath, fileExt.slice(1));
     }
-    
-    const enhancedContent = await enhanceNote(markdownContent, basename(filePath, extname(filePath)));
-    
-    const outputFolder = resolve(__dirname, 'output');
-    if (!existsSync(outputFolder)) {
-      mkdirSync(outputFolder);
-    }
-    const outputFilePath = join(outputFolder, `${basename(filePath, extname(filePath))}.md`);
-    
-    await writeFile(outputFilePath, enhancedContent);
-    
-    console.log(`File processed successfully: ${outputFilePath}`);
+
+    const enhancedContent = await enhanceNote(content, fileName);
+    await saveOutput(enhancedContent, fileName);
+    console.log(`Processed and saved: ${fileName}`);
   } catch (error) {
     console.error(`Error processing file ${filePath}:`, error);
   }
 }
 
-async function processAllFiles() {
-  try {
-    const inputFolder = resolve(__dirname, 'input');
-    const files = await readdir(inputFolder);
-    
-    const processingPromises = files.map(async (file) => {
-      const filePath = join(inputFolder, file);
-      await processFile(filePath);
-    });
-
-    await Promise.all(processingPromises);
-    console.log('All files processed successfully.');
-  } catch (error) {
-    console.error('Error processing files:', error);
+async function processInput(input) {
+  if (isURL(input)) {
+    if (isYouTubeURL(input)) {
+      console.log('Processing YouTube URL');
+      return await scrapeYouTubeTranscript(input);
+    } else {
+      console.log('Processing general website URL');
+      return await scrapeWebsiteText(input);
+    }
+  } else {
+    throw new Error('Invalid input in CSV: not a URL');
   }
 }
 
-// Main execution
-const inputFolder = resolve(__dirname, 'input');
-if (!existsSync(inputFolder)) {
-  mkdirSync(inputFolder);
-  console.log('Input folder created. Please add files to process.');
-  process.exit(0);
+function isURL(input) {
+  return input.startsWith('http://') || input.startsWith('https://') || input.startsWith('www.');
 }
 
-// Process all files in the input folder
-processAllFiles();
+function isYouTubeURL(url) {
+  return url.includes('youtube.com') || url.includes('youtu.be');
+}
+
+function getFileName(input) {
+  return path.basename(input, path.extname(input));
+}
+
+async function saveOutput(content, outputName) {
+  const outputPath = path.join(OUTPUT_DIR, `${outputName}.md`);
+  await writeFile(outputPath, content);
+}
+
+// Main execution
+(async () => {
+  try {
+    console.log('Starting input processing');
+    await processInputs();
+    console.log('Input processing completed');
+  } catch (error) {
+    console.error('Error in main execution:', error);
+  }
+})();

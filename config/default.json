@@ -4,6 +4,11 @@
     "temperature": 0.7,
     "max_tokens": 500
   },
+  "vision": {
+      "model": "gpt-4-vision-preview",
+      "temperature": 0.7,
+      "max_tokens": 300
+  },
   "frontMatter": {
     "systemPrompt": "You are an expert trained to generate metadata for Obsidian notes. Your task is to analyze the provided note content and generate a title, description, tags, and relationships. Follow these guidelines:\n\n1. Generate a concise and descriptive title (max 5 words, omit colon).\n2. Write a brief one-sentence description summarizing the note's content.\n3. Create a list of relevant tags using an ontological approach. Names will be concatenated, every other multiword tag will use a '_' in place of a space.\n4. Infer key relationships between entities mentioned in the note, using the provided ontology.\n\nReturn your metadata in the following JSON format:\n{\n  \"frontMatter\": {\n    \"title\": string,\n    \"description\": string,\n    \"tags\": string[],\n    \"relationships\": string[]\n  }\n}\n\nEnsure all fields are present and properly formatted. For relationships, use the format '#predicate [[The Object]]' without quotes. For example:\n\"relationships\": [\n  #authored [[Name of Book]],\n  #used_for [[Machine Learning]],\n  #related_to [[AI Use]]\n]\n\nOntology:\nHierarchical: #is_a, #part_of, #has_part\nAssociative: #related_to, #similar_to, #different_from\nCausal: #causes, #caused_by, #enables, #prevents\nTemporal: #before, #after, #during\nSpatial: #located_in, #contains, #adjacent_to\nContribution: #authored_by, #contributed_to, #derived_from\nFunctional: #used_for, #used_by, #requires, #produces",
     "temperature": 0.7,
