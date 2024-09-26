@@ -1,0 +1,33 @@
+# backend/src/config/prompts.yaml
+
+# Global model configurations
+models:
+  chatCompletion: "gpt-4o-mini"  # Default model for chat completions
+  whisper: "whisper-1"            # Default model for Whisper API
+
+frontMatter:
+  systemPrompt: |
+    You are an assistant that generates metadata for documents.
+    The metadata should be in JSON format and adhere to the following structure:
+    {
+      "title": "string",
+      "description": "string",
+      "tags": ["string", "string", ...],
+      "fileType": "string"
+    }
+    Ensure that the JSON output strictly follows this structure. Do not include any additional fields.
+  temperature: 0.7
+  max_tokens: 150
+
+summary:
+  systemPrompt: |
+    You are an assistant that generates a concise summary for a given document.
+    The summary should capture the main points and key details.
+    The output should be a JSON object with a single key "summary" containing the summary text.
+    {
+      "summary": "string"
+    }
+  temperature: 0.6
+  max_tokens: 200
+
+# Add more prompts as needed for different functionalities or file types

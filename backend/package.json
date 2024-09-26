@@ -1,0 +1,63 @@
+{
+  "name": "info-processor-backend",
+  "version": "1.0.0",
+  "description": "Backend for information processing and formatting application",
+  "main": "index.js",
+  "type": "module",
+  "scripts": {
+    "start": "node index.js",
+    "dev": "nodemon index.js",
+    "test": "jest",
+    "postinstall": "mkdir -p logs"
+  },
+  "keywords": [
+    "information processing",
+    "file conversion",
+    "api"
+  ],
+  "author": "Your Name",
+  "license": "MIT",
+  "dependencies": {
+    "express": "^4.17.1",
+    "multer": "^1.4.5-lts.1",
+    "dotenv": "^16.0.3",
+    "cors": "^2.8.5",
+    "helmet": "^6.0.1",
+    "morgan": "^1.10.0",
+    "winston": "^3.8.2",
+    "mammoth": "^1.5.1",
+    "pdf-parse": "^1.1.1",
+    "docx": "^7.8.2",
+    "pdfkit": "^0.13.0",
+    "csv-stringify": "^6.3.0",
+    "yaml": "^2.2.1",
+    "xml2js": "^0.4.23",
+    "@iarna/toml": "^2.2.5",
+    "ini": "^3.0.1",
+    "sharp": "^0.31.3",
+    "fluent-ffmpeg": "^2.1.2",
+    "openai": "^3.2.1",
+    "node-fetch": "^3.3.1",
+    "cheerio": "^1.0.0-rc.12",
+    "file-type": "^16.5.3",
+    "js-yaml": "^4.1.0",
+    "xmlbuilder2": "^3.0.2",
+    "youtube-transcript": "^2.1.1",
+    "puppeteer-extra": "^3.2.7",
+    "puppeteer-extra-plugin-stealth": "^4.11.0",
+    "jsonwebtoken": "^9.0.0",
+    "express-rate-limit": "^6.7.0",
+    "bcryptjs": "^2.4.3",
+    "tmp": "^0.2.1"
+  },
+  "devDependencies": {
+    "nodemon": "^2.0.22",
+    "jest": "^29.5.0",
+    "supertest": "^6.3.3",
+    "eslint": "^8.38.0",
+    "prettier": "^2.8.7"
+  },
+  "engines": {
+    "node": ">=14.0.0"
+  }
+}
