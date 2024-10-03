@@ -189,6 +189,9 @@ export async function callLLMWithRetry(messages, jsonMode = false, options = {},
 
   return retry(async () => {
     try {
+      console.log('Sending request to OpenAI API with options:', JSON.stringify(options));
+      console.log('Messages:', JSON.stringify(messages));
+
       const response = await openai.chat.completions.create({
         model: options.model || config.llm.model,
         messages: messages,
@@ -197,9 +200,14 @@ export async function callLLMWithRetry(messages, jsonMode = false, options = {},
         response_format: jsonMode ? { type: "json_object" } : undefined,
       });
 
+      console.log('Received response from OpenAI API:', JSON.stringify(response));
+
       if (jsonMode) {
-        return JSON.parse(response.choices[0].message.content);
+        const parsedContent = JSON.parse(response.choices[0].message.content);
+        console.log('Parsed JSON content:', JSON.stringify(parsedContent));
+        return parsedContent;
       } else {
+        console.log('Returned content:', response.choices[0].message.content);
         return response.choices[0].message.content;
       }
     } catch (error) {
