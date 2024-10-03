@@ -36,10 +36,7 @@ ensureDir('uploads');
 app.post('/convert', upload.single('file'), async (req, res) => {
   const { file } = req;
   const apiKey = req.body.apiKey;
-
-  if (!file) {
-    return res.status(400).json({ error: 'No file uploaded' });
-  }
+  const url = req.body.url;
 
   if (!apiKey) {
     return res.status(400).json({ error: 'API key is required' });
@@ -49,11 +46,22 @@ app.post('/convert', upload.single('file'), async (req, res) => {
     // Set the OpenAI API key from the request
     process.env.OPENAI_API_KEY = apiKey;
 
-    // Convert the uploaded file to markdown
-    const content = await convertToMarkdown(file.path, extname(file.originalname).slice(1));
+    let content;
+    let fileName;
+
+    if (file) {
+      // Convert the uploaded file to markdown
+      content = await convertToMarkdown(file.path, extname(file.originalname).slice(1));
+      fileName = basename(file.originalname, extname(file.originalname));
+    } else if (url) {
+      // Convert the URL to markdown
+      content = await convertUrlToMarkdown(url);
+      fileName = new URL(url).hostname;
+    } else {
+      return res.status(400).json({ error: 'No file uploaded or URL provided' });
+    }
 
     // Enhance the converted content
-    const fileName = basename(file.originalname, extname(file.originalname));
     const enhancedContent = await enhanceNote(content, fileName);
 
     res.json({ convertedContent: enhancedContent });
