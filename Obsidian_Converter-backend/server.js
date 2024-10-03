@@ -36,6 +36,11 @@ ensureDir('uploads');
 app.post('/convert', upload.single('file'), async (req, res) => {
   const { file } = req;
   const url = req.body.url;
+  const apiKey = req.headers['x-api-key'];
+
+  if (!apiKey) {
+    return res.status(400).json({ error: 'API key is required' });
+  }
 
   try {
     let content;
@@ -43,18 +48,18 @@ app.post('/convert', upload.single('file'), async (req, res) => {
 
     if (file) {
       // Convert the uploaded file to markdown
-      content = await convertToMarkdown(file.path, extname(file.originalname).slice(1));
+      content = await convertToMarkdown(file.path, extname(file.originalname).slice(1), apiKey);
       fileName = basename(file.originalname, extname(file.originalname));
     } else if (url) {
       // Convert the URL to markdown
-      content = await convertUrlToMarkdown(url);
+      content = await convertUrlToMarkdown(url, apiKey);
       fileName = new URL(url).hostname;
     } else {
       return res.status(400).json({ error: 'No file uploaded or URL provided' });
     }
 
     // Enhance the converted content
-    const enhancedContent = await enhanceNote(content, fileName);
+    const enhancedContent = await enhanceNote(content, fileName, apiKey);
 
     res.json({ convertedContent: enhancedContent });
   } catch (error) {

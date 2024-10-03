@@ -49,7 +49,7 @@ await loadConfig();
  * @param {string} fileName - The name of the file (without extension)
  * @returns {Promise<string>} The enhanced markdown content
  */
-export async function enhanceNote(content, fileName) {
+export async function enhanceNote(content, fileName, apiKey) {
   if (!config) await loadConfig();
 
   try {
@@ -89,7 +89,7 @@ export async function enhanceNote(content, fileName) {
  * @param {string} fileName - The name of the file (without extension)
  * @returns {Promise<string>} The generated front matter
  */
-async function generateFrontMatter(content, fileName) {
+async function generateFrontMatter(content, fileName, apiKey) {
   const frontMatterPrompt = [
     { role: "system", content: config.frontMatter.systemPrompt },
     { role: "user", content: `File name: ${fileName}\n\nContent: ${content.substring(0, 1000)}` }
@@ -124,7 +124,7 @@ async function generateFrontMatter(content, fileName) {
  * @param {string} content - The markdown content
  * @returns {Promise<string[]>} An array of suggested wikilinks
  */
-async function suggestWikilinks(content) {
+async function suggestWikilinks(content, apiKey) {
   const wikilinksPrompt = [
     { role: "system", content: config.wikilinks.systemPrompt },
     { role: "user", content: `Please suggest relevant wikilinks for the following content:\n\n${content.substring(0, 2000)}` }

@@ -39,7 +39,7 @@ try {
  * @param {string} fileType - The file extension or type
  * @returns {Promise<string>} The file content converted to markdown
  */
-export async function convertToMarkdown(filePath, fileType) {
+export async function convertToMarkdown(filePath, fileType, apiKey) {
   const fileBuffer = await readFile(filePath);
   const detectedType = await fileTypeFromBuffer(fileBuffer);
   const actualFileType = detectedType ? detectedType.ext : fileType.toLowerCase();
@@ -174,7 +174,7 @@ import TurndownService from 'turndown';
 
 // ... (existing code)
 
-export async function convertUrlToMarkdown(url) {
+export async function convertUrlToMarkdown(url, apiKey) {
   try {
     const response = await fetch(url);
     const html = await response.text();
