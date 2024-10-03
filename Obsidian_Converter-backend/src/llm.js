@@ -169,10 +169,33 @@ async function retry(fn, maxRetries = 3, delay = 1000) {
  * @param {Array} messages - The messages to send to the LLM
  * @param {boolean} jsonMode - Whether to request JSON output
  * @param {Object} options - Additional options (temperature, max_tokens)
+ * @param {string} apiKey - The OpenAI API key
  * @returns {Promise} The LLM response
  */
-export async function callLLMWithRetry(messages, jsonMode = false, options = {}) {
-  return retry(() => callLLM(messages, jsonMode, options));
-}import { Configuration, OpenAIApi } from 'openai';
+export async function callLLMWithRetry(messages, jsonMode = false, options = {}, apiKey) {
+  const configuration = new Configuration({
+    apiKey: apiKey,
+  });
+  const openai = new OpenAIApi(configuration);
 
-// This function is already defined earlier in the file, so we'll remove this duplicate declaration
+  return retry(async () => {
+    try {
+      const response = await openai.createChatCompletion({
+        model: options.model || config.llm.model,
+        messages: messages,
+        temperature: options.temperature || config.llm.temperature,
+        max_tokens: options.max_tokens || config.llm.max_tokens,
+        response_format: jsonMode ? { type: "json_object" } : undefined,
+      });
+
+      if (jsonMode) {
+        return JSON.parse(response.data.choices[0].message.content);
+      } else {
+        return response.data.choices[0].message.content;
+      }
+    } catch (error) {
+      console.error('Error calling OpenAI API:', error);
+      throw error;
+    }
+  });
+}
