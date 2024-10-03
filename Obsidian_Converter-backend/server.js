@@ -21,7 +21,7 @@ const upload = multer({ dest: 'uploads/' });
 
 // CORS configuration
 const corsOptions = {
-  origin: 'http://localhost:5173', // Allow requests from Svelte frontend
+  origin: process.env.FRONTEND_URL || 'http://localhost:5173', // Allow requests from frontend
   optionsSuccessStatus: 200
 };
 
@@ -35,17 +35,9 @@ ensureDir('uploads');
 // Routes
 app.post('/convert', upload.single('file'), async (req, res) => {
   const { file } = req;
-  const apiKey = req.body.apiKey;
   const url = req.body.url;
 
-  if (!apiKey) {
-    return res.status(400).json({ error: 'API key is required' });
-  }
-
   try {
-    // Set the OpenAI API key from the request
-    process.env.OPENAI_API_KEY = apiKey;
-
     let content;
     let fileName;
 
@@ -81,7 +73,7 @@ app.use((err, req, res, next) => {
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
-  console.log(`Accepting requests from http://localhost:5173`);
+  console.log(`Accepting requests from ${process.env.FRONTEND_URL || 'http://localhost:5173'}`);
 });
 
 // Graceful shutdown
