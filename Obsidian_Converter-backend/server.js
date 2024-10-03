@@ -73,7 +73,7 @@ app.use((err, req, res, next) => {
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
-  console.log(`Accepting requests from ${process.env.FRONTEND_URL || 'http://localhost:5173'}`);
+  console.log(`Accepting requests from ${process.env.FRONTEND_URL}`);
 });
 
 // Graceful shutdown
