@@ -181,6 +181,10 @@ async function retry(fn, maxRetries = 3, delay = 1000) {
  * @returns {Promise} The LLM response
  */
 export async function callLLMWithRetry(messages, jsonMode = false, options = {}, apiKey) {
+  if (!apiKey) {
+    throw new Error('API key is required');
+  }
+
   const openai = new OpenAI({ apiKey: apiKey });
 
   return retry(async () => {
