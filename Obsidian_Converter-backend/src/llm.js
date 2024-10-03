@@ -38,8 +38,12 @@ await loadConfig();
  * @param {Object} options - Additional options (temperature, max_tokens)
  * @returns {Promise} The LLM response
  */
-export async function callLLM(messages, jsonMode = false, options = {}) {
+export async function callLLM(messages, jsonMode = false, options = {}, apiKey) {
   if (!config) await loadConfig();
+
+  if (!apiKey) {
+    throw new Error('API key is required');
+  }
 
   const requestBody = {
     model: options.model || config.llm.model,
@@ -56,7 +60,7 @@ export async function callLLM(messages, jsonMode = false, options = {}) {
     const response = await fetch('https://api.openai.com/v1/chat/completions', {
       method: 'POST',
       headers: {
-        'Authorization': `Bearer ${process.env.OPENAI_API_KEY}`,
+        'Authorization': `Bearer ${apiKey}`,
         'Content-Type': 'application/json'
       },
       body: JSON.stringify(requestBody)
@@ -89,8 +93,12 @@ export async function callLLM(messages, jsonMode = false, options = {}) {
  * @param {string} base64Image - The base64-encoded image data
  * @returns {Promise<string>} The generated alt text
  */
-export async function callVisionModel(base64Image) {
+export async function callVisionModel(base64Image, apiKey) {
   if (!config) await loadConfig();
+
+  if (!apiKey) {
+    throw new Error('API key is required');
+  }
 
   const requestBody = {
     model: config.vision.model,
@@ -111,7 +119,7 @@ export async function callVisionModel(base64Image) {
     const response = await fetch('https://api.openai.com/v1/chat/completions', {
       method: 'POST',
       headers: {
-        'Authorization': `Bearer ${process.env.OPENAI_API_KEY}`,
+        'Authorization': `Bearer ${apiKey}`,
         'Content-Type': 'application/json'
       },
       body: JSON.stringify(requestBody)
