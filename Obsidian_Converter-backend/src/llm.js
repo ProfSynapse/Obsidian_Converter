@@ -4,7 +4,7 @@ import fetch from 'node-fetch';
 import { readFile } from 'fs/promises';
 import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';
-import { Configuration, OpenAIApi } from 'openai';
+import OpenAI from 'openai';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -173,14 +173,11 @@ async function retry(fn, maxRetries = 3, delay = 1000) {
  * @returns {Promise} The LLM response
  */
 export async function callLLMWithRetry(messages, jsonMode = false, options = {}, apiKey) {
-  const configuration = new Configuration({
-    apiKey: apiKey,
-  });
-  const openai = new OpenAIApi(configuration);
+  const openai = new OpenAI({ apiKey: apiKey });
 
   return retry(async () => {
     try {
-      const response = await openai.createChatCompletion({
+      const response = await openai.chat.completions.create({
         model: options.model || config.llm.model,
         messages: messages,
         temperature: options.temperature || config.llm.temperature,
@@ -189,9 +186,9 @@ export async function callLLMWithRetry(messages, jsonMode = false, options = {},
       });
 
       if (jsonMode) {
-        return JSON.parse(response.data.choices[0].message.content);
+        return JSON.parse(response.choices[0].message.content);
       } else {
-        return response.data.choices[0].message.content;
+        return response.choices[0].message.content;
       }
     } catch (error) {
       console.error('Error calling OpenAI API:', error);
