@@ -5,7 +5,7 @@ import multer from 'multer';
 import cors from 'cors';
 import { fileURLToPath } from 'url';
 import { dirname, extname, basename } from 'path';
-import { convertToMarkdown } from './src/converter.js';
+import { convertToMarkdown, convertUrlToMarkdown } from './src/converter.js';
 import { enhanceNote } from './src/enhancer.js';
 import { ensureDir } from './src/utils.js';
 import dotenv from 'dotenv';
@@ -21,7 +21,7 @@ const upload = multer({ dest: 'uploads/' });
 
 // CORS configuration
 const corsOptions = {
-  origin: 'http://localhost:3002', // Allow requests from frontend
+  origin: 'http://localhost:5173', // Allow requests from Svelte frontend
   optionsSuccessStatus: 200
 };
 

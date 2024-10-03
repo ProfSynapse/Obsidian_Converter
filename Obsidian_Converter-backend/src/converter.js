@@ -168,4 +168,22 @@ async function convertVideoToMarkdown(buffer, fileType) {
     console.error('Error details:', JSON.stringify(error, null, 2));
     return `# Video Transcription\n\nError: Unable to transcribe ${fileType} file. ${error.message}`;
   }
+}import fetch from 'node-fetch';
+import { JSDOM } from 'jsdom';
+import TurndownService from 'turndown';
+
+// ... (existing code)
+
+export async function convertUrlToMarkdown(url) {
+  try {
+    const response = await fetch(url);
+    const html = await response.text();
+    const dom = new JSDOM(html);
+    const turndownService = new TurndownService();
+    const markdown = turndownService.turndown(dom.window.document.body.innerHTML);
+    return markdown;
+  } catch (error) {
+    console.error('Error converting URL to markdown:', error);
+    throw error;
+  }
 }
