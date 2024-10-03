@@ -4,6 +4,7 @@ import fetch from 'node-fetch';
 import { readFile } from 'fs/promises';
 import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';
+import { Configuration, OpenAIApi } from 'openai';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -174,29 +175,4 @@ export async function callLLMWithRetry(messages, jsonMode = false, options = {})
   return retry(() => callLLM(messages, jsonMode, options));
 }import { Configuration, OpenAIApi } from 'openai';
 
-export async function callLLMWithRetry(messages, jsonResponse = false, options = {}, apiKey) {
-  const configuration = new Configuration({
-    apiKey: apiKey,
-  });
-  const openai = new OpenAIApi(configuration);
-
-  // Implement retry logic here
-  try {
-    const response = await openai.createChatCompletion({
-      model: 'gpt-3.5-turbo',
-      messages: messages,
-      temperature: options.temperature || 0.7,
-      max_tokens: options.max_tokens || 150,
-      response_format: jsonResponse ? { type: "json_object" } : undefined,
-    });
-
-    if (jsonResponse) {
-      return JSON.parse(response.data.choices[0].message.content);
-    } else {
-      return response.data.choices[0].message.content;
-    }
-  } catch (error) {
-    console.error('Error calling OpenAI API:', error);
-    throw error;
-  }
-}
+// This function is already defined earlier in the file, so we'll remove this duplicate declaration
