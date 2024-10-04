@@ -15,14 +15,15 @@ const __dirname = dirname(__filename);
 
 ffmpeg.setFfmpegPath(ffmpegInstaller.path);
 
-const openai = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY,
-});
+async function createOpenAIClient(apiKey) {
+  return new OpenAI({ apiKey });
+}
 
-export async function transcribeAudio(filePath) {
+export async function transcribeAudio(filePath, apiKey) {
   try {
     console.log('Transcribing audio file:', filePath);
     
+    const openai = await createOpenAIClient(apiKey);
     const response = await openai.audio.transcriptions.create({
       file: fs.createReadStream(filePath),
       model: 'whisper-1',
@@ -58,7 +59,7 @@ async function convertVideoToAudio(videoPath, audioPath) {
   });
 }
 
-export async function transcribeVideo(buffer, fileType) {
+export async function transcribeVideo(buffer, fileType, apiKey) {
   let tempVideoPath, tempAudioPath, videoTmp, audioTmp;
   try {
     // Create temporary video file
@@ -78,7 +79,7 @@ export async function transcribeVideo(buffer, fileType) {
 
     // Transcribe the audio
     console.log('Starting audio transcription');
-    const transcription = await transcribeAudio(tempAudioPath);
+    const transcription = await transcribeAudio(tempAudioPath, apiKey);
 
     console.log('Video transcription completed successfully');
     return transcription;

@@ -1,132 +1,97 @@
 // converter.js
 import { transcribeAudio, transcribeVideo } from './transcriber.js';
-import { readFile, writeFile } from 'fs/promises';
-import { join, dirname, extname, basename } from 'path';
-import { fileURLToPath } from 'url';
-import { fileTypeFromBuffer } from 'file-type';
-import tmp from 'tmp';
 import pdfParse from 'pdf-parse';
-import { INPUT_DIR } from '../index.js';
-
-tmp.setGracefulCleanup();
-
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = dirname(__filename);
-
-let htmlToMarkdown, mammoth, rtfToHTML;
-
-try {
-  htmlToMarkdown = await import('html-to-markdown');
-} catch (error) {
-  console.warn('html-to-markdown package not found. HTML conversion will be limited.');
-}
-
-try {
-  mammoth = await import('mammoth');
-} catch (error) {
-  console.warn('mammoth package not found. DOCX conversion will not be available.');
-}
-
-try {
-  rtfToHTML = await import('@iarna/rtf-to-html');
-} catch (error) {
-  console.warn('@iarna/rtf-to-html package not found. RTF conversion will not be available.');
-}
+import mammoth from 'mammoth';
+import rtfToHTML from '@iarna/rtf-to-html';
+import htmlToMarkdown from 'html-to-markdown';
 
 /**
- * Convert a file to markdown based on its file type
- * @param {string} filePath - The path to the file
- * @param {string} fileType - The file extension or type
- * @returns {Promise<string>} The file content converted to markdown
+ * Convert content to markdown based on its type
+ * @param {string} content - The content to convert
+ * @param {string} contentType - The type of content (e.g., 'txt', 'html', 'docx')
+ * @param {string} apiKey - The OpenAI API key
+ * @returns {Promise<string>} The content converted to markdown
  */
-export async function convertToMarkdown(filePath, fileType, apiKey) {
-  const fileBuffer = await readFile(filePath);
-  const detectedType = await fileTypeFromBuffer(fileBuffer);
-  const actualFileType = detectedType ? detectedType.ext : fileType.toLowerCase();
-  console.log(`Converting file of type: ${actualFileType}`);
+export async function convertToMarkdown(content, contentType, apiKey) {
+  console.log(`Converting content of type: ${contentType}`);
 
-  switch (actualFileType) {
+  switch (contentType.toLowerCase()) {
     case 'txt':
-      return convertTextToMarkdown(fileBuffer);
+      return content;
     case 'html':
     case 'htm':
-      return convertHtmlToMarkdown(fileBuffer);
+      return convertHtmlToMarkdown(content);
     case 'docx':
-      return convertDocxToMarkdown(fileBuffer);
+      return convertDocxToMarkdown(content);
     case 'rtf':
-      return convertRtfToMarkdown(fileBuffer);
+      return convertRtfToMarkdown(content);
     case 'pdf':
-      return convertPdfToMarkdown(filePath);
+      return convertPdfToMarkdown(content);
     case 'mp3':
     case 'wav':
     case 'm4a':
     case 'ogg':
-      return await convertAudioToMarkdown(fileBuffer, actualFileType);
+      return await convertAudioToMarkdown(content, contentType, apiKey);
     case 'mp4':
     case 'mov':
     case 'avi':
     case 'webm':
-      return await convertVideoToMarkdown(fileBuffer, actualFileType);
+      return await convertVideoToMarkdown(content, contentType, apiKey);
     default:
-      console.warn(`Unsupported file type: ${actualFileType}. Treating as plain text.`);
-      return convertTextToMarkdown(fileBuffer);
+      console.warn(`Unsupported content type: ${contentType}. Treating as plain text.`);
+      return content;
   }
 }
 
-function convertTextToMarkdown(buffer) {
-  return buffer.toString('utf-8');
+/**
+ * Convert HTML content to Markdown
+ * @param {string} htmlContent - The HTML content to convert
+ * @returns {string} The converted Markdown content
+ */
+function convertHtmlToMarkdown(htmlContent) {
+  return htmlToMarkdown.convert(htmlContent);
 }
 
-async function convertHtmlToMarkdown(buffer) {
-  const htmlContent = buffer.toString('utf-8');
-  if (htmlToMarkdown) {
-    return htmlToMarkdown.convert(htmlContent);
-  } else {
-    console.warn('HTML to Markdown conversion not available. Returning raw HTML.');
-    return htmlContent;
-  }
-}
-
+/**
+ * Convert DOCX content to Markdown
+ * @param {Buffer} buffer - The DOCX content as a buffer
+ * @returns {Promise<string>} The converted Markdown content
+ */
 async function convertDocxToMarkdown(buffer) {
-  if (mammoth) {
-    try {
-      console.log('Starting DOCX conversion');
-      const result = await mammoth.convertToMarkdown({ buffer });
-      console.log('DOCX conversion successful');
-      return result.value;
-    } catch (error) {
-      console.error('Error in DOCX conversion:', error);
-      if (error.message.includes('Corrupted zip')) {
-        console.log('Attempting to read file as plain text...');
-        return buffer.toString('utf-8');
-      }
-      throw error;
-    }
-  } else {
-    throw new Error('DOCX conversion is not available. Please install the mammoth package.');
+  try {
+    console.log('Starting DOCX conversion');
+    const result = await mammoth.convertToMarkdown({ buffer });
+    console.log('DOCX conversion successful');
+    return result.value;
+  } catch (error) {
+    console.error('Error in DOCX conversion:', error);
+    throw error;
   }
 }
 
-async function convertRtfToMarkdown(buffer) {
-  if (rtfToHTML && htmlToMarkdown) {
-    const rtfContent = buffer.toString('utf-8');
-    const htmlContent = await new Promise((resolve, reject) => {
-      rtfToHTML.fromString(rtfContent, (err, html) => {
-        if (err) reject(err);
-        else resolve(html);
-      });
+/**
+ * Convert RTF content to Markdown
+ * @param {string} rtfContent - The RTF content to convert
+ * @returns {Promise<string>} The converted Markdown content
+ */
+async function convertRtfToMarkdown(rtfContent) {
+  return new Promise((resolve, reject) => {
+    rtfToHTML.fromString(rtfContent, (err, html) => {
+      if (err) reject(err);
+      else resolve(convertHtmlToMarkdown(html));
     });
-    return htmlToMarkdown.convert(htmlContent);
-  } else {
-    throw new Error('RTF conversion is not available. Please install the @iarna/rtf-to-html and html-to-markdown packages.');
-  }
+  });
 }
 
-async function convertPdfToMarkdown(filePath) {
+/**
+ * Convert PDF content to Markdown
+ * @param {Buffer} pdfBuffer - The PDF content as a buffer
+ * @returns {Promise<string>} The extracted text from the PDF
+ */
+async function convertPdfToMarkdown(pdfBuffer) {
   try {
     console.log('Starting PDF conversion');
-    const dataBuffer = await readFile(filePath);
-    const data = await pdfParse(dataBuffer);
+    const data = await pdfParse(pdfBuffer);
     console.log('PDF conversion successful');
     return data.text;
   } catch (error) {
@@ -135,53 +100,55 @@ async function convertPdfToMarkdown(filePath) {
   }
 }
 
-async function convertAudioToMarkdown(buffer, fileType) {
-  let tempFilePath;
+/**
+ * Convert audio content to Markdown
+ * @param {Buffer} audioBuffer - The audio content as a buffer
+ * @param {string} fileType - The type of audio file
+ * @param {string} apiKey - The OpenAI API key
+ * @returns {Promise<string>} The transcribed audio as Markdown
+ */
+async function convertAudioToMarkdown(audioBuffer, fileType, apiKey) {
   try {
-    const tmpobj = tmp.fileSync({ postfix: `.${fileType}`, keep: true });
-    tempFilePath = tmpobj.name;
-    console.log(`Created temporary file: ${tempFilePath}`);
-    await writeFile(tempFilePath, buffer);
-    console.log('Temporary file written successfully');
-    console.log('Calling transcribeAudio function');
-    const transcription = await transcribeAudio(tempFilePath);
-    console.log('Transcription completed');
+    console.log(`Starting audio transcription for ${fileType} content`);
+    const transcription = await transcribeAudio(audioBuffer, fileType, apiKey);
+    console.log('Audio transcription completed');
     return `# Audio Transcription\n\n${transcription}`;
   } catch (error) {
-    console.error('Error in convertAudioToMarkdown:', error);
+    console.error(`Error transcribing ${fileType} content:`, error);
     throw error;
-  } finally {
-    if (tempFilePath) {
-      tmp.setGracefulCleanup();
-    }
   }
 }
 
-async function convertVideoToMarkdown(buffer, fileType) {
+/**
+ * Convert video content to Markdown
+ * @param {Buffer} videoBuffer - The video content as a buffer
+ * @param {string} fileType - The type of video file
+ * @param {string} apiKey - The OpenAI API key
+ * @returns {Promise<string>} The transcribed video as Markdown
+ */
+async function convertVideoToMarkdown(videoBuffer, fileType, apiKey) {
   try {
-    console.log(`Starting video transcription for ${fileType} file`);
-    const transcription = await transcribeVideo(buffer, fileType);
+    console.log(`Starting video transcription for ${fileType} content`);
+    const transcription = await transcribeVideo(videoBuffer, fileType, apiKey);
     console.log('Video transcription completed');
     return `# Video Transcription\n\n${transcription}`;
   } catch (error) {
-    console.error(`Error transcribing ${fileType} file:`, error);
-    console.error('Error details:', JSON.stringify(error, null, 2));
-    return `# Video Transcription\n\nError: Unable to transcribe ${fileType} file. ${error.message}`;
+    console.error(`Error transcribing ${fileType} content:`, error);
+    throw error;
   }
-}import fetch from 'node-fetch';
-import { JSDOM } from 'jsdom';
-import TurndownService from 'turndown';
+}
 
-// ... (existing code)
-
+/**
+ * Convert URL content to Markdown
+ * @param {string} url - The URL to convert
+ * @param {string} apiKey - The OpenAI API key
+ * @returns {Promise<string>} The converted content as Markdown
+ */
 export async function convertUrlToMarkdown(url, apiKey) {
   try {
     const response = await fetch(url);
     const html = await response.text();
-    const dom = new JSDOM(html);
-    const turndownService = new TurndownService();
-    const markdown = turndownService.turndown(dom.window.document.body.innerHTML);
-    return markdown;
+    return convertHtmlToMarkdown(html);
   } catch (error) {
     console.error('Error converting URL to markdown:', error);
     throw error;

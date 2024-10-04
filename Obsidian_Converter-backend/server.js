@@ -1,65 +1,76 @@
 // server.js
 
 import express from 'express';
-import multer from 'multer';
 import cors from 'cors';
 import { fileURLToPath } from 'url';
-import { dirname, extname, basename } from 'path';
+import { dirname } from 'path';
 import { convertToMarkdown, convertUrlToMarkdown } from './src/converter.js';
 import { enhanceNote } from './src/enhancer.js';
-import { ensureDir } from './src/utils.js';
 import dotenv from 'dotenv';
+import multer from 'multer';
+import fs from 'fs/promises';
 
-// Configure environment variables
 dotenv.config();
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
 const app = express();
-const upload = multer({ dest: 'uploads/' });
 
 // CORS configuration
 const corsOptions = {
-  origin: process.env.FRONTEND_URL || 'http://localhost:5173', // Allow requests from frontend
+  origin: process.env.FRONTEND_URL || 'http://localhost:5173',
   optionsSuccessStatus: 200
 };
 
 // Middleware
 app.use(cors(corsOptions));
-app.use(express.json());
 
-// Ensure the uploads directory exists
-ensureDir('uploads');
+// Set up multer for file uploads
+const storage = multer.memoryStorage(); // Store files in memory as Buffer
+const upload = multer({ storage: storage });
 
 // Routes
+
+/**
+ * POST /convert
+ * Handles both file uploads and URL conversions.
+ * If a file is uploaded, it processes the file.
+ * If a URL is provided, it processes the URL.
+ */
 app.post('/convert', upload.single('file'), async (req, res) => {
-  const { file } = req;
-  const url = req.body.url;
-  const apiKey = req.headers['x-api-key'];
+  const { apiKey, url } = req.body;
+  const file = req.file;
 
   if (!apiKey) {
     return res.status(400).json({ error: 'API key is required' });
   }
 
+  if (!file && !url) {
+    return res.status(400).json({ error: 'No file or URL provided' });
+  }
+
   try {
-    let content;
-    let fileName;
+    let convertedContent;
 
     if (file) {
-      // Convert the uploaded file to markdown
-      content = await convertToMarkdown(file.path, extname(file.originalname).slice(1), apiKey);
-      fileName = basename(file.originalname, extname(file.originalname));
+      // Determine the file type based on mimetype or originalname
+      const fileType = getFileTypeFromMimetype(file.mimetype) || getFileTypeFromFilename(file.originalname);
+      if (!fileType) {
+        return res.status(400).json({ error: 'Unsupported file type' });
+      }
+
+      console.log(`Converting file of type: ${fileType}`);
+
+      // Convert the file Buffer to Markdown
+      convertedContent = await convertToMarkdown(file.buffer, fileType, apiKey);
     } else if (url) {
-      // Convert the URL to markdown
-      content = await convertUrlToMarkdown(url, apiKey);
-      fileName = new URL(url).hostname;
-    } else {
-      return res.status(400).json({ error: 'No file uploaded or URL provided' });
+      // Convert the URL content to Markdown
+      convertedContent = await convertUrlToMarkdown(url, apiKey);
     }
 
     // Enhance the converted content
-    const enhancedContent = await enhanceNote(content, fileName, apiKey);
+    const enhancedContent = await enhanceNote(convertedContent, file ? file.originalname : 'URL_Conversion', apiKey);
 
     res.json({ convertedContent: enhancedContent });
   } catch (error) {
@@ -67,6 +78,43 @@ app.post('/convert', upload.single('file'), async (req, res) => {
     res.status(500).json({ error: 'Conversion failed', details: error.message });
   }
 });
+
+// Helper functions
+
+/**
+ * Determine file type from mimetype
+ * @param {string} mimetype - The MIME type of the file
+ * @returns {string|null} - The file extension or null if unsupported
+ */
+function getFileTypeFromMimetype(mimetype) {
+  const mimeMap = {
+    'text/plain': 'txt',
+    'text/html': 'html',
+    'application/vnd.openxmlformats-officedocument.wordprocessingml.document': 'docx',
+    'application/rtf': 'rtf',
+    'application/pdf': 'pdf',
+    'audio/mpeg': 'mp3',
+    'audio/wav': 'wav',
+    'audio/mp4': 'm4a',
+    'audio/ogg': 'ogg',
+    'video/mp4': 'mp4',
+    'video/quicktime': 'mov',
+    'video/x-msvideo': 'avi',
+    'video/webm': 'webm'
+  };
+  return mimeMap[mimetype] || null;
+}
+
+/**
+ * Determine file type from filename extension
+ * @param {string} filename - The original filename
+ * @returns {string|null} - The file extension or null if unsupported
+ */
+function getFileTypeFromFilename(filename) {
+  const ext = filename.split('.').pop().toLowerCase();
+  const supportedTypes = ['txt', 'html', 'htm', 'docx', 'rtf', 'pdf', 'mp3', 'wav', 'm4a', 'ogg', 'mp4', 'mov', 'avi', 'webm'];
+  return supportedTypes.includes(ext) ? ext : null;
+}
 
 // Error handling middleware
 app.use((err, req, res, next) => {
@@ -78,7 +126,7 @@ app.use((err, req, res, next) => {
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
-  console.log(`Accepting requests from ${process.env.FRONTEND_URL}`);
+  console.log(`Accepting requests from ${corsOptions.origin}`);
 });
 
 // Graceful shutdown
