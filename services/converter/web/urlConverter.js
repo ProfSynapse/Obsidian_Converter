@@ -6,44 +6,126 @@ import * as cheerio from 'cheerio';
 import path from 'path';
 
 /**
- * Converts a general URL to Markdown format, extracting content and images.
- * @param {string} input - The URL to convert.
- * @param {string} originalName - Original identifier, typically the URL.
- * @param {string} [apiKey] - API key if needed.
- * @returns {Promise<{ content: string, images: Array }>} - Converted content and images.
+ * Cleans up HTML content before conversion
+ * @param {CheerioStatic} $ - Cheerio instance
  */
-export async function convertUrlToMarkdown(input, originalName, apiKey) {
+function cleanupContent($) {
+  // Remove unwanted elements
+  $('script').remove();
+  $('style').remove();
+  $('link').remove();
+  $('meta').remove();
+  $('noscript').remove();
+  $('iframe').remove();
+  $('.hidden').remove();
+  $('[style*="display: none"]').remove();
+  $('[style*="display:none"]').remove();
+  $('[hidden]').remove();
+
+  // Remove all CSS classes and IDs
+  $('*').removeAttr('class').removeAttr('id');
+
+  // Remove empty elements
+  $('p:empty').remove();
+  $('div:empty').remove();
+
+  // Remove tracking and advertisement elements
+  $('[data-ad]').remove();
+  $('[id*="google"]').remove();
+  $('[class*="advert"]').remove();
+  $('[class*="tracking"]').remove();
+  $('[aria-hidden="true"]').remove();
+}
+
+/**
+ * Extracts main content from HTML
+ * @param {CheerioStatic} $ - Cheerio instance
+ * @returns {string} - Clean HTML content
+ */
+function extractMainContent($) {
+  // Try to find main content container
+  const possibleContentSelectors = [
+    'main',
+    'article',
+    '[role="main"]',
+    '.main-content',
+    '.content',
+    '#content',
+    '.post-content',
+    '.article-content'
+  ];
+
+  let mainContent = null;
+
+  // Try each selector until we find content
+  for (const selector of possibleContentSelectors) {
+    const element = $(selector);
+    if (element.length && element.text().trim().length > 100) {
+      mainContent = element;
+      break;
+    }
+  }
+
+  // If no main content found, use body
+  if (!mainContent) {
+    mainContent = $('body');
+  }
+
+  return mainContent;
+}
+
+/**
+ * Converts a URL to Markdown format
+ * @param {string} url - The URL to convert
+ * @param {string} originalName - Original identifier
+ * @returns {Promise<{ content: string, images: Array }>}
+ */
+export async function convertUrlToMarkdown(url, originalName) {
   let browser;
   try {
-    if (typeof input !== 'string' || !input.startsWith('http')) {
-      throw new Error('Invalid URL provided.');
-    }
+    console.log(`Starting conversion for URL: ${url}`);
 
-    browser = await puppeteer.launch({ headless: true });
+    browser = await puppeteer.launch({ 
+      headless: true,
+      args: ['--no-sandbox', '--disable-setuid-sandbox']
+    });
+    console.log('Puppeteer launched successfully');
+
     const page = await browser.newPage();
+    await page.goto(url, { 
+      waitUntil: 'networkidle2',
+      timeout: 30000
+    });
+    console.log(`Navigated to URL: ${url}`);
 
-    // Navigate to the URL
-    await page.goto(input, { waitUntil: 'networkidle2' });
-
-    // Extract page content
     const content = await page.content();
+    console.log('Page content retrieved');
 
-    // Load content into Cheerio for parsing
     const $ = cheerio.load(content);
+    cleanupContent($);
+    console.log('Content cleaned up');
 
-    // Extract images
+    const mainContent = extractMainContent($);
+    if (!mainContent || mainContent.text().trim().length === 0) {
+      throw new Error('Main content extraction failed or resulted in empty content');
+    }
+    console.log('Main content extracted successfully');
+
+    // Process images
     const images = [];
-    $('img').each((index, img) => {
+    mainContent.find('img').each((index, img) => {
       const src = $(img).attr('src');
       const alt = $(img).attr('alt') || `Image ${index + 1}`;
+      
       if (src) {
-        // Handle base64 images or external URLs
         if (src.startsWith('data:')) {
+          // Handle Base64 images
           const matches = src.match(/^data:(image\/[a-zA-Z]+);base64,(.+)$/);
           if (matches) {
             const imageType = matches[1].split('/')[1];
             const imageData = matches[2];
             const imageName = `image-${index + 1}.${imageType}`;
+            
             images.push({
               name: imageName,
               data: imageData,
@@ -51,62 +133,64 @@ export async function convertUrlToMarkdown(input, originalName, apiKey) {
               path: `attachments/${path.basename(originalName, path.extname(originalName))}/${imageName}`
             });
 
-            // Replace src with new path
+            // Update image source in content
             $(img).attr('src', `attachments/${path.basename(originalName, path.extname(originalName))}/${imageName}`);
           }
         } else {
-          // For external URLs, you might want to download and include them
-          // This implementation assumes images are to be handled externally
-          images.push({
-            name: path.basename(src),
-            data: '', // Placeholder if you plan to download images
-            type: '', // Placeholder for image type
-            path: src // External path
-          });
+          // Handle external images
+          console.warn(`External image found but not handled: ${src}`);
+          // Optionally, implement downloading external images here
         }
       }
     });
+    console.log(`Processed ${images.length} images`);
 
-    // Get modified HTML with updated image paths
-    const modifiedHtml = $.html();
-
-    // Initialize TurndownService
+    // Configure Turndown
     const turndownService = new TurndownService({
       headingStyle: 'atx',
       codeBlockStyle: 'fenced',
       emDelimiter: '_',
-      strongDelimiter: '**'
+      strongDelimiter: '**',
+      bulletListMarker: '-'
     });
 
-    // Add custom rules if needed
+    // Add custom rules
     turndownService.addRule('strikethrough', {
       filter: ['del', 's', 'strike'],
-      replacement: function(content) {
-        return '~~' + content + '~~';
-      }
+      replacement: content => `~~${content}~~`
     });
 
-    // Convert HTML to Markdown
-    let markdownContent = turndownService.turndown(modifiedHtml);
-
-    // Extract title
-    const pageTitle = $('title').text() || path.basename(input);
+    // Convert to Markdown
+    let markdown = turndownService.turndown(mainContent.html());
+    console.log('Content converted to Markdown');
 
     // Add metadata
-    const metadataMarkdown = `# ${pageTitle}\n\n` +
-                             `**Source:** [${input}](${input})\n\n`;
+    const metadataMarkdown = [
+      `# ${$('title').text() || new URL(url).hostname}`,
+      '',
+      $('meta[name="description"]').attr('content') ? `> ${$('meta[name="description"]').attr('content')}` : '',
+      '',
+      `**Source:** [${url}](${url})`,
+      '',
+      '---',
+      ''
+    ].filter(Boolean).join('\n');
 
-    // Combine metadata and content
-    const fullMarkdown = metadataMarkdown + markdownContent;
+    markdown = metadataMarkdown + markdown;
+    console.log('Metadata added to Markdown content');
 
     return {
-      content: fullMarkdown,
+      content: markdown,
       images: images
     };
+
   } catch (error) {
     console.error('Error converting URL to Markdown:', error);
     throw error;
   } finally {
-    if (browser) await browser.close();
+    if (browser) {
+      await browser.close();
+      console.log('Puppeteer browser closed');
+    }
   }
 }
