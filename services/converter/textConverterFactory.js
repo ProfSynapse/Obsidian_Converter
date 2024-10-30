@@ -16,6 +16,7 @@ import { convertXlsxToMarkdown } from './data/xlsxConverter.js';
 import { convertHtmlToMarkdown } from './web/htmlConverter.js';
 import { convertXmlToMarkdown } from './web/xmlConverter.js';
 import { convertUrlToMarkdown } from './web/urlConverter.js';
+import { convertParentUrlToMarkdown } from './web/parentUrlConverter.js'; 
 import { convertYoutubeToMarkdown } from './web/youtubeConverter.js';
 
 /**
@@ -48,6 +49,7 @@ class TextConverterFactory {
       htm: convertHtmlToMarkdown,
       xml: convertXmlToMarkdown,
       url: convertUrlToMarkdown,
+      parentUrl: convertParentUrlToMarkdown, // Register the new converter
       youtube: convertYoutubeToMarkdown,
     };
 
@@ -60,12 +62,12 @@ class TextConverterFactory {
       epub: ['buffer'],
       odt: ['buffer'],
       pptx: ['buffer'],
-      // Add other format requirements here
-      // Example:
-      // html: ['string'],
-      // xml: ['string'],
-      // url: ['string'],
-      // youtube: ['string'],
+      html: ['string'],
+      htm: ['string'],
+      xml: ['string'],
+      url: ['string'],
+      parentUrl: ['string'],
+      youtube: ['string'],
     };
   }
 
@@ -104,7 +106,7 @@ class TextConverterFactory {
    * Converts input content to Markdown format
    * @param {string} type - The type of content
    * @param {Buffer|string} input - The content to convert
-   * @param {string} originalName - Original filename
+   * @param {string} originalName - Original filename or identifier
    * @param {string} [apiKey] - API key for services that require authentication
    * @returns {Promise<{ content: string, images: Array }>} - Converted content and images
    */

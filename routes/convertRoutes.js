@@ -100,6 +100,14 @@ const validators = {
       .withMessage('Invalid URL format')
   ],
 
+  parentUrl: [
+    body('parentUrl')
+      .notEmpty()
+      .withMessage('Parent URL is required')
+      .isURL()
+      .withMessage('Invalid URL format')
+  ],
+
   checkResult: (req, _res, next) => {
     const errors = validationResult(req);
     if (!errors.isEmpty()) {
@@ -214,6 +222,39 @@ const conversionHandlers = {
         error.stack
       ));
     }
+  },
+
+  parentUrl: async (req, res, next) => {
+    try {
+      const { parentUrl } = req.body;
+      console.log('Converting Parent URL:', parentUrl);
+
+      const result = await textConverterFactory.convertToMarkdown(
+        'parentUrl',
+        parentUrl,
+        new URL(parentUrl).hostname,
+        req.headers['x-api-key']
+      );
+
+      res.json({
+        success: true,
+        content: result.content,
+        images: result.images || [],
+        metadata: {
+          originalUrl: parentUrl,
+          type: 'parentUrl',
+          childUrls: result.childUrls || []
+        }
+      });
+
+    } catch (error) {
+      console.error('Parent URL conversion error:', error);
+      next(new AppError(
+        `Parent URL conversion failed: ${error.message}`,
+        500,
+        error.stack
+      ));
+    }
   }
 };
 
@@ -252,6 +293,14 @@ router.post('/url',
   validators.url,
   validators.checkResult,
   conversionHandlers.url
+);
+
+// Parent URL endpoint
+router.post('/parent-url',
+  validators.apiKey,
+  validators.parentUrl,
+  validators.checkResult,
+  conversionHandlers.parentUrl
 );
 
 // Health check endpoint
