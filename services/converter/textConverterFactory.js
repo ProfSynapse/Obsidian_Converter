@@ -1,7 +1,5 @@
 // services/converter/textConverterFactory.js
 
-import path from 'path';
-// Import all your converters
 import { convertTxtToMarkdown } from './text/txtConverter.js';
 import { convertRtfToMarkdown } from './text/rtfConverter.js';
 import { convertPdfToMarkdown } from './text/pdfConverter.js';
@@ -16,7 +14,7 @@ import { convertXlsxToMarkdown } from './data/xlsxConverter.js';
 import { convertHtmlToMarkdown } from './web/htmlConverter.js';
 import { convertXmlToMarkdown } from './web/xmlConverter.js';
 import { convertUrlToMarkdown } from './web/urlConverter.js';
-import { convertParentUrlToMarkdown } from './web/parentUrlConverter.js'; 
+import { convertParentUrlToMarkdown } from './web/parentUrlConverter.js';
 import { convertYoutubeToMarkdown } from './web/youtubeConverter.js';
 
 /**
@@ -49,7 +47,7 @@ class TextConverterFactory {
       htm: convertHtmlToMarkdown,
       xml: convertXmlToMarkdown,
       url: convertUrlToMarkdown,
-      parentUrl: convertParentUrlToMarkdown, // Register the new converter
+      parenturl: convertParentUrlToMarkdown,
       youtube: convertYoutubeToMarkdown,
     };
 
@@ -66,9 +64,12 @@ class TextConverterFactory {
       htm: ['string'],
       xml: ['string'],
       url: ['string'],
-      parentUrl: ['string'],
+      parenturl: ['string', 'object'],
       youtube: ['string'],
     };
+
+    console.log('Registered converters:', Object.keys(this.converters));
+    console.log('Registered input types:', this.expectedInputTypes);
   }
 
   /**
@@ -79,19 +80,34 @@ class TextConverterFactory {
    * @throws {Error} If input type is invalid
    */
   validateInput(type, input) {
-    const expectedTypes = this.expectedInputTypes[type.toLowerCase()] || ['buffer', 'string'];
+    // Normalize type to lowercase
+    const normalizedType = type.toLowerCase();
+
+    console.log('Validating input:', {
+      originalType: type,
+      normalizedType,
+      inputType: typeof input,
+      isBuffer: Buffer.isBuffer(input),
+      expectedTypes: this.expectedInputTypes[normalizedType],
+      input: Buffer.isBuffer(input)
+        ? '[Buffer data]'
+        : typeof input === 'object'
+        ? JSON.stringify(input)
+        : input
+    });
+
+    const expectedTypes = this.expectedInputTypes[normalizedType] || ['buffer', 'string'];
     const inputType = typeof input;
     const isBuffer = Buffer.isBuffer(input);
 
-    console.log('Validating input:', {
-      fileType: type,
-      inputType,
-      isBuffer,
-      expectedTypes,
-      constructorName: input?.constructor?.name
-    });
+    // Special handling for parenturl type
+    if (normalizedType === 'parenturl') {
+      if (typeof input === 'string' || typeof input === 'object') {
+        return true;
+      }
+    }
 
-    if (!expectedTypes.includes('buffer') && isBuffer) {
+    if (isBuffer && !expectedTypes.includes('buffer')) {
       throw new Error(`${type} converter does not accept Buffer input`);
     }
 
@@ -105,14 +121,24 @@ class TextConverterFactory {
   /**
    * Converts input content to Markdown format
    * @param {string} type - The type of content
-   * @param {Buffer|string} input - The content to convert
+   * @param {Buffer|string|Object} input - The content to convert
    * @param {string} originalName - Original filename or identifier
    * @param {string} [apiKey] - API key for services that require authentication
    * @returns {Promise<{ content: string, images: Array }>} - Converted content and images
    */
   async convertToMarkdown(type, input, originalName, apiKey) {
     try {
-      // Input validation
+      // Debug logging
+      console.log('Converting to Markdown:', {
+        type,
+        inputType: typeof input,
+        input: Buffer.isBuffer(input)
+          ? '[Buffer data]'
+          : typeof input === 'object'
+          ? JSON.stringify(input)
+          : input
+      });
+
       if (!input) {
         throw new Error('No input provided');
       }
@@ -132,21 +158,24 @@ class TextConverterFactory {
       // Validate input type
       this.validateInput(normalizedType, input);
 
-      // Log conversion attempt
-      console.log('Attempting conversion:', {
-        type: normalizedType,
-        inputType: typeof input,
-        isBuffer: Buffer.isBuffer(input),
-        originalName
-      });
+      // If input is an object with a url property, use that for parenturl
+      const processedInput = normalizedType === 'parenturl' && typeof input === 'object'
+        ? input.url || input.parenturl
+        : input;
 
-      // Perform conversion
-      // Pass originalName and apiKey to converter if needed
-      const convertedResult = await converter(input, originalName, apiKey);
+      const convertedResult = await converter(processedInput, originalName, apiKey);
 
-      // Verify conversion result
-      if (!convertedResult || !convertedResult.content) {
-        throw new Error('Converter returned empty content');
+      // Enhanced result validation
+      if (!convertedResult) {
+        throw new Error(`Converter returned no result for ${type}`);
+      }
+
+      if (typeof convertedResult !== 'object') {
+        throw new Error(`Converter returned invalid result type for ${type}`);
+      }
+
+      if (!convertedResult.content && !convertedResult.error) {
+        throw new Error(`Converter returned empty content for ${type}`);
       }
 
       // Ensure images array exists
@@ -155,13 +184,36 @@ class TextConverterFactory {
       }
 
       return convertedResult;
+
     } catch (error) {
       console.error('Conversion error:', {
         type,
         error: error.message,
         stack: error.stack
       });
-      throw error;
+
+      // Return error content instead of throwing
+      return {
+        content: [
+          `# Conversion Error: ${type}`,
+          '',
+          '```',
+          `Error: ${error.message}`,
+          '```',
+          '',
+          `**Time:** ${new Date().toISOString()}`,
+          `**Type:** ${type}`,
+          `**Input:** ${
+            Buffer.isBuffer(input)
+              ? '[Buffer data]'
+              : typeof input === 'object'
+              ? JSON.stringify(input)
+              : input
+          }`
+        ].join('\n'),
+        images: [],
+        error: error.message
+      };
     }
   }
 

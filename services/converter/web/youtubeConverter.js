@@ -1,59 +1,123 @@
 // services/converter/web/youtubeConverter.js
+import sanitizeFilename from 'sanitize-filename';
+import puppeteer from 'puppeteer';
+import { YoutubeTranscript } from 'youtube-transcript'; // Ensure this package is installed
+import { extractVideoId, formatTimestamp, extractYoutubeMetadata } from '../../../routes/utils/youtubeUtils.js';
 
-import { YoutubeTranscript } from 'youtube-transcript';
-import fetch from 'node-fetch';
+/**
+ * Generates markdown content with transcript and title
+ * @param {string} url - The YouTube video URL
+ * @param {string} videoId - The extracted video ID
+ * @param {Array} transcript - The transcript array
+ * @param {Object} metadata - The extracted metadata
+ * @returns {string} - The generated markdown content
+ */
+function generateMarkdown(url, videoId, transcript, metadata) {
+  const frontmatter = `---
+title: "${metadata.title.replace(/"/g, '\\"')}"
+url: "${url}"
+videoId: "${videoId}"
+date: "${new Date().toISOString()}"
+tags: 
+ - youtube
+ - video
+ - transcript
+---
 
-export async function convertYoutubeToMarkdown(url) {
+`;
+
+  const videoEmbed = `<iframe width="560" height="315" src="https://www.youtube.com/embed/${videoId}" frameborder="0" allowfullscreen></iframe>\n\n`;
+
+  const transcriptMarkdown = transcript
+    .map(
+      (entry) =>
+        `**[${formatTimestamp(entry.offset)}]** ${entry.text.replace(/\n/g, ' ').trim()}\n`
+    )
+    .join('\n');
+
+  return `${frontmatter}${videoEmbed}# Transcript\n\n${transcriptMarkdown}`;
+}
+
+/**
+ * YouTube to Markdown Converter
+ * @param {string} url - The YouTube video URL
+ * @param {string} apiKey - (Optional) API key if required
+ * @returns {Promise<Object>} - The conversion result
+ */
+export async function convertYoutubeToMarkdown(url, apiKey) {
+  let browser;
   try {
+    console.log('Starting YouTube conversion for:', url);
+
     const videoId = extractVideoId(url);
-    if (!videoId) {
+    if (!videoId || videoId === 'unknown') {
       throw new Error('Invalid YouTube URL');
     }
+    console.log('Extracted video ID:', videoId);
 
-    // Fetch video metadata
-    const metadata = await fetchVideoMetadata(videoId);
-
-    // Fetch transcript
-    const transcript = await YoutubeTranscript.fetchTranscript(videoId);
-
-    // Generate Markdown
-    let markdown = `# ${metadata.title}\n\n`;
-    markdown += `**Link:** [${url}](${url})\n\n`;
-    markdown += `**Description:** ${metadata.description}\n\n`;
-    markdown += `**Published:** ${metadata.publishedAt}\n\n`;
-    markdown += `## Transcript\n\n`;
-
-    transcript.forEach((entry, index) => {
-      const timestamp = formatTimestamp(entry.offset);
-      markdown += `**[${timestamp}]** ${entry.text}\n\n`;
+    console.log('Launching browser...');
+    browser = await puppeteer.launch({
+      headless: true, // Set to false for debugging
+      args: [
+        '--no-sandbox',
+        '--disable-setuid-sandbox',
+        '--disable-dev-shm-usage',
+        '--disable-accelerated-2d-canvas',
+        '--disable-gpu',
+      ],
+      defaultViewport: { width: 1280, height: 800 },
     });
 
-    return markdown;
+    const page = await browser.newPage();
+    console.log('Navigating to YouTube page...');
+    await page.goto(url, {
+      waitUntil: 'networkidle2',
+      timeout: 30000,
+    });
+
+    console.log('Extracting metadata...');
+    const metadata = await extractYoutubeMetadata(page);
+    console.log('Metadata extracted:', {
+      title: metadata.title,
+    });
+
+    // Fetch transcript
+    console.log('Fetching transcript...');
+    let transcript = [];
+    try {
+      transcript = await YoutubeTranscript.fetchTranscript(videoId);
+      console.log('Transcript fetched, entries:', transcript.length);
+    } catch (transcriptError) {
+      console.warn('Transcript not available:', transcriptError.message);
+      // Optionally, set transcript to an empty array or provide a default message
+    }
+
+    console.log('Generating markdown...');
+    const markdownContent = generateMarkdown(url, videoId, transcript, metadata);
+
+    return {
+      success: true,
+      type: 'youtube',
+      category: 'web',
+      name: sanitizeFilename(metadata.title),
+      content: markdownContent,
+      images: [],
+      files: [],
+      originalUrl: url,
+    };
   } catch (error) {
-    console.error('Error converting YouTube video to Markdown:', error);
-    throw error;
+    console.error('YouTube conversion failed:', error);
+    return {
+      success: false,
+      type: 'youtube',
+      name: 'youtube_video',
+      error: error.message,
+      images: [],
+    };
+  } finally {
+    if (browser) {
+      console.log('Closing browser...');
+      await browser.close();
+    }
   }
-}
-
-function extractVideoId(url) {
-  const regex = /(?:https?:\/\/)?(?:www\.)?(?:youtube\.com|youtu\.be)\/(?:watch\?v=)?(.+)/;
-  const match = url.match(regex);
-  return match ? match[1] : null;
-}
-
-async function fetchVideoMetadata(videoId) {
-  // Note: This is a placeholder. You would typically use the YouTube Data API here.
-  // For demonstration, we're returning mock data.
-  return {
-    title: 'Sample YouTube Video',
-    description: 'This is a sample description for the video.',
-    publishedAt: new Date().toISOString()
-  };
-}
-
-function formatTimestamp(milliseconds) {
-  const seconds = Math.floor(milliseconds / 1000);
-  const minutes = Math.floor(seconds / 60);
-  const hours = Math.floor(minutes / 60);
-  return `${hours.toString().padStart(2, '0')}:${(minutes % 60).toString().padStart(2, '0')}:${(seconds % 60).toString().padStart(2, '0')}`;
 }
