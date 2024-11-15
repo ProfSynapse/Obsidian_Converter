@@ -8,75 +8,199 @@ import rateLimit from 'express-rate-limit';
 import { config } from './config/default.js';
 import convertRoutes from './routes/index.js';
 import proxyRoutes from './routes/proxyRoutes.js';
-import { errorHandler } from './utils/errorHandler.js';
+import { errorHandler, AppError } from './utils/errorHandler.js';
+import morgan from 'morgan';
 
-// Load environment variables from .env file
+// Load environment variables
 dotenv.config();
 
-const app = express();
-const PORT = process.env.PORT || config.server.port || 3000;
-const ENV = process.env.NODE_ENV || config.server.env || 'development';
+class Server {
+    constructor() {
+        this.app = express();
+        this.port = process.env.PORT || config.server.port || 3000;
+        this.env = process.env.NODE_ENV || config.server.env || 'development';
+        this.corsOptions = {
+            origin: [
+                'http://localhost:5173',    // Dev frontend
+                'http://localhost:3000',    // Dev backend
+                ...(process.env.CORS_ORIGIN ? [process.env.CORS_ORIGIN] : [])
+            ],
+            methods: ['GET', 'POST', 'OPTIONS'],
+            allowedHeaders: ['Content-Type', 'Authorization', 'x-api-key'],
+            exposedHeaders: ['Content-Disposition'],
+            credentials: true,
+            preflightContinue: false,
+            optionsSuccessStatus: 204
+        };
+        
+        // Initialize server
+        this.initializeMiddleware();
+        this.initializeRoutes();
+        this.initializeErrorHandling();
+    }
 
-/**
- * Middleware Configuration
- */
+    /**
+     * Initialize all middleware
+     */
+    initializeMiddleware() {
+        // Apply CORS before other middleware
+        this.app.use(cors(this.corsOptions));
+        this.app.options('*', cors(this.corsOptions));
 
-// Security headers
-app.use(helmet());
+        // Security headers
+        this.app.use(helmet({
+            crossOriginResourcePolicy: { policy: "cross-origin" },
+            contentSecurityPolicy: {
+                directives: {
+                    defaultSrc: ["'self'"],
+                    connectSrc: ["'self'", ...this.corsOptions.origin],
+                    frameSrc: ["'self'"],
+                    imgSrc: ["'self'", "data:", "blob:"],
+                    styleSrc: ["'self'", "'unsafe-inline'"],
+                    scriptSrc: ["'self'"]
+                }
+            }
+        }));
 
-// Body parsers (ensure these are before your routes)
-app.use(express.json());
-app.use(express.urlencoded({ extended: true }));
+        // Request logging
+        if (this.env !== 'test') {
+            this.app.use(morgan('dev'));
+        }
 
-// CORS Configuration
-app.use(cors({
-  origin: ['http://localhost:5176', 'https://your-frontend-domain.com'], // Update as needed
-  methods: ['GET', 'POST', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization', 'x-api-key'],
-  credentials: true,
-}));
+        // Body parsers with limits
+        this.app.use(express.json({ 
+            limit: '50mb',
+            verify: (req, res, buf) => { req.rawBody = buf }
+        }));
+        this.app.use(express.urlencoded({ 
+            extended: true, 
+            limit: '50mb' 
+        }));
 
-// Handle preflight requests globally
-app.options('*', cors());
+        // Global rate limiter
+        const globalLimiter = rateLimit({
+            windowMs: 60 * 1000, // 1 minute
+            max: config.security.globalRateLimitPerMinute || 100,
+            message: {
+                status: 'error',
+                message: 'Too many requests from this IP, please try again later.'
+            },
+            standardHeaders: true,
+            legacyHeaders: false
+        });
 
-// Global Rate Limiter (applied after body parsers and CORS)
-const globalLimiter = rateLimit({
-  windowMs: 60 * 1000, // 1 minute
-  max: config.security.globalRateLimitPerMinute || 100, // Default global rate limit
-  message: 'Too many requests from this IP, please try again later.',
-  standardHeaders: true,
-  legacyHeaders: false,
-});
+        this.app.use(globalLimiter);
 
-app.use(globalLimiter);
+        // Add request timestamp
+        this.app.use((req, res, next) => {
+            req.requestTime = new Date().toISOString();
+            next();
+        });
+    }
 
-// API Routes with versioning
-app.use('/api/v1/convert', convertRoutes);
-app.use('/api/v1/proxy', proxyRoutes);
+    /**
+     * Initialize API routes
+     */
+    initializeRoutes() {
+        // API Routes
+        this.app.use('/api/v1/convert', convertRoutes);
+        this.app.use('/api/v1/proxy', proxyRoutes);
 
-// Health check route (moved here from convert routes)
-app.get('/health', (req, res) => {
-  res.status(200).json({
-    status: 'OK',
-    timestamp: new Date().toISOString(),
-    allowedTypes: config.conversion.allowedFileTypes,
-    version: process.env.npm_package_version || '1.0.0'
-  });
-});
+        // Health check route
+        this.app.get('/health', this.handleHealthCheck.bind(this));
 
-// Root route
-app.get('/', (req, res) => {
-  res.send('Welcome to the Conversion API!');
-});
+        // Root route
+        this.app.get('/', (req, res) => {
+            res.status(200).json({
+                status: 'success',
+                message: 'Welcome to the Conversion API',
+                documentation: '/api/v1/docs'
+            });
+        });
 
-// Error handling middleware (should be after all routes)
-app.use(errorHandler);
+        // Handle undefined routes
+        this.app.all('*', (req, res, next) => {
+            next(new AppError(`Cannot find ${req.originalUrl} on this server!`, 404));
+        });
+    }
 
-// Start server
-app.listen(PORT, () => {
-  console.log(`Server is running on port ${PORT}`);
-  console.log(`Environment: ${ENV}`);
-  console.log(`Allowed file types: ${config.conversion.allowedFileTypes.join(', ')}`);
-});
+    /**
+     * Initialize error handlers
+     */
+    initializeErrorHandling() {
+        this.app.use(errorHandler);
 
-export default app;
+        // Handle uncaught exceptions
+        process.on('uncaughtException', (error) => {
+            console.error('UNCAUGHT EXCEPTION! 💥 Shutting down...');
+            console.error(error.name, error.message);
+            process.exit(1);
+        });
+
+        // Handle unhandled rejections
+        process.on('unhandledRejection', (error) => {
+            console.error('UNHANDLED REJECTION! 💥 Shutting down...');
+            console.error(error.name, error.message);
+            this.server.close(() => {
+                process.exit(1);
+            });
+        });
+
+        // Handle SIGTERM
+        process.on('SIGTERM', () => {
+            console.log('👋 SIGTERM RECEIVED. Shutting down gracefully');
+            this.server.close(() => {
+                console.log('💥 Process terminated!');
+            });
+        });
+    }
+
+    /**
+     * Health check endpoint handler
+     */
+    handleHealthCheck(req, res) {
+        res.status(200).json({
+            status: 'success',
+            data: {
+                serverTime: new Date().toISOString(),
+                environment: this.env,
+                uptime: process.uptime(),
+                memory: process.memoryUsage(),
+                version: process.env.npm_package_version || '1.0.0',
+                allowedTypes: config.conversion.allowedFileTypes
+            }
+        });
+    }
+
+    /**
+     * Start the server
+     */
+    start() {
+        this.server = this.app.listen(this.port, () => {
+            console.log('🚀 Server Details:');
+            console.log(`   Environment: ${this.env}`);
+            console.log(`   Port: ${this.port}`);
+            console.log(`   Allowed file types: ${config.conversion.allowedFileTypes.join(', ')}`);
+            console.log('   CORS enabled for:', this.corsOptions.origin);
+        });
+
+        return this.server;
+    }
+
+    /**
+     * Get Express app instance
+     */
+    getApp() {
+        return this.app;
+    }
+}
+
+// Create and start server
+const server = new Server();
+
+// Start server unless we're in test environment
+if (process.env.NODE_ENV !== 'test') {
+    server.start();
+}
+
+export default server;

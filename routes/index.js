@@ -1,4 +1,4 @@
-// routes/convert/index.js
+// routes/index.js
 
 import express from 'express';
 import { conversionRateLimiter } from './middleware/rateLimit.js';
@@ -10,53 +10,50 @@ import { handleFileUpload } from './handlers/fileHandler.js';
 import { handleUrlConversion } from './handlers/urlHandler.js';
 import { handleParentUrlConversion } from './handlers/parentUrlHandler.js';
 import { handleYouTubeConversion } from './handlers/youtubeHandler.js';
-import { config } from '../config/default.js';
 
 const router = express.Router();
 
 // Apply rate limiter to all conversion routes
 router.use(conversionRateLimiter);
 
-// Batch conversion endpoint
+// Parent URL conversion endpoint - place before regular URL endpoint
 router.post(
-  '/batch',
-  validators.batch,
-  validators.checkResult,
-  handleBatchConversion
-);
-
-// Single file upload endpoint
-router.post(
-  '/file',
-  apiKeyChecker,
-  upload,
-  validators.file,
-  validators.checkResult,
-  handleFileUpload
+    '/parent-url',
+    validators.parenturl,
+    validators.checkResult,
+    handleParentUrlConversion
 );
 
 // Single URL conversion endpoint
 router.post(
-  '/url',
-  validators.url,
-  validators.checkResult,
-  handleUrlConversion
+    '/url',
+    validators.url,
+    validators.checkResult,
+    handleUrlConversion
 );
 
-// Parent URL conversion endpoint
+// Other routes...
 router.post(
-  '/parent-url',
-  validators.parenturl,
-  validators.checkResult,
-  handleParentUrlConversion
+    '/batch',
+    validators.batch,
+    validators.checkResult,
+    handleBatchConversion
 );
 
-// YouTube conversion endpoint
 router.post(
-  '/youtube',
-  validators.youtube,
-  validators.checkResult,
-  handleYouTubeConversion
+    '/file',
+    apiKeyChecker,
+    upload,
+    validators.file,
+    validators.checkResult,
+    handleFileUpload
+);
+
+router.post(
+    '/youtube',
+    validators.youtube,
+    validators.checkResult,
+    handleYouTubeConversion
 );
 
 export default router;

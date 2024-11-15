@@ -1,45 +1,61 @@
-// routes/convert/handlers/parentUrlHandler.js
+// routes/handlers/parentUrlHandler.js
 
-import { createBatchZip, handleConversion } from '../utils/zipProcessor.js';
+import { createBatchZip } from '../utils/zipProcessor.js';
 import { AppError } from '../../utils/errorHandler.js';
+import { convertParentUrlToMarkdown } from '../../services/converter/web/parentUrlConverter.js';
 import sanitizeFilename from 'sanitize-filename';
 
 /**
  * Parent URL conversion handler
  */
 export async function handleParentUrlConversion(req, res, next) {
-  try {
-    const { parenturl } = req.body;
-    console.log('Converting Parent URL:', parenturl);
+    try {
+        console.log('Parent URL conversion request:', req.body);
+        
+        // Extract URL from request
+        const { parenturl } = req.body;
+        if (!parenturl) {
+            throw new AppError('Parent URL is required', 400);
+        }
 
-    const urlString =
-      typeof parenturl === 'object' ? parenturl.url || parenturl.parenturl : parenturl;
-    const hostname = new URL(urlString).hostname;
-    const conversionResult = await handleConversion(
-      'parenturl',
-      urlString,
-      hostname,
-      req.headers['x-api-key']
-    );
+        // Convert URL string or object to string
+        const urlString = typeof parenturl === 'object' ? 
+            parenturl.url || parenturl.parenturl : 
+            parenturl;
 
-    const zipBuffer = await createBatchZip([conversionResult]);
+        console.log('Converting Parent URL:', urlString);
 
-    // Set proper headers for ZIP file download
-    const zipFilename = `${sanitizeFilename(hostname)}_archive_${new Date()
-      .toISOString()
-      .replace(/[:.]/g, '-')}.zip`;
+        // Convert parent URL and its children
+        const conversionResult = await convertParentUrlToMarkdown(
+            urlString,
+            new URL(urlString).hostname
+        );
 
-    res.set({
-      'Content-Type': 'application/zip',
-      'Content-Disposition': `attachment; filename=${sanitizeFilename(zipFilename)}`,
-      'Cache-Control': 'no-cache',
-      Pragma: 'no-cache',
-      Expires: '0',
-    });
+        // Create ZIP with converted content
+        const zipBuffer = await createBatchZip([{
+            ...conversionResult,
+            type: 'parenturl',
+            success: true
+        }]);
 
-    return res.send(zipBuffer);
-  } catch (error) {
-    console.error(`Parent URL conversion error: ${error.message}`);
-    next(new AppError(`Parent URL conversion failed: ${error.message}`, 500));
-  }
+        // Generate filename for the ZIP
+        const zipFilename = `${sanitizeFilename(new URL(urlString).hostname)}_archive_${
+            new Date().toISOString().replace(/[:.]/g, '-')
+        }.zip`;
+
+        // Send response
+        res.set({
+            'Content-Type': 'application/zip',
+            'Content-Disposition': `attachment; filename=${zipFilename}`,
+            'Cache-Control': 'no-cache',
+            'Pragma': 'no-cache',
+            'Expires': '0'
+        });
+
+        return res.send(zipBuffer);
+
+    } catch (error) {
+        console.error('Parent URL conversion error:', error);
+        next(new AppError(`Parent URL conversion failed: ${error.message}`, error.status || 500));
+    }
 }

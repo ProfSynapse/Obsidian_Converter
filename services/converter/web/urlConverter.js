@@ -3,402 +3,389 @@
 import puppeteer from 'puppeteer';
 import TurndownService from 'turndown';
 import * as cheerio from 'cheerio';
-import { v4 as uuidv4 } from 'uuid';
-import pLimit from 'p-limit';
-import fetch from 'node-fetch';
 import { extractMetadata } from '../../../utils/metadataExtractor.js';
 
 /**
- * Configuration for the URL converter
+ * Configuration for URL conversion and browser settings
  */
 const CONFIG = {
-  puppeteer: {
-    launch: {
-      headless: true,
-      args: [
-        '--no-sandbox',
-        '--disable-setuid-sandbox',
-        '--disable-dev-shm-usage',
-        '--disable-accelerated-2d-canvas',
-        '--disable-gpu'
-      ],
-      defaultViewport: { width: 1920, height: 1080 }
+    puppeteer: {
+        launch: {
+            headless: true,
+            args: [
+                '--no-sandbox',
+                '--disable-setuid-sandbox',
+                '--disable-dev-shm-usage',
+                '--disable-accelerated-2d-canvas',
+                '--disable-gpu',
+                '--disable-notifications',
+                '--disable-extensions',
+                '--disable-infobars'
+            ],
+            defaultViewport: { width: 1920, height: 1080 }
+        },
+        navigation: {
+            waitUntil: ['networkidle2', 'domcontentloaded'],
+            timeout: 30000
+        }
     },
-    navigation: {
-      waitUntil: 'networkidle2',
-      timeout: 30000
-    },
-    userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
-  },
-  content: {
-    selectors: {
-      mainContent: [
-        'main',
-        'article',
-        '[role="main"]',
-        '.main-content',
-        '.content',
-        '#content',
-        '.post-content',
-        '.article-content'
-      ],
-      remove: [
-        'script',
-        'style',
-        'link',
-        'meta',
-        'noscript',
-        'iframe',
-        '.hidden',
-        '[style*="display: none"]',
-        '[style*="display:none"]',
-        '[hidden]',
-        '[data-ad]',
-        '[id*="google"]',
-        '[class*="advert"]',
-        '[class*="tracking"]',
-        '[aria-hidden="true"]'
-      ]
-    },
-    turndown: {
-      headingStyle: 'atx',
-      codeBlockStyle: 'fenced',
-      emDelimiter: '_',
-      strongDelimiter: '**',
-      bulletListMarker: '-'
+    conversion: {
+        maxRetries: 3,
+        retryDelay: 1000,
+        timeoutMs: 30000,
+        maxConcurrent: 5,
+        imageSizeLimit: 5 * 1024 * 1024, // 5MB
+        imageTypes: ['jpg', 'jpeg', 'png', 'gif', 'webp'],
+        maxImages: 50
     }
-  },
-  limits: {
-    maxImages: 100,
-    concurrentRequests: 5,
-    maxRetries: 3,
-    retryDelay: 1000
-  }
 };
 
 /**
- * Class to handle URL content detection and conversion
+ * Custom error types for URL conversion
  */
-class ContentTypeHandler {
-  /**
-   * Detects the content type of a given URL.
-   * @param {string} url - The URL to detect.
-   * @returns {Promise<Object>} - An object containing content type details.
-   */
-  static async detect(url) {
-    try {
-      const response = await fetch(url, { method: 'HEAD' });
-      const contentType = response.headers.get('content-type') || '';
-      return {
-        type: contentType.split(';')[0].toLowerCase(),
-        isHtml: contentType.includes('text/html'),
-        isImage: contentType.startsWith('image/'),
-        extension: contentType.split('/')[1]
-      };
-    } catch (error) {
-      console.error('Content type detection failed:', error);
-      return { type: 'unknown', isHtml: false, isImage: false };
+class UrlConversionError extends Error {
+    constructor(message, code = 'CONVERSION_ERROR', details = null) {
+        super(message);
+        this.name = 'UrlConversionError';
+        this.code = code;
+        this.details = details;
+        this.timestamp = new Date().toISOString();
+        this.retryable = [
+            'NETWORK_ERROR',
+            'TIMEOUT_ERROR',
+            'BROWSER_ERROR'
+        ].includes(code);
     }
-  }
 
-  /**
-   * Handles image URLs by downloading and encoding them.
-   * @param {string} url - The image URL.
-   * @param {string} name - The base name for the image file.
-   * @returns {Promise<Object>} - An object containing markdown content and image data.
-   */
-  static async handleImage(url, name) {
-    try {
-      const response = await fetch(url);
-      if (!response.ok) {
-        throw new Error(`Failed to fetch image: ${response.status} ${response.statusText}`);
-      }
-      const buffer = await response.arrayBuffer();
-      const base64 = Buffer.from(buffer).toString('base64');
-      const contentType = response.headers.get('content-type');
-      const extension = contentType?.split('/')[1] || 'png';
-      const imageName = `${sanitizeFilename(name || 'image')}-${uuidv4().slice(0, 8)}.${extension}`;
-
-      return {
-        content: [
-          `# Image: ${imageName}`,
-          '',
-          `**Source:** ${url}`,
-          `**Downloaded:** ${new Date().toISOString()}`,
-          `**Type:** ${contentType}`,
-          '',
-          `![${imageName}](assets/${imageName})`,
-          ''
-        ].join('\n'),
-        images: [{
-          name: imageName,
-          data: base64,
-          type: contentType,
-          path: `assets/${imageName}`
-        }]
-      };
-    } catch (error) {
-      throw new Error(`Image processing failed: ${error.message}`);
+    static validation(message, details = null) {
+        return new UrlConversionError(message, 'VALIDATION_ERROR', details);
     }
-  }
+
+    static network(message, details = null) {
+        return new UrlConversionError(message, 'NETWORK_ERROR', details);
+    }
+
+    static timeout(message, details = null) {
+        return new UrlConversionError(message, 'TIMEOUT_ERROR', details);
+    }
 }
 
 /**
- * Class to handle HTML content processing
+ * URL processing utilities
  */
-class HtmlProcessor {
-  /**
-   * Cleans up the HTML content by removing unwanted elements and attributes.
-   * @param {CheerioStatic} $ - The Cheerio object containing HTML.
-   * @returns {CheerioStatic} - The cleaned Cheerio object.
-   */
-  static cleanupContent($) {
-    CONFIG.content.selectors.remove.forEach(selector => {
-      $(selector).remove();
-    });
-
-    $('*').removeAttr('class').removeAttr('id');
-    $('p:empty, div:empty').remove();
-
-    return $;
-  }
-
-  /**
-   * Extracts the main content from the cleaned HTML.
-   * @param {CheerioStatic} $ - The cleaned Cheerio object.
-   * @returns {CheerioElement} - The main content element.
-   */
-  static extractMainContent($) {
-    for (const selector of CONFIG.content.selectors.mainContent) {
-      const element = $(selector);
-      if (element.length && element.text().trim().length > 100) {
-        return element;
-      }
-    }
-    return $('body');
-  }
-
-  /**
-   * Cleans up and extracts the main content from the HTML.
-   * @param {string} html - The raw HTML content.
-   * @returns {Promise<{ $, mainContent: CheerioElement }>} - The Cheerio instance and the main content element.
-   */
-  static async cleanupAndExtract(html) {
-    try {
-      const $ = cheerio.load(html);
-      this.cleanupContent($);
-      const mainContent = this.extractMainContent($);
-      return { $, mainContent };
-    } catch (error) {
-      throw new Error(`Failed to cleanup and extract content: ${error.message}`);
-    }
-  }
-
-  /**
-   * Processes images within the main content.
-   * @param {CheerioStatic} $ - The Cheerio instance.
-   * @param {CheerioElement} content - The main content element.
-   * @param {string} baseName - The base name for image files.
-   * @returns {Promise<{ content: string, images: Array }>} - The processed content and images.
-   */
-  static async processImages($, content, baseName) {
-    const images = [];
-    const limit = pLimit(CONFIG.limits.concurrentRequests);
-
-    const imagePromises = [];
-    $(content).find('img').each((index, img) => {
-      if (images.length >= CONFIG.limits.maxImages) return;
-
-      const src = $(img).attr('src');
-      if (!src) return;
-
-      const promise = limit(async () => {
+class UrlUtils {
+    /**
+     * Normalizes and validates a URL
+     */
+    static normalizeUrl(input) {
         try {
-          const imageResult = await this.processImage(src, baseName, index);
-          if (imageResult) {
-            images.push(imageResult.image);
-            $(img).attr('src', imageResult.path);
-          }
+            const urlString = typeof input === 'string' 
+                ? input 
+                : input?.url || input?.href || '';
+
+            if (!urlString.trim()) {
+                throw UrlConversionError.validation('URL is required');
+            }
+
+            let normalizedUrl = urlString.trim()
+                .replace(/^\/\//, '')
+                .replace(/\s+/g, '');
+            
+            if (!/^https?:\/\//i.test(normalizedUrl)) {
+                normalizedUrl = 'https://' + normalizedUrl;
+            }
+
+            // Validate URL format
+            const urlObj = new URL(normalizedUrl);
+            
+            // Additional validation
+            if (!['http:', 'https:'].includes(urlObj.protocol)) {
+                throw UrlConversionError.validation('Only HTTP/HTTPS protocols are supported');
+            }
+
+            return urlObj.href;
+
         } catch (error) {
-          console.error(`Image processing failed: ${error.message}`);
+            if (error instanceof UrlConversionError) throw error;
+            throw UrlConversionError.validation(`Invalid URL format: ${error.message}`);
         }
-      });
-
-      imagePromises.push(promise);
-    });
-
-    await Promise.all(imagePromises);
-    return { content: $(content).html(), images };
-  }
-
-  /**
-   * Processes a single image.
-   * @param {string} src - The source URL of the image.
-   * @param {string} baseName - The base name for the image file.
-   * @param {number} index - The index of the image.
-   * @returns {Promise<{ image: Object, path: string } | null>} - The image object and its path, or null.
-   */
-  static async processImage(src, baseName, index) {
-    if (src.startsWith('data:')) {
-      const matches = src.match(/^data:(image\/[a-zA-Z]+);base64,(.+)$/);
-      if (matches) {
-        const [_, type, data] = matches;
-        const extension = type.split('/')[1];
-        const name = `${sanitizeFilename(baseName)}-${index + 1}.${extension}`;
-        return {
-          image: {
-            name,
-            data,
-            type,
-            path: `assets/${name}`
-          },
-          path: `assets/${name}`
-        };
-      }
-    } else if (src.startsWith('http') || src.startsWith('//')) {
-      try {
-        let imageUrl = src.startsWith('//') ? 'https:' + src : src;
-        const response = await fetch(imageUrl);
-        if (!response.ok) {
-          throw new Error(`Failed to fetch image: ${response.status} ${response.statusText}`);
-        }
-        const buffer = await response.arrayBuffer();
-        const type = response.headers.get('content-type');
-        const extension = type?.split('/')[1] || 'png';
-        const name = `${sanitizeFilename(baseName)}-${index + 1}.${extension}`;
-        return {
-          image: {
-            name,
-            data: Buffer.from(buffer).toString('base64'),
-            type,
-            path: `assets/${name}`
-          },
-          path: `assets/${name}`
-        };
-      } catch (error) {
-        console.error(`Failed to fetch image ${src}:`, error);
-      }
     }
-    return null;
-  }
+
+    /**
+     * Sanitizes a filename
+     */
+    static sanitizeFilename(filename, maxLength = 100) {
+        if (!filename) return 'unknown';
+        
+        return filename
+            .replace(/[^a-z0-9_\-\.]/gi, '_')
+            .replace(/_{2,}/g, '_')
+            .substring(0, maxLength);
+    }
+
+    /**
+     * Extracts domain from URL
+     */
+    static getDomain(url) {
+        try {
+            const urlObj = new URL(url);
+            return urlObj.hostname;
+        } catch {
+            return 'unknown-domain';
+        }
+    }
 }
 
 /**
- * Sanitizes filenames by removing invalid characters.
- * @param {string} filename - The original filename.
- * @returns {string} - The sanitized filename.
+ * Handles browser management and web scraping
  */
-function sanitizeFilename(filename) {
-  // Simple regex to remove invalid characters
-  return filename.replace(/[^a-z0-9_\-\.]/gi, '_');
+class BrowserManager {
+    constructor(config = CONFIG.puppeteer) {
+        this.config = config;
+        this.browser = null;
+        this.page = null;
+    }
+
+    async initialize() {
+        try {
+            this.browser = await puppeteer.launch(this.config.launch);
+            this.page = await this.browser.newPage();
+            
+            // Set user agent and extra headers
+            await this.page.setUserAgent(CONFIG.puppeteer.userAgent);
+            await this.page.setExtraHTTPHeaders({
+                'Accept-Language': 'en-US,en;q=0.9'
+            });
+
+            // Handle dialog windows
+            this.page.on('dialog', async dialog => {
+                await dialog.dismiss();
+            });
+
+        } catch (error) {
+            throw new UrlConversionError(
+                'Failed to initialize browser',
+                'BROWSER_ERROR',
+                error
+            );
+        }
+    }
+
+    async navigateToUrl(url) {
+        try {
+            const response = await this.page.goto(url, this.config.navigation);
+            
+            if (!response) {
+                throw new UrlConversionError('Failed to load page');
+            }
+
+            if (!response.ok()) {
+                throw new UrlConversionError(
+                    `Page returned status ${response.status()}`,
+                    'HTTP_ERROR'
+                );
+            }
+
+            // Wait for content to be ready
+            await this.page.waitForSelector('body');
+
+        } catch (error) {
+            if (error instanceof UrlConversionError) throw error;
+            throw new UrlConversionError(
+                `Navigation failed: ${error.message}`,
+                'NAVIGATION_ERROR'
+            );
+        }
+    }
+
+    async cleanup() {
+        if (this.browser) {
+            await this.browser.close();
+            this.browser = null;
+            this.page = null;
+        }
+    }
 }
 
 /**
- * Main URL converter function
- * @param {string|Object} urlInput - URL to convert
- * @param {string} originalName - Original name for file paths
- * @returns {Promise<{ content: string, images: Array, name: string, success: boolean }>}
+ * Main URL converter class
  */
-export async function convertUrlToMarkdown(urlInput, originalName) {
-  let browser;
-  try {
-    // Normalize URL
-    const url = typeof urlInput === 'object' ? urlInput.url || urlInput.href : urlInput.toString();
-    if (!url) throw new Error('Invalid URL input');
-
-    // Clean URL
-    const cleanUrl = url.trim();
-    const fullUrl = !/^https?:\/\//i.test(cleanUrl)
-      ? 'https://' + cleanUrl.replace(/^\/\//, '')
-      : cleanUrl;
-
-    console.log(`Converting URL: ${fullUrl}`);
-
-    // Detect content type
-    const contentType = await ContentTypeHandler.detect(fullUrl);
-
-    // Handle image URLs directly
-    if (contentType.isImage) {
-      const imageResult = await ContentTypeHandler.handleImage(fullUrl, originalName);
-      return {
-        content: imageResult.content,
-        images: imageResult.images,
-        name: originalName || sanitizeFilename(new URL(fullUrl).hostname),
-        success: true
-      };
+class UrlConverter {
+    constructor(config = CONFIG) {
+        this.config = config;
+        this.turndownService = new TurndownService({
+            headingStyle: 'atx',
+            codeBlockStyle: 'fenced',
+            emDelimiter: '_',
+            strongDelimiter: '**'
+        });
+        this.browserManager = new BrowserManager(config.puppeteer);
     }
 
-    // Handle non-HTML content
-    if (!contentType.isHtml) {
-      const metadata = await extractMetadata(fullUrl);
-      const markdown = `\n\n> Non-HTML content at [${fullUrl}](${fullUrl})\n`;
-      return {
-        content: metadata + markdown,
-        images: [],
-        name: sanitizeFilename(new URL(fullUrl).hostname),
-        success: true
-      };
+    /**
+     * Converts a URL to Markdown format
+     */
+    async convertToMarkdown(urlInput, options = {}) {
+        const {
+            includeImages = true,
+            includeMeta = true,
+            apiKey = null,
+            originalName = null
+        } = options;
+
+        try {
+            // Validate and normalize URL
+            const url = UrlUtils.normalizeUrl(urlInput);
+            console.log(`Converting URL: ${url}`);
+
+            // Initialize browser
+            await this.browserManager.initialize();
+            await this.browserManager.navigateToUrl(url);
+
+            // Extract content
+            const { html, metadata, images } = await this.extractContent(url, {
+                includeImages,
+                includeMeta
+            });
+
+            // Convert to Markdown
+            const markdown = this.turndownService.turndown(html);
+
+            // Format final content
+            const content = this.formatContent(markdown, metadata);
+
+            return {
+                content,
+                images: includeImages ? images : [],
+                name: UrlUtils.sanitizeFilename(
+                    originalName || UrlUtils.getDomain(url)
+                ),
+                success: true,
+                metadata
+            };
+
+        } catch (error) {
+            console.error('URL conversion failed:', error);
+            return {
+                content: this.formatErrorContent(error, urlInput, originalName),
+                images: [],
+                name: UrlUtils.sanitizeFilename(originalName || 'error'),
+                success: false,
+                error: error.message
+            };
+
+        } finally {
+            await this.browserManager.cleanup();
+        }
     }
 
-    // Launch Puppeteer
-    browser = await puppeteer.launch(CONFIG.puppeteer.launch);
-    const page = await browser.newPage();
-    await page.setUserAgent(CONFIG.puppeteer.userAgent);
-    await page.goto(fullUrl, CONFIG.puppeteer.navigation);
+    /**
+     * Extracts content from webpage
+     */
+    async extractContent(url, options) {
+        const { includeImages, includeMeta } = options;
+        const page = this.browserManager.page;
 
-    // Get the rendered HTML content
-    const html = await page.content();
+        // Get page content
+        const html = await page.content();
+        const $ = cheerio.load(html);
 
-    // Close the browser
-    await browser.close();
-    browser = null;
+        // Clean up unwanted elements
+        $('script, style, iframe, noscript').remove();
+        
+        // Extract metadata if needed
+        const metadata = includeMeta ? await extractMetadata(url) : null;
 
-    // Process HTML content
-    const metadata = await extractMetadata(fullUrl);
-    const { $, mainContent } = await HtmlProcessor.cleanupAndExtract(html);
+        // Extract images if needed
+        const images = includeImages ? await this.extractImages($) : [];
 
-    // Process images
-    const { content: processedContent, images } = await HtmlProcessor.processImages($, mainContent, originalName);
+        return {
+            html: $.html(),
+            metadata,
+            images
+        };
+    }
 
-    // Convert to Markdown
-    const turndownService = new TurndownService(CONFIG.content.turndown);
-    turndownService.addRule('strikethrough', {
-      filter: ['del', 's', 'strike'],
-      replacement: (content) => `~~${content}~~`,
-    });
+    /**
+     * Extracts and processes images
+     */
+    async extractImages($) {
+        const images = [];
+        const seenUrls = new Set();
 
-    const markdown = turndownService.turndown(processedContent);
-    const finalContent = metadata + markdown;
+        $('img').each((_, img) => {
+            const src = $(img).attr('src');
+            if (!src || seenUrls.has(src)) return;
 
-    return {
-      content: finalContent,
-      images,
-      name: sanitizeFilename(originalName || new URL(fullUrl).hostname),
-      success: true
-    };
+            // Only process if it's a supported image type
+            const ext = src.split('.').pop().toLowerCase();
+            if (!CONFIG.conversion.imageTypes.includes(ext)) return;
 
-  } catch (error) {
-    console.error('URL conversion failed:', error);
-    if (browser) await browser.close(); // Ensure browser is closed on error
-    return {
-      content: [
-        `# Conversion Error`,
-        '',
-        `> Failed to convert URL to Markdown.`,
-        '',
-        '## Error Details',
-        '```',
-        error.message,
-        '```',
-        '',
-        '## Request Information',
-        `- **URL:** ${urlInput}`,
-        `- **Time:** ${new Date().toISOString()}`,
-        `- **Name:** ${originalName}`
-      ].join('\n'),
-      images: [],
-      name: sanitizeFilename(originalName || 'unknown'),
-      success: false
-    };
-  }
+            seenUrls.add(src);
+            if (images.length >= CONFIG.conversion.maxImages) return;
+
+            images.push({
+                url: src,
+                alt: $(img).attr('alt') || '',
+                name: UrlUtils.sanitizeFilename(src.split('/').pop())
+            });
+        });
+
+        return images;
+    }
+
+    /**
+     * Formats the final content with metadata
+     */
+    formatContent(markdown, metadata = null) {
+        const sections = [];
+
+        // Add frontmatter if metadata exists
+        if (metadata) {
+            sections.push(
+                '---',
+                ...Object.entries(metadata).map(([key, value]) => 
+                    `${key}: "${value?.replace(/"/g, '\\"') || ''}"`
+                ),
+                '---',
+                ''
+            );
+        }
+
+        // Add main content
+        sections.push(markdown);
+
+        return sections.join('\n');
+    }
+
+    /**
+     * Formats error content
+     */
+    formatErrorContent(error, urlInput, originalName) {
+        return [
+            `# Conversion Error`,
+            '',
+            `> Failed to convert URL to Markdown.`,
+            '',
+            '## Error Details',
+            '```',
+            error.message,
+            error.code ? `Code: ${error.code}` : '',
+            error.details ? `Details: ${JSON.stringify(error.details, null, 2)}` : '',
+            '```',
+            '',
+            '## Request Information',
+            `- **URL:** ${urlInput}`,
+            `- **Time:** ${new Date().toISOString()}`,
+            `- **Name:** ${originalName || 'Not provided'}`,
+            ''
+        ].filter(Boolean).join('\n');
+    }
 }
+
+// Export singleton instance
+export const urlConverter = new UrlConverter();
+
+// Export main conversion function
+export const convertUrlToMarkdown = async (url, options) => 
+    urlConverter.convertToMarkdown(url, options);
