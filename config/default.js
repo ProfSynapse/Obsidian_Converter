@@ -8,7 +8,7 @@ export const config = {
   api: {
     openai: {
       baseUrl: 'https://api.openai.com/v1',
-      timeout: 30000,
+      timeout: 300000,
       maxRetries: 3,
       apiKey: process.env.OPENAI_API_KEY
     }

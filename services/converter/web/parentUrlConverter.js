@@ -13,7 +13,7 @@ const CONFIG = {
     maxPages: 100,
     maxDepth: 1000,
     concurrentLimit: 5,
-    timeout: 30000,
+    timeout: 300000,
     validProtocols: ['http:', 'https:'],
     excludePatterns: [
       /\.(pdf|zip|doc|docx|xls|xlsx|ppt|pptx)$/i,  // Document files
@@ -39,7 +39,7 @@ const CONFIG = {
     },
     navigation: {
       waitUntil: 'networkidle2',
-      timeout: 30000
+      timeout: 300000
     },
     userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
   }
@@ -215,7 +215,7 @@ class UrlProcessor {
           return {
             success: true,
             type: 'url',
-            name: `${name || 'index'}.md`,
+            name: `${name || 'index'}`,
             content: result.content,
             images: result.images || [],
             url

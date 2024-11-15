@@ -25,21 +25,26 @@ export async function handleParentUrlConversion(req, res, next) {
 
         console.log('Converting Parent URL:', urlString);
 
+        // Validate and sanitize the URL
+        const normalizedUrl = normalizeUrl(urlString);
+
         // Convert parent URL and its children
         const conversionResult = await convertParentUrlToMarkdown(
-            urlString,
-            new URL(urlString).hostname
+            normalizedUrl,
+            new URL(normalizedUrl).hostname
         );
 
-        // Create ZIP with converted content
+        // Create ZIP with converted content, including 'name' and 'url'
         const zipBuffer = await createBatchZip([{
             ...conversionResult,
             type: 'parenturl',
-            success: true
+            success: true,
+            name: new URL(normalizedUrl).hostname, // Include 'name'
+            url: normalizedUrl // Include 'url'
         }]);
 
         // Generate filename for the ZIP
-        const zipFilename = `${sanitizeFilename(new URL(urlString).hostname)}_archive_${
+        const zipFilename = `${sanitizeFilename(new URL(normalizedUrl).hostname)}_archive_${
             new Date().toISOString().replace(/[:.]/g, '-')
         }.zip`;
 
@@ -57,5 +62,28 @@ export async function handleParentUrlConversion(req, res, next) {
     } catch (error) {
         console.error('Parent URL conversion error:', error);
         next(new AppError(`Parent URL conversion failed: ${error.message}`, error.status || 500));
+    }
+}
+
+/**
+ * Validates and normalizes a URL
+ * @param {string} url - URL to validate
+ * @returns {string} Normalized URL
+ */
+function normalizeUrl(url) {
+    try {
+        url = url.trim();
+        if (!/^https?:\/\//i.test(url)) {
+            url = 'https://' + url.replace(/^\/\//, '');
+        }
+
+        const urlObj = new URL(url);
+        if (!['http:', 'https:'].includes(urlObj.protocol)) {
+            throw new Error(`Invalid protocol: ${urlObj.protocol}`);
+        }
+
+        return urlObj.href;
+    } catch (error) {
+        throw new AppError(`Invalid URL: ${error.message}`, 400);
     }
 }

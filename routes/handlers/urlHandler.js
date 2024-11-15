@@ -4,179 +4,201 @@ import { createBatchZip, handleConversion } from '../utils/zipProcessor.js';
 import { AppError } from '../../utils/errorHandler.js';
 import sanitizeFilename from 'sanitize-filename';
 
+// Types (can be moved to separate types file)
 /**
- * Constants for URL handling
+ * @typedef {Object} ConversionOptions
+ * @property {boolean} includeImages - Whether to include images
+ * @property {boolean} includeMeta - Whether to include metadata
+ * @property {boolean} convertLinks - Whether to convert links
+ * @property {number} maxDepth - Maximum depth for nested conversions
  */
+
+/**
+ * @typedef {Object} ConversionResult
+ * @property {boolean} success - Whether the conversion was successful
+ * @property {Buffer} buffer - The ZIP buffer
+ * @property {string} filename - The filename for the ZIP
+ * @property {string} [error] - Error message if conversion failed
+ */
+
+// Constants
 const CONSTANTS = {
-    DEFAULT_OPTIONS: {
-        includeImages: true,
-        includeMeta: true,
-        convertLinks: true,
-        maxDepth: 1
-    },
-    MAX_FILENAME_LENGTH: 100,
-    ZIP_CONTENT_TYPE: 'application/zip',
-    CACHE_HEADERS: {
-        'Cache-Control': 'no-cache, no-store, must-revalidate',
-        'Pragma': 'no-cache',
-        'Expires': '0'
+  CONVERSION: {
+    includeImages: true,
+    includeMeta: true,
+    convertLinks: true,
+    maxDepth: 1
+  },
+  FILENAMES: {
+    maxLength: 100,
+    defaultPrefix: 'page',
+  },
+  HEADERS: {
+    contentType: 'application/zip',
+    cache: {
+      'Cache-Control': 'no-cache, no-store, must-revalidate',
+      'Pragma': 'no-cache',
+      'Expires': '0'
     }
+  },
+  REQUEST_TIMEOUT: 300000 // 5 minutes
 };
 
+// Request tracking using WeakMap to avoid memory leaks
+const activeRequests = new WeakMap();
+
 /**
- * Utility functions for URL handling
+ * URL Handler Utilities
  */
-class UrlHandlerUtils {
-    /**
-     * Creates a sanitized filename for the ZIP
-     */
-    static createZipFilename(hostname, prefix = 'page', suffix = '') {
-        const timestamp = new Date()
-            .toISOString()
-            .replace(/[:.]/g, '-');
-        
-        const baseFilename = `${prefix}_${hostname}_${timestamp}${suffix}`;
-        return sanitizeFilename(baseFilename)
-            .substring(0, CONSTANTS.MAX_FILENAME_LENGTH) + '.zip';
-    }
+class UrlHandler {
+  /**
+   * Creates a sanitized filename for the ZIP
+   */
+  static createFilename(hostname, prefix = CONSTANTS.FILENAMES.defaultPrefix) {
+    const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+    const baseFilename = `${prefix}_${hostname}_${timestamp}`;
 
-    /**
-     * Extracts domain information from URL
-     */
-    static getDomainInfo(url) {
-        try {
-            const urlObj = new URL(url);
-            return {
-                hostname: urlObj.hostname,
-                protocol: urlObj.protocol,
-                pathname: urlObj.pathname,
-                searchParams: urlObj.searchParams
-            };
-        } catch (error) {
-            throw new AppError(`Invalid URL: ${error.message}`, 400);
-        }
-    }
+    return sanitizeFilename(baseFilename)
+      .substring(0, CONSTANTS.FILENAMES.maxLength) + '.zip';
+  }
 
-    /**
-     * Sets response headers for ZIP download
-     */
-    static setDownloadHeaders(res, filename) {
-        res.set({
-            'Content-Type': CONSTANTS.ZIP_CONTENT_TYPE,
-            'Content-Disposition': `attachment; filename="${sanitizeFilename(filename)}"`,
-            ...CONSTANTS.CACHE_HEADERS
-        });
+  /**
+   * Validates and extracts domain information from URL
+   */
+  static validateUrl(url) {
+    try {
+      const urlObj = new URL(url);
+      return {
+        hostname: urlObj.hostname,
+        protocol: urlObj.protocol,
+        pathname: urlObj.pathname,
+        searchParams: urlObj.searchParams
+      };
+    } catch (error) {
+      throw new AppError(`Invalid URL: ${error.message}`, 400);
     }
+  }
+
+  /**
+   * Sets download headers for response
+   */
+  static setDownloadHeaders(res, filename) {
+    res.set({
+      'Content-Type': CONSTANTS.HEADERS.contentType,
+      'Content-Disposition': `attachment; filename="${sanitizeFilename(filename)}"`,
+      ...CONSTANTS.HEADERS.cache
+    });
+  }
+
+  /**
+   * Tracks active request
+   */
+  static trackRequest(req, id) {
+    const requestInfo = {
+      id,
+      startTime: Date.now(),
+      timeout: setTimeout(() => {
+        this.cleanupRequest(req);
+      }, CONSTANTS.REQUEST_TIMEOUT)
+    };
+    activeRequests.set(req, requestInfo);
+    return requestInfo;
+  }
+
+  /**
+   * Cleans up request tracking
+   */
+  static cleanupRequest(req) {
+    const requestInfo = activeRequests.get(req);
+    if (requestInfo?.timeout) {
+      clearTimeout(requestInfo.timeout);
+    }
+    activeRequests.delete(req);
+    console.log(`Request ${requestInfo.id} cleaned up.`);
+  }
 }
 
 /**
  * Main URL conversion handler
- * @param {Object} req - Express request object
- * @param {Object} res - Express response object
- * @param {Function} next - Express next middleware function
  */
-  export async function handleUrlConversion(req, res, next) {
-    // Generate requestId at the start
-    const requestId = Math.random().toString(36).substring(7);
-    const startTime = Date.now();
+export async function handleUrlConversion(req, res, next) {
+  const requestId = Math.random().toString(36).substring(7);
 
-    if (req.inProgress) {
-        console.log(`[${requestId}] Conversion already in progress, skipping`);
-        return;
-    }
-    req.inProgress = true;
-
-    try {
-        const { url, options = {} } = req.body;
-        const apiKey = req.headers['x-api-key'];
-
-        console.log(`[${requestId}] Processing URL: ${url}`);
-
-        const { hostname } = UrlHandlerUtils.getDomainInfo(url);
-        const conversionOptions = {
-            ...CONSTANTS.DEFAULT_OPTIONS,
-            ...options
-        };
-
-        const conversionResult = await handleConversion(
-            'url',
-            url,
-            hostname,
-            apiKey,
-            conversionOptions
-        );
-
-        if (!conversionResult.success) {
-            throw new AppError(
-                conversionResult.error || 'Conversion failed',
-                conversionResult.status || 500,
-                { requestId }
-            );
-        }
-
-        const zipResult = await createZipArchive(conversionResult, hostname);
-        
-        if (!zipResult.success) {
-            throw new AppError('Failed to create ZIP archive', 500, { requestId });
-        }
-
-        UrlHandlerUtils.setDownloadHeaders(res, zipResult.filename);
-        
-        return res.send(zipResult.buffer);
-
-    } catch (error) {
-        console.error(`[${requestId}] Error:`, error);
-        next(new AppError(
-            error.message || 'URL conversion failed',
-            error.status || 500,
-            { requestId }
-        ));
-    } finally {
-        req.inProgress = false;
-    }
+  // Check if request is already being processed
+  if (activeRequests.has(req)) {
+    console.warn(`Request ${requestId} is already in progress.`);
+    return next(new AppError('Request already in progress', 429));
   }
 
-/**
- * Creates a ZIP archive from conversion result
- * @private
- */
-async function createZipArchive(conversionResult, hostname) {
-    try {
-        const zipBuffer = await createBatchZip([conversionResult]);
-        
-        return {
-            success: true,
-            buffer: zipBuffer,
-            filename: UrlHandlerUtils.createZipFilename(hostname)
-        };
-    } catch (error) {
-        return {
-            success: false,
-            error: error.message
-        };
-    }
+  // Start request tracking
+  UrlHandler.trackRequest(req, requestId);
+  console.log(`[${requestId}] Started processing URL conversion.`);
+
+  try {
+    const { url, options = {} } = req.body;
+    const apiKey = req.headers['x-api-key'];
+
+    console.log(`[${requestId}] Processing URL: ${url}`);
+
+    // Validate URL and get domain info
+    const { hostname } = UrlHandler.validateUrl(url);
+    console.log(`[${requestId}] Validated URL. Hostname: ${hostname}`);
+
+    // Merge options with defaults
+    const conversionOptions = {
+      ...CONSTANTS.CONVERSION,
+      ...options
+    };
+    console.log(`[${requestId}] Conversion options:`, conversionOptions);
+
+    // Handle conversion
+    const conversionResult = await handleConversion('url', url, hostname, apiKey);
+    console.log(`[${requestId}] Conversion result:`, conversionResult);
+
+    // Create ZIP archive
+    const zipBuffer = await createBatchZip([conversionResult]);
+    console.log(`[${requestId}] Created ZIP buffer, size: ${zipBuffer.length} bytes`);
+
+    // Create filename
+    const filename = UrlHandler.createFilename(hostname);
+    console.log(`[${requestId}] Generated filename: ${filename}`);
+
+    // Set headers and send response
+    UrlHandler.setDownloadHeaders(res, filename);
+    console.log(`[${requestId}] Set download headers. Sending ZIP file.`);
+    return res.send(zipBuffer);
+
+  } catch (error) {
+    console.error(`[${requestId}] Error during URL conversion:`, error);
+    return next(new AppError(
+      error.message || 'URL conversion failed',
+      error.status || 500,
+      { requestId }
+    ));
+  } finally {
+    UrlHandler.cleanupRequest(req);
+    console.log(`[${requestId}] Finished processing URL conversion.`);
+  }
 }
 
 /**
- * Middleware for handling URL conversion requests
+ * URL conversion middleware
  */
 export function urlConversionMiddleware(options = {}) {
-    return async (req, res, next) => {
-        // Add request ID
-        req.id = Math.random().toString(36).substring(7);
-        
-        // Add timing information
-        req.startTime = Date.now();
-        
-        // Add options to request
-        req.conversionOptions = {
-            ...CONSTANTS.DEFAULT_OPTIONS,
-            ...options
-        };
-        
-        next();
-    };
+  return (req, res, next) => {
+    // Add request metadata
+    Object.assign(req, {
+      id: Math.random().toString(36).substring(7),
+      startTime: Date.now(),
+      conversionOptions: {
+        ...CONSTANTS.CONVERSION,
+        ...options
+      }
+    });
+
+    next();
+  };
 }
 
-// Export utils for testing
-export { UrlHandlerUtils, CONSTANTS };
+export const utils = UrlHandler;
+export { CONSTANTS };

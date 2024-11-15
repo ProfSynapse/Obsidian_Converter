@@ -1,4 +1,4 @@
-// routes/convert/utils/categoryDetector.js
+// routes/utils/categoryDetector.js
 
 /**
  * Utility function to determine if a file type requires an API key
@@ -24,4 +24,3 @@ export function determineCategory(type, fileType) {
     if (textTypes.includes(fileType)) return 'text';
     return 'others'; // For any other types
   }
-  

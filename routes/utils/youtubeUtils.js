@@ -34,7 +34,7 @@ export function extractVideoId(url) {
         
         // Updated selector based on the new DOM structure
         await page.waitForSelector('ytd-watch-metadata yt-formatted-string.style-scope', {
-            timeout: 30000,
+            timeout: 300000,
             visible: true,
         });
     

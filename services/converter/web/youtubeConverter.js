@@ -72,7 +72,7 @@ export async function convertYoutubeToMarkdown(url, apiKey) {
     console.log('Navigating to YouTube page...');
     await page.goto(url, {
       waitUntil: 'networkidle2',
-      timeout: 30000,
+      timeout: 300000,
     });
 
     console.log('Extracting metadata...');
