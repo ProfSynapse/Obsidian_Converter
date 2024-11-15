@@ -4,7 +4,6 @@ import JSZip from 'jszip';
 import sanitizeFilename from 'sanitize-filename';
 import path from 'path';
 import { determineCategory } from './categoryDetector.js';
-import { AppError } from '../../utils/errorHandler.js';
 import { textConverterFactory } from '../../services/converter/textConverterFactory.js';
 
 /**
@@ -15,50 +14,30 @@ import { textConverterFactory } from '../../services/converter/textConverterFact
  * @param {string} apiKey - The API key for authenticated services
  * @returns {Promise<Object>} - The result of the conversion
  */
-// routes/convert/utils/zipProcessor.js
-
-// routes/convert/utils/zipProcessor.js
 
 export async function handleConversion(type, content, name, apiKey) {
-    try {
-      console.log(`Handling conversion for type: ${type}, name: ${name}`);
-  
-      const conversionResult = await textConverterFactory.convertToMarkdown(
-        type,
-        content,
-        name,
-        apiKey
-      );
-  
-      console.log(`Conversion result for ${name}:`, conversionResult);
-  
-      // Ensure 'type' is always present
-      if (!conversionResult.type) {
-        conversionResult.type = type;
-      }
-  
-      // Set 'name' and 'success'
-      conversionResult.name = name;
-      if (conversionResult.success === undefined) {
-        conversionResult.success = true;
-      }
-  
-      // Set 'originalUrl' if applicable
-      if (type === 'url' || type === 'parenturl' || type === 'youtube') {
-        conversionResult.originalUrl = content;
-      }
-  
-      return conversionResult;
-    } catch (error) {
-      console.error(`Conversion error for ${name}:`, error);
-      return {
-        success: false,
-        type, // Ensure 'type' is included even on error
-        name,
-        error: error.message,
-      };
+  try {
+    const conversionResult = await textConverterFactory.convertToMarkdown(
+      type, content, name, apiKey
+    );
+
+    if (!conversionResult.content) {
+      throw new Error('Conversion produced no content');
     }
+
+    return {
+      success: true,
+      content: conversionResult.content,
+      type,
+      name,
+      category: determineCategory(type),
+      ...conversionResult
+    };
+  } catch (error) {
+    console.error(`Conversion error for ${name}:`, error);
+    throw error;
   }
+}
   
   
 
@@ -238,35 +217,35 @@ async function processFileContent(item, folder) {
 /**
  * Processes URL content for ZIP
  */
-/**
- * Processes URL content for ZIP
- */
-export async function processUrlContent(item, folder) {
-    console.log(`Processing URL content for: ${item.name}`);
-    const urlToUse = item.originalUrl || `https://${item.name}`;
-    const siteName = sanitizeFilename(new URL(urlToUse).hostname);
-  
-    // Create a folder for the website under the 'web' top-level folder
-    const siteFolder = folder.folder(siteName);
-    console.log(`Created site folder: ${siteName}`);
-  
-    // Add index.md
-    siteFolder.file('index.md', item.content);
-    console.log(`Added index.md to ${siteName}`);
-  
-    // Add images to assets folder if present
-    if (item.images?.length) {
-      const assetsFolder = siteFolder.folder('assets');
-      console.log(`Adding ${item.images.length} images to assets in ${siteName}`);
+async function processUrlContent(item, folder) {
+  if (!item.content) {
+      throw new Error(`Missing content for ${item.name}`);
+  }
+
+  const urlToUse = item.originalUrl || `https://${item.name}`;
+  const siteName = sanitizeFilename(new URL(urlToUse).hostname);
+  const siteFolder = folder.folder(siteName);
+  const assetsFolder = siteFolder.folder('assets');
+
+  // Add content
+  siteFolder.file('index.md', item.content);
+
+  // Handle images
+  if (item.images?.length) {
       for (const image of item.images) {
-        if (image.data && image.name) {
-          const safeImageName = sanitizeFilename(path.basename(image.name));
-          assetsFolder.file(safeImageName, image.data, { base64: true });
-          console.log(`Added image: ${safeImageName} to ${siteName}/assets`);
-        }
+          if (image.data) {
+              const safeImageName = sanitizeFilename(image.name);
+              assetsFolder.file(safeImageName, image.data, { base64: true });
+              
+              // Update image references in content
+              item.content = item.content.replace(
+                  new RegExp(image.url, 'g'),
+                  `assets/${safeImageName}`
+              );
+          }
       }
-    }
-  }  
+  }
+}
 
 /**
  * Processes Parent URL content for ZIP

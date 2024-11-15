@@ -310,47 +310,63 @@ class UrlConverter {
      * Extracts and processes images
      */
     async extractImages($) {
-        const images = [];
-        const seenUrls = new Set();
-
-        $('img').each((_, img) => {
-            const src = $(img).attr('src');
-            if (!src || seenUrls.has(src)) return;
-
-            // Only process if it's a supported image type
-            const ext = src.split('.').pop().toLowerCase();
-            if (!CONFIG.conversion.imageTypes.includes(ext)) return;
-
-            seenUrls.add(src);
-            if (images.length >= CONFIG.conversion.maxImages) return;
-
-            images.push({
-                url: src,
-                alt: $(img).attr('alt') || '',
-                name: UrlUtils.sanitizeFilename(src.split('/').pop())
-            });
-        });
-
-        return images;
-    }
+      const images = [];
+      const seenUrls = new Set();
+  
+      const downloadImage = async (url) => {
+          try {
+              const response = await fetch(url);
+              const buffer = await response.arrayBuffer();
+              return Buffer.from(buffer).toString('base64');
+          } catch (error) {
+              console.error(`Failed to download image: ${url}`, error);
+              return null;
+          }
+      };
+  
+      await Promise.all($('img').map(async (_, img) => {
+          const src = $(img).attr('src');
+          if (!src || seenUrls.has(src)) return;
+          if (!src.startsWith('http')) return;
+  
+          seenUrls.add(src);
+          if (images.length >= CONFIG.conversion.maxImages) return;
+  
+          const imageData = await downloadImage(src);
+          if (!imageData) return;
+  
+          const ext = src.split('.').pop().toLowerCase();
+          if (!CONFIG.conversion.imageTypes.includes(ext)) return;
+  
+          images.push({
+              url: src,
+              data: imageData,
+              name: `image-${images.length + 1}.${ext}`,
+              type: `image/${ext}`
+          });
+      }).get());
+  
+      return images;
+  }
 
     /**
      * Formats the final content with metadata
      */
     formatContent(markdown, metadata = null) {
-        const sections = [];
-
-        // Add frontmatter if metadata exists
-        if (metadata) {
-            sections.push(
-                '---',
-                ...Object.entries(metadata).map(([key, value]) => 
-                    `${key}: "${value?.replace(/"/g, '\\"') || ''}"`
-                ),
-                '---',
-                ''
-            );
-        }
+      const sections = [];
+  
+      // Add frontmatter if metadata exists
+      if (metadata) {
+          sections.push(
+              '---',
+              // Fix: Don't spread each character as a key
+              Object.entries(metadata)
+                  .map(([key, value]) => `${key}: "${value?.toString()?.replace(/"/g, '\\"') || ''}"`)
+                  .join('\n'),
+              '---',
+              ''
+          );
+      }
 
         // Add main content
         sections.push(markdown);

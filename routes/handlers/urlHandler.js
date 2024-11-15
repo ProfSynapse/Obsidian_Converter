@@ -75,33 +75,29 @@ class UrlHandlerUtils {
  * @param {Object} res - Express response object
  * @param {Function} next - Express next middleware function
  */
-export async function handleUrlConversion(req, res, next) {
+  export async function handleUrlConversion(req, res, next) {
+    // Generate requestId at the start
+    const requestId = Math.random().toString(36).substring(7);
     const startTime = Date.now();
-    const requestId = req.id || Math.random().toString(36).substring(7);
+
+    if (req.inProgress) {
+        console.log(`[${requestId}] Conversion already in progress, skipping`);
+        return;
+    }
+    req.inProgress = true;
 
     try {
-        // Extract request data
         const { url, options = {} } = req.body;
         const apiKey = req.headers['x-api-key'];
 
-        // Log request details
-        console.log('URL Conversion Request:', {
-            requestId,
-            url,
-            options,
-            hasApiKey: !!apiKey
-        });
+        console.log(`[${requestId}] Processing URL: ${url}`);
 
-        // Get domain information
         const { hostname } = UrlHandlerUtils.getDomainInfo(url);
-
-        // Merge options with defaults
         const conversionOptions = {
             ...CONSTANTS.DEFAULT_OPTIONS,
             ...options
         };
 
-        // Convert the URL
         const conversionResult = await handleConversion(
             'url',
             url,
@@ -110,64 +106,35 @@ export async function handleUrlConversion(req, res, next) {
             conversionOptions
         );
 
-        // Check conversion result
         if (!conversionResult.success) {
             throw new AppError(
                 conversionResult.error || 'Conversion failed',
-                conversionResult.status || 500
+                conversionResult.status || 500,
+                { requestId }
             );
         }
 
-        // Create ZIP archive
         const zipResult = await createZipArchive(conversionResult, hostname);
         
         if (!zipResult.success) {
-            throw new AppError(
-                'Failed to create ZIP archive',
-                500,
-                zipResult.error
-            );
+            throw new AppError('Failed to create ZIP archive', 500, { requestId });
         }
 
-        // Set response headers and send ZIP
         UrlHandlerUtils.setDownloadHeaders(res, zipResult.filename);
         
-        // Log success
-        const duration = Date.now() - startTime;
-        console.log('URL Conversion Completed:', {
-            requestId,
-            url,
-            duration,
-            size: zipResult.buffer.length
-        });
-
         return res.send(zipResult.buffer);
 
     } catch (error) {
-        // Log error details
-        console.error('URL Conversion Error:', {
-            requestId,
-            error: error.message,
-            stack: error.stack,
-            duration: Date.now() - startTime
-        });
-
-        // Handle different types of errors
-        if (error instanceof AppError) {
-            next(error);
-        } else if (error.code === 'ETIMEDOUT' || error.code === 'ECONNABORTED') {
-            next(new AppError('Request timeout', 504));
-        } else if (error.code === 'ECONNREFUSED') {
-            next(new AppError('Service unavailable', 503));
-        } else {
-            next(new AppError(
-                `URL conversion failed: ${error.message}`,
-                500,
-                { requestId }
-            ));
-        }
+        console.error(`[${requestId}] Error:`, error);
+        next(new AppError(
+            error.message || 'URL conversion failed',
+            error.status || 500,
+            { requestId }
+        ));
+    } finally {
+        req.inProgress = false;
     }
-}
+  }
 
 /**
  * Creates a ZIP archive from conversion result

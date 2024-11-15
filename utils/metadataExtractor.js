@@ -9,39 +9,30 @@ import * as cheerio from 'cheerio';
  * @returns {Promise<string>} - The formatted metadata in Markdown.
  * @throws {Error} - If fetching or parsing fails.
  */
+// In utils/metadataExtractor.js
 export async function extractMetadata(url) {
   try {
-    const response = await fetch(url);
-    if (!response.ok) {
-      throw new Error(`Failed to fetch URL for metadata: ${response.status} ${response.statusText}`);
-    }
+      const response = await fetch(url);
+      if (!response.ok) {
+          throw new Error(`Failed to fetch URL: ${response.status}`);
+      }
 
-    const html = await response.text();
-    const $ = cheerio.load(html);
+      const html = await response.text();
+      const $ = cheerio.load(html);
 
-    const title = $('title').text().trim() || new URL(url).hostname;
-    const description = $('meta[name="description"]').attr('content') || '';
-    const author = $('meta[name="author"]').attr('content') || '';
-    const keywords = $('meta[name="keywords"]').attr('content') || '';
-
-    const metadataLines = [
-      `# ${title}`,
-      '',
-      description ? `> ${description}` : '',
-      '',
-      '## Metadata',
-      '',
-      `- **Source:** [${url}](${url})`,
-      `- **Captured:** ${new Date().toISOString()}`,
-      author ? `- **Author:** ${author}` : '',
-      keywords ? `- **Keywords:** ${keywords}` : '',
-      '',
-      '---',
-      ''
-    ];
-
-    return metadataLines.filter(Boolean).join('\n');
+      return {
+          title: $('title').text().trim() || new URL(url).hostname,
+          description: $('meta[name="description"]').attr('content') || '',
+          source: url,
+          captured: new Date().toISOString()
+      };
   } catch (error) {
-    throw new Error(`Failed to extract metadata: ${error.message}`);
+      console.error('Metadata extraction error:', error);
+      // Return basic metadata even if extraction fails
+      return {
+          title: new URL(url).hostname,
+          source: url,
+          captured: new Date().toISOString()
+      };
   }
 }
