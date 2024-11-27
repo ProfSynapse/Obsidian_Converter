@@ -36,32 +36,33 @@ export async function handleConversion(type, content, name, apiKey) {
       throw new Error('Conversion produced no content');
     }
 
-    // Extract file extension as fileType
+    console.log(`Conversion successful for ${name}, content length: ${conversionResult.content.length}`);
+
     const fileType = path.extname(name).substring(1).toLowerCase();
 
     const result = {
       success: true,
       content: conversionResult.content,
       type,
-      name: sanitizeFilename(name), // Ensure name is sanitized
+      name: sanitizeFilename(name),
       category: determineCategory(type, fileType),
       images: conversionResult.images || [],
+      originalContent: content // Preserve original content for debugging
     };
 
-    // Include URL if type is 'url'
     if (type.toLowerCase() === 'url') {
-      result.url = content; // Assuming 'content' is the URL string
+      result.url = content;
     }
 
     return result;
   } catch (error) {
     console.error(`Conversion error for "${name}":`, error);
-    // Return an error object instead of throwing to handle in createBatchZip
     return {
       success: false,
       error: error.message,
       type,
       name: sanitizeFilename(name),
+      content: `# Conversion Error\n\nFailed to convert ${name}\nError: ${error.message}` // Add error content
     };
   }
 }
@@ -165,9 +166,16 @@ export async function createBatchZip(items) {
  * @param {JSZip} folder - The JSZip folder to add content to
  */
 async function processFileContent(item, folder) {
-  console.log(`Processing file content for: "${item.name}"`);
-  folder.file(`${sanitizeFilename(item.name)}.md`, item.content);
-  console.log(`Added file: "${sanitizeFilename(item.name)}.md"`);
+  console.log(`Processing file content for: "${item.name}" with content length: ${item.content?.length || 0}`);
+  
+  if (!item.content) {
+    console.error(`No content found for file: ${item.name}`);
+    throw new Error(`Missing content for file: ${item.name}`);
+  }
+
+  const filename = `${sanitizeFilename(item.name)}.md`;
+  folder.file(filename, item.content);
+  console.log(`Added file: "${filename}" with content length: ${item.content.length}`);
 
   if (item.images?.length) {
     const assetsFolder = folder.folder('assets');

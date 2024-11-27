@@ -51,10 +51,8 @@ const CONFIG = {
 class WebsiteCrawler {
   constructor() {
     this.browser = null;
-    this.page = null;
     this.discoveredUrls = new Set();
-    this.processedUrls = new Set();
-    this.urlQueue = [];
+    this.maxDepth = CONFIG.crawler.maxDepth;
   }
 
   /**
@@ -62,8 +60,6 @@ class WebsiteCrawler {
    */
   async initialize() {
     this.browser = await puppeteer.launch(CONFIG.puppeteer.launch);
-    this.page = await this.browser.newPage();
-    await this.page.setUserAgent(CONFIG.puppeteer.userAgent);
   }
 
   /**
@@ -76,53 +72,111 @@ class WebsiteCrawler {
   }
 
   /**
-   * Processes a single URL and extracts links
-   * @param {string} url - URL to process
-   * @param {string} parentUrl - Original parent URL for domain checking
+   * Crawls a website starting from a parent URL
+   * @param {string} startUrl - Starting URL
+   * @returns {Promise<Set<string>>} Set of discovered URLs
    */
-  async processUrl(url, parentUrl) {
-    if (this.processedUrls.has(url)) return;
-    
+  async crawl(startUrl) {
     try {
-      this.processedUrls.add(url);
-      console.log(`Processing page ${this.processedUrls.size}:`, url);
+      const queue = [{ url: startUrl, depth: 0 }];
+      const visitedUrls = new Set();
+      const limit = pLimit(CONFIG.crawler.concurrentLimit);
+      let activeTasks = [];
 
-      const response = await this.page.goto(url, CONFIG.puppeteer.navigation);
-      if (!response) {
-        console.warn(`No response for URL: ${url}`);
-        return;
-      }
+      console.log(`Starting crawl of: ${startUrl}`);
 
-      const contentType = response.headers()['content-type'] || '';
+      while (
+        (queue.length > 0 || activeTasks.length > 0) &&
+        this.discoveredUrls.size < CONFIG.crawler.maxPages
+      ) {
+        // Fill up active tasks from queue
+        while (queue.length > 0 && activeTasks.length < CONFIG.crawler.concurrentLimit) {
+          const { url, depth } = queue.shift();
+          if (visitedUrls.has(url) || depth > this.maxDepth) continue;
+          visitedUrls.add(url);
 
-      // Add URLs based on content type
-      if (contentType.includes('text/html') || contentType.includes('image/')) {
-        this.discoveredUrls.add(url);
-      }
-
-      // Only extract links from HTML pages
-      if (contentType.includes('text/html')) {
-        const links = await this.extractLinks();
-        
-        // Add valid links to the queue
-        for (const link of links) {
-          if (this.isValidUrl(link, parentUrl) && !this.processedUrls.has(link)) {
-            this.urlQueue.push(link);
-          }
+          const task = limit(() => this.processUrl(url, startUrl, depth, queue, visitedUrls));
+          activeTasks.push(task);
         }
+
+        if (activeTasks.length > 0) {
+          // Wait for one task to complete
+          await Promise.race(activeTasks).catch(error => {
+            console.warn('Task error:', error.message);
+          });
+
+          // Remove completed tasks
+          activeTasks = activeTasks.filter(task => task.isPending?.());
+        }
+
+        // Small delay to prevent CPU spinning
+        await new Promise(resolve => setTimeout(resolve, 100));
       }
+
+      // Wait for remaining tasks
+      if (activeTasks.length > 0) {
+        await Promise.allSettled(activeTasks);
+      }
+
+      console.log(`\nCrawl completed - Found ${this.discoveredUrls.size} pages\n`);
+      return this.discoveredUrls;
     } catch (error) {
-      console.error(`Error processing ${url}:`, error);
-      // Don't rethrow to continue processing other URLs
+      console.error('Crawl error:', error);
+      throw error;
     }
   }
 
   /**
-   * Extracts all links from the current page
+   * Processes a single URL and extracts links
+   * @param {string} url - URL to process
+   * @param {string} parentUrl - Parent URL for domain checking
+   * @param {number} depth - Current depth
+   * @param {Array} queue - Queue of URLs
+   * @param {Set} visitedUrls - Set of visited URLs
+   */
+  async processUrl(url, parentUrl, depth, queue, visitedUrls) {
+    let page;
+    try {
+      page = await this.browser.newPage();
+      await page.setUserAgent(CONFIG.puppeteer.userAgent);
+
+      const response = await page.goto(url, {
+        ...CONFIG.puppeteer.navigation,
+        waitUntil: 'domcontentloaded'
+      });
+
+      if (!response) {
+        console.log(`❌ Failed to load: ${url}`);
+        return;
+      }
+
+      const contentType = response.headers()['content-type'] || '';
+      if (contentType.includes('text/html')) {
+        this.discoveredUrls.add(url);
+        await page.waitForSelector('body');
+        const links = await this.extractLinks(page);
+        console.log(`✓ Processed: ${url} (${links.length} links)`);
+
+        for (const link of links) {
+          if (this.isValidUrl(link, parentUrl) && !visitedUrls.has(link)) {
+            queue.push({ url: link, depth: depth + 1 });
+          }
+        }
+      }
+    } catch (error) {
+      console.log(`❌ Error on ${url}: ${error.message}`);
+    } finally {
+      if (page) await page.close().catch(() => {});
+    }
+  }
+
+  /**
+   * Extracts all links from the given page
+   * @param {object} page - Puppeteer page instance
    * @returns {Promise<string[]>} Array of discovered URLs
    */
-  async extractLinks() {
-    return await this.page.evaluate(() => {
+  async extractLinks(page) {
+    return await page.evaluate(() => {
       const links = new Set();
       
       // Process regular links
@@ -156,13 +210,10 @@ class WebsiteCrawler {
       const urlObj = new URL(url);
       const parentObj = new URL(parentUrl);
 
-      // Check domain - include subdomains of the parent domain
-      const parentDomain = parentObj.hostname.split('.');
-      const urlDomain = urlObj.hostname.split('.');
-      
-      // Match either exact domain or subdomains
-      const isSubdomain = urlDomain.slice(-parentDomain.length).join('.') === parentDomain.join('.');
-      if (!isSubdomain) return false;
+      // Must be same domain or subdomain
+      if (!urlObj.hostname.endsWith(parentObj.hostname)) {
+        return false;
+      }
 
       // Check against exclude patterns
       if (CONFIG.crawler.excludePatterns.some(pattern => pattern.test(url))) {
@@ -173,22 +224,6 @@ class WebsiteCrawler {
     } catch {
       return false;
     }
-  }
-
-  /**
-   * Crawls a website starting from a parent URL
-   * @param {string} parentUrl - Starting URL
-   * @returns {Promise<Set<string>>} Set of discovered URLs
-   */
-  async crawl(parentUrl) {
-    this.urlQueue = [parentUrl];
-
-    while (this.urlQueue.length > 0 && this.discoveredUrls.size < CONFIG.crawler.maxPages) {
-      const url = this.urlQueue.shift();
-      await this.processUrl(url, parentUrl);
-    }
-
-    return this.discoveredUrls;
   }
 }
 
@@ -203,31 +238,29 @@ class UrlProcessor {
    */
   async processUrls(urls) {
     const limit = pLimit(CONFIG.crawler.concurrentLimit);
+    console.log(`\nConverting ${urls.size} pages to Markdown...\n`);
 
     const tasks = Array.from(urls).map(url =>
       limit(async () => {
         try {
-          const urlObj = new URL(url);
-          const name = this.sanitizeFilename(urlObj.pathname);
+          const result = await convertUrlToMarkdown(url, {
+            includeImages: true,
+            includeMeta: true
+          });
 
-          const result = await convertUrlToMarkdown(url, name);
-
+          const urlPath = new URL(url).pathname || '/';
+          const name = this.sanitizeFilename(urlPath);
+          console.log(`✓ Converted: ${url}`);
           return {
             success: true,
-            type: 'url',
-            name: `${name || 'index'}`,
+            name: `${name}.md`,
             content: result.content,
             images: result.images || [],
             url
           };
         } catch (error) {
-          console.error(`Error converting ${url}:`, error);
-          return {
-            success: false,
-            type: 'url',
-            url,
-            error: error.message
-          };
+          console.log(`❌ Failed to convert: ${url}`);
+          return { success: false, url, error: error.message };
         }
       })
     );
@@ -310,18 +343,13 @@ class UrlProcessor {
  * @param {string} originalName - Original name for context
  * @returns {Promise<Object>} Conversion results
  */
-export async function convertParentUrlToMarkdown(parentUrl, originalName) {
+export async function convertParentUrlToMarkdown(parentUrl) {
   const crawler = new WebsiteCrawler();
   const processor = new UrlProcessor();
 
   try {
-    // Normalize URL
-    const normalizedUrl = normalizeUrl(parentUrl);
-    console.log(`Starting conversion of ${normalizedUrl}`);
-
-    // Initialize and crawl
     await crawler.initialize();
-    const urls = await crawler.crawl(normalizedUrl);
+    const urls = await crawler.crawl(parentUrl);
 
     console.log(`Found ${urls.size} URLs to process`);
 
@@ -329,36 +357,43 @@ export async function convertParentUrlToMarkdown(parentUrl, originalName) {
       throw new AppError('No valid URLs found to convert', 400);
     }
 
-    // Process discovered URLs
     const processedPages = await processor.processUrls(urls);
+    const index = processor.generateIndex(parentUrl, processedPages);
+    const hostname = new URL(parentUrl).hostname;
 
-    // Generate index
-    const index = processor.generateIndex(normalizedUrl, processedPages);
+    // Collect all images across all pages
+    const allImages = processedPages
+      .filter(p => p.success)
+      .flatMap(p => p.images || [])
+      .filter(img => img && img.data && img.name)
+      .map(img => ({
+        name: `web/${hostname}/assets/${img.name}`,
+        data: img.data,
+        type: 'binary'
+      }));
 
-    // Collect successful pages and images
-    const successfulPages = processedPages.filter(p => p.success);
-    const allImages = successfulPages.flatMap(p => p.images || []);
-
-    // Return results
     return {
+      url: parentUrl,
+      type: 'parenturl',
       content: index,
-      files: successfulPages.map(({ name, content }) => ({
-        name: `pages/${name}`,
-        content: content || `# ${name}\n\nNo content available.`
-      })),
-      images: allImages.filter(img => img.data && img.name).map(img => ({
-        name: `assets/${img.name}`,
-        data: img.data
-      })),
-      childUrls: Array.from(urls)
+      name: hostname,
+      files: [
+        {
+          name: `web/${hostname}/index.md`,
+          content: index,
+          type: 'text'
+        },
+        ...processedPages
+          .filter(p => p.success)
+          .map(({ name, content }) => ({
+            name: `web/${hostname}/pages/${name}`,
+            content,
+            type: 'text'
+          }))
+      ],
+      images: allImages,
+      success: true
     };
-
-  } catch (error) {
-    console.error('Parent URL conversion failed:', error);
-    throw new AppError(
-      `Parent URL conversion failed: ${error.message}`,
-      error.status || 500
-    );
   } finally {
     await crawler.cleanup();
   }

@@ -21,7 +21,7 @@ class Server {
         this.env = process.env.NODE_ENV || config.server.env || 'development';
         this.corsOptions = {
             origin: [
-                'http://localhost:5174',    // Dev frontend
+                'http://localhost:5173',    // Dev frontend
                 'http://localhost:3000',    // Dev backend
                 ...(process.env.CORS_ORIGIN ? [process.env.CORS_ORIGIN] : [])
             ],

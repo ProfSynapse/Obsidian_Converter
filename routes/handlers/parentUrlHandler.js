@@ -29,19 +29,10 @@ export async function handleParentUrlConversion(req, res, next) {
         const normalizedUrl = normalizeUrl(urlString);
 
         // Convert parent URL and its children
-        const conversionResult = await convertParentUrlToMarkdown(
-            normalizedUrl,
-            new URL(normalizedUrl).hostname
-        );
-
-        // Create ZIP with converted content, including 'name' and 'url'
-        const zipBuffer = await createBatchZip([{
-            ...conversionResult,
-            type: 'parenturl',
-            success: true,
-            name: new URL(normalizedUrl).hostname, // Include 'name'
-            url: normalizedUrl // Include 'url'
-        }]);
+        const result = await convertParentUrlToMarkdown(normalizedUrl);
+        
+        // Create ZIP with all content
+        const zipBuffer = await createBatchZip([result]);
 
         // Generate filename for the ZIP
         const zipFilename = `${sanitizeFilename(new URL(normalizedUrl).hostname)}_archive_${

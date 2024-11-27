@@ -21,11 +21,14 @@ export async function handleFileUpload(req, res, next) {
       req.headers['x-api-key']
     );
     const zipBuffer = await createBatchZip([conversionResult]);
+    
+    // Use standardized filename format
+    const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+    const filename = sanitizeFilename(`conversion_${timestamp}.zip`);
+
     res.set({
       'Content-Type': 'application/zip',
-      'Content-Disposition': `attachment; filename=${sanitizeFilename(
-        req.file.originalname
-      )}_converted.zip`,
+      'Content-Disposition': `attachment; filename="${filename}"`,
     });
     res.send(zipBuffer);
   } catch (error) {

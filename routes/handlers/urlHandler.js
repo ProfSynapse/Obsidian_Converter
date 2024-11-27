@@ -56,10 +56,8 @@ class UrlHandler {
    */
   static createFilename(hostname, prefix = CONSTANTS.FILENAMES.defaultPrefix) {
     const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
-    const baseFilename = `${prefix}_${hostname}_${timestamp}`;
-
-    return sanitizeFilename(baseFilename)
-      .substring(0, CONSTANTS.FILENAMES.maxLength) + '.zip';
+    // Changed to use standard format
+    return sanitizeFilename(`conversion_${timestamp}.zip`);
   }
 
   /**
@@ -85,7 +83,7 @@ class UrlHandler {
   static setDownloadHeaders(res, filename) {
     res.set({
       'Content-Type': CONSTANTS.HEADERS.contentType,
-      'Content-Disposition': `attachment; filename="${sanitizeFilename(filename)}"`,
+      'Content-Disposition': `attachment; filename="${filename}"`,
       ...CONSTANTS.HEADERS.cache
     });
   }
@@ -153,14 +151,22 @@ export async function handleUrlConversion(req, res, next) {
 
     // Handle conversion
     const conversionResult = await handleConversion('url', url, hostname, apiKey);
-    console.log(`[${requestId}] Conversion result:`, conversionResult);
+    console.log(`[${requestId}] Conversion result:`, {
+      success: conversionResult.success,
+      contentLength: conversionResult.content?.length,
+      name: conversionResult.name
+    });
+
+    if (!conversionResult.success || !conversionResult.content) {
+      throw new AppError('Conversion failed - no content produced', 500);
+    }
 
     // Create ZIP archive
     const zipBuffer = await createBatchZip([conversionResult]);
     console.log(`[${requestId}] Created ZIP buffer, size: ${zipBuffer.length} bytes`);
 
-    // Create filename
-    const filename = UrlHandler.createFilename(hostname);
+    // Create filename using standardized format (removed hostname dependency)
+    const filename = UrlHandler.createFilename();
     console.log(`[${requestId}] Generated filename: ${filename}`);
 
     // Set headers and send response
