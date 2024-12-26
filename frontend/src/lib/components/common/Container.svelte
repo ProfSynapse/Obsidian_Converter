@@ -3,7 +3,8 @@
   export let title = ''; // Optional title prop
   export let subtitle = ''; // Optional subtitle prop
   export let noPadding = false; // Option to remove padding
-  export let className = ''; // Additional classes
+  let className = ''; // Additional classes
+  export { className as class };
   export let maxWidth = '600px'; // Default max-width
 </script>
 

@@ -37,26 +37,57 @@
       }
   }
 
+  function toggleSelectAll() {
+      const allSelected = $files.every(f => f.selected);
+      $files.forEach(file => {
+          files.updateFile(file.id, { selected: !allSelected });
+      });
+  }
+
+  function deleteSelected() {
+      const selectedIds = $files.filter(f => f.selected).map(f => f.id);
+      selectedIds.forEach(id => files.removeFile(id));
+  }
+
   // Reactive declarations
   $: hasFiles = $files && $files.length > 0;
   $: selectedCount = $files.filter(f => f.selected).length;
+  $: allSelected = hasFiles && $files.every(f => f.selected);
 </script>
 
 {#if hasFiles}
-  <div class="file-list" in:slide>
-      {#each $files as file (file.id)}
-          <div 
-              class="file-item"
-              in:fade={{ duration: 200 }}
-              out:fade={{ duration: 150 }}
+  <div class="file-list-container" in:slide>
+      <div class="file-list-actions">
+          <button 
+              class="action-button"
+              on:click={toggleSelectAll}
           >
-              <FileCard 
-                  {file}
-                  on:remove={handleRemove}
-                  on:select={handleSelect}
-              />
-          </div>
-      {/each}
+              {allSelected ? 'Uncheck All' : 'Check All'}
+          </button>
+          {#if selectedCount > 0}
+              <button 
+                  class="action-button delete-button"
+                  on:click={deleteSelected}
+              >
+                  Delete Selected ({selectedCount})
+              </button>
+          {/if}
+      </div>
+      <div class="file-list">
+          {#each $files as file (file.id)}
+              <div 
+                  class="file-item"
+                  in:fade={{ duration: 200 }}
+                  out:fade={{ duration: 150 }}
+              >
+                  <FileCard 
+                      {file}
+                      on:remove={handleRemove}
+                      on:select={handleSelect}
+                  />
+              </div>
+          {/each}
+      </div>
   </div>
 {:else}
   <div class="empty-state" in:fade>
@@ -65,11 +96,78 @@
 {/if}
 
 <style>
+  .file-list-container {
+      display: flex;
+      flex-direction: column;
+      gap: var(--spacing-md);
+      width: 100%;
+      background: var(--color-background);
+      border-radius: var(--rounded-lg);
+      padding: var(--spacing-md);
+  }
+
+  .file-list-actions {
+      display: flex;
+      justify-content: space-between;
+      gap: var(--spacing-sm);
+      padding: var(--spacing-xs) var(--spacing-sm);
+  }
+
+  .action-button {
+      padding: var(--spacing-xs) var(--spacing-sm);
+      border-radius: var(--rounded-md);
+      border: 2px solid var(--color-border);
+      background: var(--color-surface);
+      color: var(--color-text);
+      font-weight: 500;
+      cursor: pointer;
+      transition: all 0.2s ease;
+      display: flex;
+      align-items: center;
+      gap: var(--spacing-xs);
+  }
+
+  .action-button:hover {
+      background: var(--color-background-hover);
+      transform: translateY(-1px);
+      box-shadow: var(--shadow-sm);
+  }
+
+  .delete-button {
+      color: var(--color-error);
+      border-color: var(--color-error-light);
+  }
+
+  .delete-button:hover {
+      background: var(--color-error-light);
+      border-color: var(--color-error);
+  }
+
   .file-list {
       display: flex;
       flex-direction: column;
-      gap: var(--spacing-sm);
-      width: 100%;
+      gap: var(--spacing-xs);
+      max-height: 400px;
+      overflow-y: auto;
+      padding: var(--spacing-xs);
+      background: var(--color-surface);
+      border-radius: var(--rounded-md);
+      scrollbar-width: thin;
+      scrollbar-color: var(--color-border) transparent;
+  }
+
+  .file-list::-webkit-scrollbar {
+      width: 8px;
+  }
+
+  .file-list::-webkit-scrollbar-track {
+      background: transparent;
+  }
+
+  .file-list::-webkit-scrollbar-thumb {
+      background-color: var(--color-border);
+      border-radius: var(--rounded-full);
+      border: 2px solid var(--color-surface);
   }
 
   .file-item {
@@ -78,14 +176,10 @@
 
   .empty-state {
       text-align: center;
-      padding: var(--spacing-lg);
+      padding: var(--spacing-xl);
       color: var(--color-text-secondary);
-  }
-
-  /* Animation support */
-  @media (prefers-reduced-motion: reduce) {
-      .file-list, .file-item {
-          transition: none;
-      }
+      background: var(--color-surface);
+      border-radius: var(--rounded-lg);
+      border: 2px dashed var(--color-border);
   }
 </style>

@@ -4,8 +4,8 @@
   import { files } from '$lib/stores/files.js';
   import { uploadStore } from '$lib/stores/uploadStore.js';
   import { fade } from 'svelte/transition';
-  
-  // Import common components
+  import { apiKey } from '$lib/stores/apiKey.js';
+  import { requiresApiKey } from '$lib/utils/fileUtils.js';
   import Container from './common/Container.svelte';
   import TabNavigation from './common/TabNavigation.svelte';
   import UrlInput from './common/UrlInput.svelte';
@@ -15,7 +15,10 @@
 
   const dispatch = createEventDispatcher();
 
-  // File type configuration
+  /**
+   * Configuration object for supported file types
+   * @type {Object.<string, string[]>}
+   */
   const SUPPORTED_FILES = {
     documents: ['txt', 'rtf', 'pdf', 'docx', 'odt', 'epub'],
     data: ['csv', 'json', 'yaml', 'yml', 'xlsx', 'pptx'],
@@ -23,92 +26,91 @@
     multimedia: ['mp3', 'wav', 'ogg', 'mp4', 'mov', 'avi', 'webm', 'youtube']
   };
 
+  // Flatten supported extensions for validation
   const SUPPORTED_EXTENSIONS = Object.values(SUPPORTED_FILES).flat();
 
-  // Reactive variable to track file list visibility
+  // Reactive declarations
   $: showFileList = $files.length > 0;
+  $: needsApiKey = $files.some(file => requiresApiKey(file));
 
   /**
-   * Shows feedback messages to the user with auto-dismiss
-   * @param {string} message - The message to display
-   * @param {string} type - Type of message ('success' or 'error')
+   * Shows feedback message with auto-dismiss
+   * @param {string} message - Message to display
+   * @param {'info' | 'error' | 'success'} type - Message type
+   * @returns {number} Timeout ID
    */
-   function showFeedback(message, type = 'info') {
+  function showFeedback(message, type = 'info') {
     uploadStore.setMessage(message, type);
-    const timeout = setTimeout(() => uploadStore.clearMessage(), 5000);
-    return () => clearTimeout(timeout);
+    return setTimeout(() => uploadStore.clearMessage(), 5000);
   }
 
   /**
-   * Validates file before adding
-   * @param {File} file - The file to validate
-   * @returns {boolean} - Whether the file is valid
+   * Validates a file against supported types
+   * @param {File} file - File to validate
+   * @returns {boolean} Whether file is valid
    */
   function validateFile(file) {
+    console.log('Validating file:', file.name);
     const extension = file.name.split('.').pop().toLowerCase();
     return SUPPORTED_EXTENSIONS.includes(extension);
   }
 
   /**
-   * Determines the file type category based on extension
-   * @param {string} extension - The file extension
-   * @returns {string} The file type category
+   * Determines file category from extension
+   * @param {string} extension - File extension
+   * @returns {string} File category
    */
   function getFileType(extension) {
     for (const [category, extensions] of Object.entries(SUPPORTED_FILES)) {
-      if (extensions.includes(extension)) {
-        return category;
-      }
+      if (extensions.includes(extension)) return category;
     }
-    return 'others';
+    return 'unknown';
   }
 
   /**
-   * Adds files to the store after validation
-   * @param {File[]} newFiles - Array of File objects to add
+   * Handles adding new files to the store
+   * @param {File[]} newFiles - Array of files to add
    */
   function handleFilesAdded(newFiles) {
-    const addedFiles = [];
-
+    console.log('Adding files:', newFiles);
+    
     newFiles.forEach(file => {
-      if (validateFile(file)) {
-        const extension = file.name.split('.').pop().toLowerCase();
-        const newFile = {
-          id: crypto.randomUUID(),
-          name: file.name,
-          file: file,
-          type: getFileType(extension),
-          status: 'Ready',
-          progress: 0,
-          selected: false
-        };
-        
-        try {
-          const result = files.addFile(newFile);
-          if (result.success) {
-            addedFiles.push(newFile);
-            showFeedback(`Added: ${file.name}`, 'success');
-          } else {
-            showFeedback(result.message, 'error');
-          }
-        } catch (error) {
-          console.error('Error adding file:', error);
-          showFeedback(`Failed to add ${file.name}: ${error.message}`, 'error');
-        }
-      } else {
+      // Validate file type
+      if (!validateFile(file)) {
         showFeedback(`Unsupported file type: ${file.name}`, 'error');
+        return;
+      }
+
+      const extension = file.name.split('.').pop().toLowerCase();
+      const requiresKey = requiresApiKey(file);
+      
+      const newFile = {
+        id: crypto.randomUUID(),
+        name: file.name,
+        file: file,
+        type: getFileType(extension),
+        status: 'Ready',
+        progress: 0,
+        selected: false,
+        requiresApiKey: requiresKey
+      };
+
+      console.log('Created file object:', { ...newFile, requiresApiKey: requiresKey });
+
+      const result = files.addFile(newFile);
+      if (result.success) {
+        showFeedback(`Added: ${file.name}`, 'success');
+        dispatch('filesAdded', { files: [newFile] });
+      } else {
+        showFeedback(result.message, 'error');
       }
     });
-
-    if (addedFiles.length > 0) {
-      dispatch('filesAdded', { files: addedFiles });
-    }
   }
 
   /**
-   * Extracts YouTube Video ID from URL
-   * @param {string} url - The YouTube URL
-   * @returns {string} The video ID or 'unknown'
+   * Extracts YouTube video ID from URL
+   * @param {string} url - YouTube URL
+   * @returns {string} Video ID or 'unknown'
    */
   function extractYouTubeVideoId(url) {
     const regex = /(?:https?:\/\/)?(?:www\.)?(?:youtube\.com\/(?:watch\?v=|embed\/)|youtu\.be\/)([^\s&]+)/;
@@ -117,64 +119,62 @@
   }
 
   /**
- * Handles URL submission from UrlInput component
- * @param {CustomEvent} event - Event containing URL data
- */
-async function handleUrlSubmit(event) {
-    try {
-        let { url, type = 'url' } = event.detail;
+   * Handles URL submission (including YouTube)
+   * @param {CustomEvent} event - Submit event
+   */
+  async function handleUrlSubmit(event) {
+    const { url, type = 'url' } = event.detail;
+    console.log('URL submitted:', { url, type });
 
-        // Create a unique ID for the file
-        const id = crypto.randomUUID();
+    const newFile = {
+      id: crypto.randomUUID(),
+      url: url,
+      name: type === 'youtube' ? extractYouTubeVideoId(url) : new URL(url).hostname,
+      type: type,
+      status: 'ready',
+      progress: 0,
+      selected: false,
+      requiresApiKey: type === 'youtube'
+    };
 
-        const newFile = {
-            id,
-            url: url,
-            name: type === 'youtube' ? extractYouTubeVideoId(url) : new URL(url).hostname,
-            type: type,
-            status: 'ready',
-            progress: 0,
-            selected: false
-        };
-
-        const result = files.addFile(newFile);
-        
-        if (result.success) {
-            showFeedback(`${type.toUpperCase()} added successfully`, 'success');
-        } else {
-            showFeedback(result.message, 'error');
-        }
-
-    } catch (error) {
-        console.error('Error adding URL:', error);
-        showFeedback(error.message, 'error');
-    }
-}
+    const result = files.addFile(newFile);
+    showFeedback(
+      result.success ? `${type.toUpperCase()} added successfully` : result.message, 
+      result.success ? 'success' : 'error'
+    );
+  }
 
   /**
-   * Handles file removal event from FileList
-   * @param {CustomEvent} event - The removal event
+   * Handles file upload from input or drop
+   * @param {Event} event - Upload event
    */
-  function handleFileRemove(event) {
-    const { detail } = event;
-    const id = detail?.id;
+  async function handleFileUpload(event) {
+    const uploadedFiles = Array.from(event.target.files || []);
+    console.log('Files uploaded:', uploadedFiles);
 
-    if (!id) {
-      console.error('No file ID provided for removal');
-      return;
-    }
+    // Check for API key requirement
+    const needsKey = uploadedFiles.some(file => requiresApiKey(file));
+    console.log('Upload requires API key:', needsKey);
 
-    try {
-      const result = files.removeFile(id);
-      if (result.success) {
-        showFeedback('File removed successfully', 'success');
-        dispatch('fileRemoved', { id });
-      } else {
-        showFeedback(result.message || 'Failed to remove file', 'error');
-      }
-    } catch (error) {
-      console.error('Error removing file:', error);
-      showFeedback('Failed to remove file', 'error');
+    handleFilesAdded(uploadedFiles);
+
+    // Handle API key requirement
+    if (needsKey && !$apiKey) {
+      console.log('API key required but not present');
+      
+      // Wait for DOM update before scrolling
+      setTimeout(() => {
+        const apiKeySection = document.querySelector('.api-key-input-section');
+        if (apiKeySection) {
+          apiKeySection.scrollIntoView({ 
+            behavior: 'smooth', 
+            block: 'center' 
+          });
+          console.log('Scrolled to API key input section');
+        } else {
+          console.warn('API key section not found');
+        }
+      }, 300);
     }
   }
 </script>
@@ -183,17 +183,15 @@ async function handleUrlSubmit(event) {
   <!-- URL Input Section -->
   <Container 
     title="Add from URL" 
-    subtitle="Convert web content or YouTube videos">
+    subtitle="Convert web content or YouTube videos"
+  >
     <div class="upload-section">
       <TabNavigation />
       <UrlInput 
-          on:submitUrl={handleUrlSubmit}
-          on:submitYoutube={(event) => handleUrlSubmit({
-              detail: { 
-                  url: event.detail.url, 
-                  type: 'youtube' 
-              }
-          })}
+        on:submitUrl={handleUrlSubmit}
+        on:submitYoutube={(event) => handleUrlSubmit({
+          detail: { url: event.detail.url, type: 'youtube' }
+        })}
       />
     </div>
   </Container>
@@ -201,31 +199,28 @@ async function handleUrlSubmit(event) {
   <!-- File Upload Section -->
   <Container 
     title="Upload Files" 
-    subtitle="Drag and drop files or click to select">
-    <DropZone
+    subtitle="Drag and drop files or click to select"
+  >
+    <DropZone 
       acceptedTypes={SUPPORTED_EXTENSIONS}
       on:filesDropped={(event) => handleFilesAdded(event.detail.files)}
       on:filesSelected={(event) => handleFilesAdded(event.detail.files)}
     />
-
+    
+    <!-- Error Display -->
     {#if $uploadStore.errorMessage}
       <div class="error-container" transition:fade>
         <ErrorMessage message={$uploadStore.errorMessage} />
       </div>
     {/if}
-  </Container>
 
-  <!-- File List Section -->
-  {#if showFileList}
-    <Container 
-      title="Items to Convert"
-      subtitle="Files ready for processing">
-      <FileList
-        files={$files} 
-        on:remove={handleFileRemove}
-      />
-    </Container>
-  {/if}
+    <!-- File List -->
+    {#if showFileList}
+      <div class="file-list-wrapper">
+        <FileList />
+      </div>
+    {/if}
+  </Container>
 </div>
 
 <style>
@@ -249,6 +244,14 @@ async function handleUrlSubmit(event) {
     margin-top: var(--spacing-md);
   }
 
+  .file-list-wrapper {
+    margin-top: var(--spacing-lg);
+    padding-top: var(--spacing-md);
+    border-top: 2px solid var(--color-border);
+    background: var(--color-surface);
+    border-radius: var(--rounded-lg);
+  }
+
   /* Responsive Design */
   @media (max-width: 768px) {
     .file-uploader {
@@ -261,7 +264,6 @@ async function handleUrlSubmit(event) {
     .upload-section {
       gap: var(--spacing-sm);
     }
-
     .error-container {
       margin-top: var(--spacing-sm);
     }

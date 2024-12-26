@@ -120,10 +120,6 @@
     transition: background 0.3s ease;
   }
 
-  .download-button, .download-all-button, .batch-download {
-    display: none;
-  }
-
   .no-results {
     text-align: center;
     color: var(--color-text-secondary);
@@ -147,15 +143,6 @@
 
     .result-item .icon {
       font-size: var(--font-size-lg);
-    }
-
-    .download-button, .download-all-button {
-      padding: var(--spacing-xs) var(--spacing-2xs);
-      font-size: var(--font-size-xs);
-    }
-
-    .download-all-button {
-      max-width: 100%;
     }
   }
 

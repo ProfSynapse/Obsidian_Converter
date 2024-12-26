@@ -1,55 +1,27 @@
 <!-- src/lib/components/file/FileCard.svelte -->
 <script>
   import { createEventDispatcher } from 'svelte';
-  import { fade, slide } from 'svelte/transition';
-  import { FileStatus } from '$lib/stores/files.js';
   
   export let file;
   
   const dispatch = createEventDispatcher();
 
-  // Status configurations
-  const STATUS_CONFIG = {
-      [FileStatus.COMPLETED]: {
-          icon: '✨',
-          label: 'Success',
-          class: 'success'
-      },
-      [FileStatus.ERROR]: {
-          icon: '⚠️',
-          label: 'Error',
-          class: 'error'
-      },
-      [FileStatus.CONVERTING]: {
-          icon: '🔄',
-          label: 'Converting',
-          class: 'converting'
-      },
-      [FileStatus.UPLOADING]: {
-          icon: '⬆️',
-          label: 'Uploading',
-          class: 'uploading'
-      },
-      [FileStatus.PENDING]: {
-          icon: '⏳',
-          label: 'Ready',
-          class: 'Ready'
-      }
+  // File type to emoji mapping
+  const FILE_ICONS = {
+      youtube: '🎥',
+      url: '🔗',
+      pdf: '📄',
+      doc: '📝',
+      markdown: '📝',
+      default: '📄'
   };
 
-  // Get status configuration
-  $: statusConfig = STATUS_CONFIG[file.status] || STATUS_CONFIG[FileStatus.IDLE];
+  $: fileIcon = FILE_ICONS[file.type] || FILE_ICONS.default;
 
-  /**
-   * Handles file removal
-   */
   function handleRemove() {
       dispatch('remove', { id: file.id });
   }
 
-  /**
-   * Handles file selection
-   */
   function handleSelect() {
       dispatch('select', { 
           id: file.id, 
@@ -61,9 +33,7 @@
 <div 
   class="file-card"
   class:is-selected={file.selected}
-  in:fade
 >
-  <!-- Selection checkbox -->
   <div class="select-area">
       <input
           type="checkbox"
@@ -74,48 +44,23 @@
       />
   </div>
 
-  <!-- File info -->
   <div class="file-info">
       <span class="icon" aria-hidden="true">
-          {#if file.type === 'youtube'}
-              🎥
-          {:else if file.type === 'url'}
-              🔗
-          {:else}
-              📄
-          {/if}
+          {fileIcon}
       </span>
-
       <span class="file-name" title={file.name}>
           {file.name}
       </span>
-
-      <!-- Status badge -->
-      <span 
-          class="badge badge-{statusConfig.class}" 
-          title={`Status: ${statusConfig.label}`}
-      >
-          <span class="badge-icon" class:rotating={file.status === FileStatus.CONVERTING}>
-              {statusConfig.icon}
-          </span>
-          <span class="badge-label">{statusConfig.label}</span>
-          {#if file.progress > 0 && file.progress < 100}
-              <span class="badge-progress">({file.progress}%)</span>
-          {/if}
-      </span>
   </div>
 
-  <!-- Actions -->
-  <div class="actions">
-      <button 
-          class="action-button remove-button" 
-          on:click={handleRemove}
-          aria-label={`Remove ${file.name}`}
-          title="Remove file"
-      >
-          🗑️
-      </button>
-  </div>
+  <button 
+      class="delete-button" 
+      on:click={handleRemove}
+      aria-label={`Remove ${file.name}`}
+      title="Remove file"
+  >
+      🗑️
+  </button>
 </div>
 
 <style>
@@ -123,11 +68,11 @@
       display: flex;
       align-items: center;
       gap: var(--spacing-sm);
-      padding: var(--spacing-sm);
-      background: var(--color-surface);
+      padding: var(--spacing-sm) var(--spacing-md);
+      background: var(--color-background);
       border-radius: var(--rounded-md);
-      transition: all var(--transition-duration-normal) ease;
       border: 1px solid var(--color-border);
+      transition: all 0.2s ease;
   }
 
   .file-card:hover {
@@ -144,13 +89,20 @@
   .select-area {
       display: flex;
       align-items: center;
-      padding-right: var(--spacing-xs);
   }
 
   .select-checkbox {
       width: 18px;
       height: 18px;
       cursor: pointer;
+      border-radius: var(--rounded-sm);
+      border: 2px solid var(--color-border);
+      transition: all 0.2s ease;
+  }
+
+  .select-checkbox:checked {
+      border-color: var(--color-prime);
+      background-color: var(--color-prime);
   }
 
   .file-info {
@@ -161,113 +113,34 @@
       min-width: 0;
   }
 
+  .icon {
+      font-size: 1.2em;
+      opacity: 0.8;
+  }
+
   .file-name {
       flex: 1;
       overflow: hidden;
       text-overflow: ellipsis;
       white-space: nowrap;
-      font-weight: var(--font-weight-medium);
+      font-weight: 500;
       color: var(--color-text);
   }
 
-  .badge {
-      display: flex;
-      align-items: center;
-      gap: var(--spacing-2xs);
-      padding: var(--spacing-2xs) var(--spacing-xs);
-      border-radius: var(--rounded-full);
-      font-size: var(--font-size-sm);
-      font-weight: var(--font-weight-medium);
-      white-space: nowrap;
-  }
-
-  .badge-success {
-      background: var(--color-success-light);
-      color: var(--color-success);
-  }
-
-  .badge-error {
-      background: var(--color-error-light);
-      color: var(--color-error);
-  }
-
-  .badge-pending, .badge-idle {
-      background: var(--color-warning-light);
-      color: var(--color-warning);
-  }
-
-  .badge-converting, .badge-uploading {
-      background: var(--color-prime-light);
-      color: var(--color-prime);
-  }
-
-  .badge-icon {
-      display: inline-flex;
-      align-items: center;
-      justify-content: center;
-  }
-
-  .badge-icon.rotating {
-      animation: rotate 1.5s linear infinite;
-  }
-
-  .actions {
-      display: flex;
-      align-items: center;
-      gap: var(--spacing-xs);
-  }
-
-  .action-button {
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      width: 32px;
-      height: 32px;
+  .delete-button {
+      padding: var(--spacing-xs);
       border: none;
-      border-radius: var(--rounded-md);
       background: transparent;
       cursor: pointer;
-      transition: all var(--transition-duration-normal) ease;
+      opacity: 0.5;
+      transition: all 0.2s ease;
+      border-radius: var(--rounded-sm);
   }
 
-  .action-button:hover {
-      background: var(--color-background);
-  }
-
-  .remove-button {
-      color: var(--color-error);
-  }
-
-  .remove-button:hover {
-      color: var(--color-error-dark);
+  .delete-button:hover {
+      opacity: 1;
       background: var(--color-error-light);
-  }
-
-  @keyframes rotate {
-      from { transform: rotate(0deg); }
-      to { transform: rotate(360deg); }
-  }
-
-  /* Accessibility */
-  @media (prefers-reduced-motion: reduce) {
-      .file-card {
-          transform: none;
-          transition: none;
-      }
-
-      .badge-icon.rotating {
-          animation: none;
-      }
-  }
-
-  /* High Contrast */
-  @media (prefers-contrast: high) {
-      .file-card {
-          border: 2px solid currentColor;
-      }
-
-      .badge {
-          border: 1px solid currentColor;
-      }
+      color: var(--color-error);
+      transform: scale(1.1);
   }
 </style>

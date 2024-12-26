@@ -2,105 +2,81 @@
 
 <script>
   import { onDestroy } from 'svelte';
-  import { fade, fly, slide } from 'svelte/transition';
+  import { fade, fly } from 'svelte/transition';
   import { conversionStatus } from '$lib/stores/conversionStatus.js';
-  import { startConversion } from '$lib/utils/conversionManager.js';
   import Container from './common/Container.svelte';
-  import { apiKey } from '$lib/stores';
+  import { apiKey } from '$lib/stores/apiKey.js';
   import { files } from '$lib/stores/files.js';
   import { requiresApiKey } from '$lib/utils/fileUtils.js';
   import { createEventDispatcher } from 'svelte';
 
   const dispatch = createEventDispatcher();
 
-  // Declare props
-  export let apiKeyRequired;
-  export let canStartConversion;
-  export let status = 'idle';
-  export let progress = 0;
-
-  // Component state
-  let error = null;
+  let status = 'idle';
+  let progress = 0;
   let currentFile = null;
-  let currentIcon = '🔄'; // Default icon
+  let currentIcon = '🔄';
+  let error = null;
 
   // Subscribe to conversionStatus store
   const unsubscribe = conversionStatus.subscribe(value => {
+    console.log('ConversionStatus store update:', value);
     status = value.status;
     progress = value.progress;
     error = value.error;
     currentFile = value.currentFile;
-
-    // Update currentIcon based on status
-    switch (status) {
-      case 'converting':
-        currentIcon = '🕐';
-        break;
-      case 'completed':
-        currentIcon = '✨';
-        break;
-      case 'error':
-        currentIcon = '⚠️';
-        break;
-      case 'stopped':
-        currentIcon = '🛑';
-        break;
-      default:
-        currentIcon = '🔄';
-    }
   });
+
+  $: console.log('ConversionStatus store update:', $conversionStatus);
 
   onDestroy(() => {
     unsubscribe();
   });
 
-  $: needsApiKey = $files.some(file => requiresApiKey(file));
-  $: canConvert = !needsApiKey || $apiKey;
-  $: statusMessage = getStatusMessage(status, needsApiKey, $apiKey);
+  // Reactive declarations for API key check
+  $: needsApiKey = $files.some(file => {
+    const requires = requiresApiKey(file);
+    console.log('Checking file for API key requirement:', file.name, requires);
+    return requires;
+  });
+  
+  $: canConvert = !needsApiKey || !!$apiKey;
+  $: isConverting = status === 'converting';
 
-  function getStatusMessage(status, needsApiKey, hasApiKey) {
-    if (needsApiKey && !hasApiKey) {
-      return 'Please provide an API key for audio/video conversion';
+  function handleStartConversion() {
+    if (canConvert) {
+      dispatch('startConversion');
     }
-    // ...existing status messages...
-  }
-
-  function handleConvert() {
-    if (!canConvert) return;
-    dispatch('convert');
-  }
-
-  /**
-   * Shows feedback message
-   */
-  function showFeedback(message, type = 'info') {
-    // Implement a method to show feedback to the user
-    // For simplicity, using console.log. Replace with a toast or alert as needed.
-    console.log(`${type.toUpperCase()}: ${message}`);
   }
 </script>
 
-<!-- Component Markup -->
 <Container class="conversion-container">
+  {#if needsApiKey && !$apiKey}
+    <div class="api-key-warning" role="alert" in:fly={{ y: 20, duration: 300 }}>
+      <span class="icon">⚠️</span>
+      <span>Please provide an API key above for audio/video conversion</span>
+    </div>
+  {/if}
+
   <div 
     class="conversion-controls"
-    class:is-converting={status === 'converting'}
+    class:is-converting={isConverting}
   >
     <!-- Convert Button -->
     <div class="button-wrapper">
       <button
         class="convert-button"
-        class:loading={status === 'converting'}
-        disabled={!canStartConversion}
-        on:click={startConversion}
+        class:loading={isConverting}
+        disabled={!canConvert}
+        on:click={handleStartConversion}
         aria-label="Start file conversion"
       >
         <span class="button-content">
-          <span class="icon" class:rotating={status === 'converting'}>
+          <span class="icon" class:rotating={isConverting}>
             {currentIcon}
           </span>
           <span>
-            {#if status === 'converting'}
+            {#if isConverting}
               Converting...
             {:else}
               Start Conversion
@@ -155,18 +131,6 @@
       {/if}
     {/if}
   </div>
-
-  <!-- API Key Warning -->
-  {#if apiKeyRequired && !$apiKey}
-    <div 
-      class="api-key-warning" 
-      role="alert"
-      in:fly={{ y: 20, duration: 300 }}
-    >
-      <span class="icon">⚠️</span>
-      <span>API key required for media file conversion</span>
-    </div>
-  {/if}
 </Container>
 
 <style>
@@ -252,7 +216,7 @@
     min-width: 4em;
     text-align: right;
     font-size: var(--font-size-sm);
-    color: var(--color-text-secondary);
+    color: var (--color-text-secondary);
   }
 
   .button-wrapper {
@@ -269,7 +233,7 @@
     border-radius: var(--rounded-lg);
     color: var(--color-text-on-dark);
     font-size: var(--font-size-lg);
-    font-weight: var(--font-weight-medium);
+    font-weight: var (--font-weight-medium);
     cursor: pointer;
     transition: all 0.3s ease;
     position: relative;
@@ -307,6 +271,17 @@
     to { transform: translateX(100%); }
   }
 
+  .api-key-warning {
+    background: var(--color-warning-light);
+    color: var(--color-warning-dark);
+    padding: var(--spacing-md);
+    border-radius: var (--rounded-lg);
+    margin-bottom: var(--spacing-md);
+    display: flex;
+    align-items: center;
+    gap: var(--spacing-sm);
+  }
+
   /* Responsive Design */
   @media (max-width: 768px) {
     .button-wrapper {
@@ -333,7 +308,7 @@
       animation: none;
     }
 
-    .convert-button:hover {
+    .convert-button:hover:not(:disabled) {
       transform: none;
     }
   }
