@@ -3,6 +3,10 @@
     import { createEventDispatcher } from 'svelte';
     import { slide, fade } from 'svelte/transition';
     import SelectionControls from '../common/SelectionControls.svelte';
+    import ApiKeyInput from '../ApiKeyInput.svelte';
+    import { requiresApiKey } from '$lib/utils/fileUtils.js';
+    import { files } from '$lib/stores/files.js';
+    import { apiKey } from '$lib/stores/apiKey.js';
   
     const dispatch = createEventDispatcher();
   
@@ -19,6 +23,8 @@
       }
     ];
   
+    $: needsApiKey = $files.some(file => requiresApiKey(file));
+  
     // Handle selection controls events
     function handleSelect(event) {
       dispatch('select', event.detail);
@@ -27,9 +33,9 @@
     function handleAction(event) {
       dispatch('action', event.detail);
     }
-  </script>
+</script>
   
-  <header class="file-list-header">
+<header class="file-list-header">
     <div class="title-section">
       <h3 class="title">
         <span class="icon">📑</span>
@@ -43,6 +49,14 @@
           </span>
         {/if}
       </h3>
+
+      {#if needsApiKey && !$apiKey}
+        <div class="api-key-warning" transition:slide>
+          <span class="warning-icon">⚠️</span>
+          <span>API key required for audio/video files</span>
+          <ApiKeyInput />
+        </div>
+      {/if}
     </div>
   
     {#if showSelectionControls && totalCount > 0}
@@ -115,5 +129,20 @@
       .count-badge {
         border: 1px solid currentColor;
       }
+    }
+
+    .api-key-warning {
+        display: flex;
+        align-items: center;
+        gap: var(--spacing-sm);
+        padding: var(--spacing-sm);
+        background: var(--color-warning-light);
+        border-radius: var(--rounded-md);
+        margin-top: var(--spacing-sm);
+        font-size: var(--font-size-sm);
+    }
+
+    .warning-icon {
+        font-size: var(--font-size-lg);
     }
   </style>

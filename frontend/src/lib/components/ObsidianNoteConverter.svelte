@@ -11,11 +11,11 @@
   import { conversionStatus } from '$lib/stores/conversionStatus.js';
   import { get, derived } from 'svelte/store';
   import { slide } from 'svelte/transition';
+  import { requiresApiKey } from '$lib/utils/fileUtils.js';
 
   // Reactive variables to determine API key necessity and conversion capability
-  $: hasMediaFiles = $files.some(file => ['mp3', 'wav', 'ogg', 'mp4', 'mov', 'avi', 'webm'].includes(file.type));
-  $: apiKeyRequired = hasMediaFiles;
-  $: canStartConversion = (!apiKeyRequired || !!$apiKey) && $files.length > 0 && $conversionStatus.status !== 'converting';
+  $: needsApiKey = $files.some(file => requiresApiKey(file));
+  $: canStartConversion = (!needsApiKey || !!$apiKey) && $files.length > 0 && $conversionStatus.status !== 'converting';
   $: isComplete = $conversionStatus.status === 'completed';
   $: hasError = $conversionStatus.status === 'error';
 </script>
@@ -48,7 +48,7 @@
         transition:slide|local
       >
 
-        {#if apiKeyRequired && !$apiKey}
+        {#if needsApiKey && !$apiKey}
           <ApiKeyInput />
         {/if}
       </section>
@@ -61,7 +61,7 @@
         transition:slide|local
       >
         <ConversionStatus 
-          apiKeyRequired={apiKeyRequired}
+          apiKeyRequired={needsApiKey}
           canStartConversion={canStartConversion}
         />
       </section>

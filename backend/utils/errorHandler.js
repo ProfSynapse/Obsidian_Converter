@@ -23,7 +23,7 @@ const logger = winston.createLogger({
 
 // Custom Error Class
 class AppError extends Error {
-  constructor(message, statusCode, details = null) {
+  constructor(message, statusCode = 500, details = null) {
     super(message);
     this.statusCode = statusCode;
     this.status = `${statusCode}`.startsWith('4') ? 'fail' : 'error';
@@ -88,9 +88,20 @@ const sendErrorProd = (err, res) => {
 
 // Centralized Error Handling Middleware
 export const errorHandler = (err, req, res, next) => {
+  console.error('Error:', {
+    message: err.message,
+    stack: err.stack,
+    details: err.details
+  });
+
   // Set defaults
   err.statusCode = err.statusCode || 500;
   err.status = err.status || 'error';
+
+  // Handle specific error types
+  if (err.message.includes('path is not defined')) {
+    err = new AppError('Internal server error - invalid file processing', 500);
+  }
 
   // Determine environment
   const env = process.env.NODE_ENV || 'development';

@@ -83,6 +83,15 @@ class TextConverterFactory {
     // Normalize type to lowercase
     const normalizedType = type.toLowerCase();
 
+    // Special handling for docx files
+    if (normalizedType === 'docx' && Buffer.isBuffer(input)) {
+      // Check if buffer starts with PK (ZIP file magic number, which DOCX files should have)
+      if (input[0] === 0x50 && input[1] === 0x4B) {
+        return true;
+      }
+      throw new Error('Invalid DOCX file format');
+    }
+
     console.log('Validating input:', {
       originalType: type,
       normalizedType,
@@ -165,25 +174,12 @@ class TextConverterFactory {
 
       const convertedResult = await converter(processedInput, originalName, apiKey);
 
-      // Enhanced result validation
-      if (!convertedResult) {
-        throw new Error(`Converter returned no result for ${type}`);
-      }
-
-      if (typeof convertedResult !== 'object') {
-        throw new Error(`Converter returned invalid result type for ${type}`);
-      }
-
-      if (!convertedResult.content && !convertedResult.error) {
-        throw new Error(`Converter returned empty content for ${type}`);
-      }
-
-      // Ensure images array exists
-      if (!convertedResult.images) {
-        convertedResult.images = [];
-      }
-
-      return convertedResult;
+      // Preserve success flag if it exists, otherwise set to true
+      return {
+        ...convertedResult,
+        success: convertedResult.success !== undefined ? convertedResult.success : true,
+        images: convertedResult.images || []
+      };
 
     } catch (error) {
       console.error('Conversion error:', {
@@ -194,6 +190,7 @@ class TextConverterFactory {
 
       // Return error content instead of throwing
       return {
+        success: false,
         content: [
           `# Conversion Error: ${type}`,
           '',
@@ -202,14 +199,7 @@ class TextConverterFactory {
           '```',
           '',
           `**Time:** ${new Date().toISOString()}`,
-          `**Type:** ${type}`,
-          `**Input:** ${
-            Buffer.isBuffer(input)
-              ? '[Buffer data]'
-              : typeof input === 'object'
-              ? JSON.stringify(input)
-              : input
-          }`
+          `**Type:** ${type}`
         ].join('\n'),
         images: [],
         error: error.message

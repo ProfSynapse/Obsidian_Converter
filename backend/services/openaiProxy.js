@@ -1,9 +1,6 @@
 // services/openaiProxy.js
 
 import OpenAI from 'openai';
-import { createRequire } from 'module'; // Import createRequire
-const require = createRequire(import.meta.url); // Create a require function
-const { RateLimiter } = require('limiter'); // Destructure RateLimiter from the required package
 import fs from 'fs';
 import axios from 'axios';
 import axiosRetry from 'axios-retry';
@@ -14,10 +11,6 @@ import { AppError } from '../utils/errorHandler.js';
 class OpenAIProxy {
   constructor() {
     this.openai = null;
-    this.rateLimiter = new RateLimiter({
-      tokensPerInterval: config.api.openai.maxRequests || 50,
-      interval: 'minute',
-    });
     this.cache = new NodeCache({ stdTTL: 300 }); // Cache for 5 minutes
   }
 
@@ -41,7 +34,6 @@ class OpenAIProxy {
   }
 
   async makeRequest(apiKey, endpoint, data) {
-    await this.rateLimiter.removeTokens(1);
     await this.initialize(apiKey);
 
     const cacheKey = `${endpoint}:${JSON.stringify(data)}`;

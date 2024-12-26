@@ -10,7 +10,7 @@ export const CONFIG = {
         MAX_RETRIES: 3,
         RETRY_DELAY: 1000,
         TIMEOUT: 300000,
-        BASE_URL: import.meta.env.VITE_API_BASE_URL || 'http://localhost:3000/api/v1',
+        BASE_URL: 'http://localhost:3000/api/v1', // Include API version in base URL
         HEADERS: {
             'Accept': 'application/json, application/zip, application/octet-stream',
             'Content-Type': 'application/json'
@@ -21,7 +21,7 @@ export const CONFIG = {
     ITEM_TYPES: {
         FILE: 'file',
         URL: 'url',
-        PARENT_URL: 'parent',
+        PARENT_URL: 'parenturl',
         YOUTUBE: 'youtube',
         BATCH: 'batch'
     },

@@ -7,14 +7,19 @@
   import { startConversion } from '$lib/utils/conversionManager.js';
   import Container from './common/Container.svelte';
   import { apiKey } from '$lib/stores';
+  import { files } from '$lib/stores/files.js';
+  import { requiresApiKey } from '$lib/utils/fileUtils.js';
+  import { createEventDispatcher } from 'svelte';
+
+  const dispatch = createEventDispatcher();
 
   // Declare props
   export let apiKeyRequired;
   export let canStartConversion;
+  export let status = 'idle';
+  export let progress = 0;
 
   // Component state
-  let status = 'ready';
-  let progress = 0;
   let error = null;
   let currentFile = null;
   let currentIcon = '🔄'; // Default icon
@@ -48,6 +53,22 @@
   onDestroy(() => {
     unsubscribe();
   });
+
+  $: needsApiKey = $files.some(file => requiresApiKey(file));
+  $: canConvert = !needsApiKey || $apiKey;
+  $: statusMessage = getStatusMessage(status, needsApiKey, $apiKey);
+
+  function getStatusMessage(status, needsApiKey, hasApiKey) {
+    if (needsApiKey && !hasApiKey) {
+      return 'Please provide an API key for audio/video conversion';
+    }
+    // ...existing status messages...
+  }
+
+  function handleConvert() {
+    if (!canConvert) return;
+    dispatch('convert');
+  }
 
   /**
    * Shows feedback message

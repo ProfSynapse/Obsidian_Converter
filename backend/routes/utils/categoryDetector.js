@@ -9,18 +9,45 @@ export function requiresApiKey(fileType) {
     return API_REQUIRED_TYPES.includes(fileType.toLowerCase());
   }
   
-  /**
- * Determines the category based on the item type or file extension
- */
+const fileCategories = {
+  // Document formats
+  'pdf': 'documents',
+  'docx': 'documents',
+  'odt': 'documents',
+  'rtf': 'documents',
+  'txt': 'documents',
+  'epub': 'documents',
+  
+  // Data formats
+  'csv': 'data',
+  'json': 'data',
+  'yaml': 'data',
+  'yml': 'data',
+  'xlsx': 'data',
+  
+  // Web formats
+  'html': 'web',
+  'htm': 'web',
+  'xml': 'web',
+  'url': 'web',
+  'parenturl': 'web',
+  
+  // Multimedia
+  'mp3': 'multimedia',
+  'wav': 'multimedia',
+  'ogg': 'multimedia',
+  'mp4': 'multimedia',
+  'mov': 'multimedia',
+  'avi': 'multimedia',
+  'webm': 'multimedia'
+};
+
 export function determineCategory(type, fileType) {
-    if (type === 'url' || type === 'parenturl' || type === 'youtube') return 'web';
-  
-    const dataTypes = ['csv', 'xls', 'xlsx', 'json'];
-    const multimediaTypes = ['mp3', 'wav', 'ogg', 'mp4', 'mov', 'avi', 'webm'];
-    const textTypes = ['txt', 'doc', 'docx', 'pdf'];
-  
-    if (dataTypes.includes(fileType)) return 'data';
-    if (multimediaTypes.includes(fileType)) return 'multimedia';
-    if (textTypes.includes(fileType)) return 'text';
-    return 'others'; // For any other types
+  // Special handling for URL types
+  if (type === 'url' || type === 'parenturl' || type === 'youtube') {
+    return 'web';
   }
+  
+  // Look up category from mapping
+  return fileCategories[fileType?.toLowerCase()] || 'others';
+}

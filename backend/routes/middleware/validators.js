@@ -62,7 +62,7 @@ const checkResult = (req, res, next) => {
 };
 
 // Export validators object with all validation rules
-export const validators = {
+const validators = {
     // File validation
     file: [
         body('fileType')
@@ -152,3 +152,15 @@ export const validators = {
     // Export the result checker
     checkResult
 };
+
+export const validateConversion = (req, res, next) => {
+    const validationType = req.path.split('/').pop();
+    const validationChain = validators[validationType] || validators.file;
+    
+    Promise.all(validationChain.map(validation => validation.run(req)))
+        .then(() => validators.checkResult(req, res, next))
+        .catch(next);
+};
+
+// Export both validators and validateConversion
+export { validators };

@@ -3,20 +3,9 @@ import express from 'express';
 import { body, validationResult } from 'express-validator';
 import { openaiProxy } from '../services/openaiProxy.js';
 import { AppError } from '../utils/errorHandler.js';
-import rateLimit from 'express-rate-limit';
 import { config } from '../config/default.js';
 
 const router = express.Router();
-
-// Rate limiter specific to proxy routes
-const proxyLimiter = rateLimit({
-  windowMs: 60 * 1000, // 1 minute
-  max: config.security.rateLimitPerMinute,
-  message: 'Too many requests to proxy API, please try again after a minute.',
-});
-
-// Apply rate limiter to all proxy routes
-router.use(proxyLimiter);
 
 // Validation middleware
 const validateProxyRequest = [

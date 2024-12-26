@@ -1,7 +1,7 @@
 <!-- src/lib/components/ApiKeyInput.svelte -->
 <script>
     import { createEventDispatcher } from 'svelte';
-    import { uploadStore } from '$lib/stores/uploadStore.js';
+    import { apiKey } from '$lib/stores/apiKey.js';
   
     const dispatch = createEventDispatcher();
     let apiKeyValue = '';
@@ -47,8 +47,8 @@
     function handleSubmit() {
         try {
             const validatedKey = validateApiKey(apiKeyValue);
+            apiKey.set(validatedKey); // Use apiKey store directly
             dispatch('submitApiKey', { apiKey: validatedKey });
-            uploadStore.setApiKey(validatedKey);
             errorMessage = '';
         } catch (error) {
             console.error('API key validation error:', error);

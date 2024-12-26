@@ -1,59 +1,55 @@
 // routes/index.js
 
 import express from 'express';
-import { conversionRateLimiter } from './middleware/rateLimit.js';
-import { validators } from './middleware/validators.js';
-import { apiKeyChecker } from './utils/apiKeyChecker.js';
-import { upload } from './middleware/upload.js';
-import { handleBatchConversion } from './handlers/batchHandler.js';
-import { handleFileUpload } from './handlers/fileHandler.js';
-import { handleUrlConversion } from './handlers/urlHandler.js';
-import { handleParentUrlConversion } from './handlers/parentUrlHandler.js';
-import { handleYouTubeConversion } from './handlers/youtubeHandler.js';
+import { ConversionController } from './controllers/ConversionController.js';
+import { validateConversion } from './middleware/validators.js';
+import { uploadMiddleware } from './middleware/upload.js';
 
 const router = express.Router();
+const controller = new ConversionController();
 
-// Apply rate limiter to all conversion routes
-router.use(conversionRateLimiter);
+// Debug middleware to log requests
+router.use((req, res, next) => {
+    console.log(`📝 ${req.method} ${req.path}`);
+    next();
+});
 
-// Parent URL conversion endpoint - place before regular URL endpoint
-router.post(
-    '/parent-url',
-    validators.parenturl,
-    validators.checkResult,
-    handleParentUrlConversion
+// Single file conversion - match frontend endpoint exactly
+router.post('/file',
+    uploadMiddleware,
+    validateConversion,
+    (req, res, next) => {
+        console.log('Processing file conversion request:', {
+            body: req.body,
+            file: req.file,
+            path: req.path
+        });
+        next();
+    },
+    controller.handleConversion
 );
 
-// Single URL conversion endpoint
-router.post(
-    '/url',
-    validators.url,
-    validators.checkResult,
-    handleUrlConversion
+// Batch conversion
+router.post('/batch',
+    uploadMiddleware,
+    validateConversion,
+    controller.handleBatchConversion
 );
 
-// Other routes...
-router.post(
-    '/batch',
-    validators.batch,
-    validators.checkResult,
-    handleBatchConversion
+// URL-based conversions
+router.post('/url',
+    validateConversion,
+    controller.handleUrlConversion
 );
 
-router.post(
-    '/file',
-    apiKeyChecker,
-    upload,
-    validators.file,
-    validators.checkResult,
-    handleFileUpload
+router.post('/parent-url',
+    validateConversion,
+    controller.handleParentUrlConversion
 );
 
-router.post(
-    '/youtube',
-    validators.youtube,
-    validators.checkResult,
-    handleYouTubeConversion
+router.post('/youtube',
+    validateConversion,
+    controller.handleYouTubeConversion
 );
 
 export default router;

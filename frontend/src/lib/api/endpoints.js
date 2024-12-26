@@ -8,12 +8,13 @@ import { CONFIG } from './config.js';
  * @returns {Object} Object containing all endpoint URLs
  */
 function generateEndpoints(baseUrl) {
+    // Remove apiVersion prefix as it's already in the backend routes
     const endpoints = {
-        CONVERT_FILE: `${baseUrl}/convert/file`,  // Changed CONVERT to CONVERT_FILE
-        CONVERT_URL: `${baseUrl}/convert/url`,
-        CONVERT_PARENT_URL: `${baseUrl}/convert/parent-url`,
-        CONVERT_YOUTUBE: `${baseUrl}/convert/youtube`,
-        CONVERT_BATCH: `${baseUrl}/convert/batch`,
+        CONVERT_FILE: `${baseUrl}/file`, // Changed from /convert/file to /file
+        CONVERT_URL: `${baseUrl}/url`,
+        CONVERT_PARENT_URL: `${baseUrl}/parent-url`,
+        CONVERT_YOUTUBE: `${baseUrl}/youtube`,
+        CONVERT_BATCH: `${baseUrl}/batch`,
         HEALTH: `${baseUrl}/health`
     };
 

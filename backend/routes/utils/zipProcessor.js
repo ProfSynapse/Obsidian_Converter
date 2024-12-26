@@ -73,91 +73,77 @@ export async function handleConversion(type, content, name, apiKey) {
  * @returns {Promise<Buffer>} - The ZIP file buffer
  */
 export async function createBatchZip(items) {
-  console.log('Starting ZIP creation with items:', items);
+  console.log('Starting ZIP creation with items:', 
+    items.map(item => ({
+      name: item.name,
+      type: item.type,
+      success: item.success,
+      contentLength: item.content?.length,
+      imageCount: item.images?.length
+    }))
+  );
+
   const zip = new JSZip();
+  const categories = new Map();
 
-  // Initialize top-level folder references
-  const topLevelFolders = {
-    data: zip.folder('data'),
-    multimedia: zip.folder('multimedia'),
-    text: zip.folder('text'),
-    web: zip.folder('web'),
-    errors: zip.folder('errors'), // Ensure errors folder exists
-  };
-
-  // Process each converted item
   for (const item of items) {
     try {
-      if (!item.type) {
-        throw new Error(`Item "${item.name}" is missing the 'type' property.`);
-      }
-
-      console.log(`Processing item: "${item.name}" of type: "${item.type}"`);
-
-      if (!item.success) {
-        // Handle failed conversions
-        console.log(`Adding error file for: "${item.name}"`);
-        topLevelFolders.errors.file(
-          `${sanitizeFilename(item.name || 'unknown')}_error.md`,
-          `# Conversion Error\n\n**Error:** ${item.error}\n**Time:** ${new Date().toISOString()}`
-        );
+      if (!item.content) {
+        console.warn(`Skipping item ${item.name}: No content`);
         continue;
       }
 
-      // Determine the category
-      const category = item.category || determineCategory(item.type);
+      console.log('Processing item:', {
+        name: item.name,
+        type: item.type,
+        success: item.success,
+        hasContent: !!item.content
+      });
+
+      const category = item.category || 'others';
       console.log(`Determined category: "${category}" for item: "${item.name}"`);
 
-      if (!topLevelFolders[category]) {
-        // Create category folder if it doesn't exist
-        topLevelFolders[category] = zip.folder(category);
+      // Get or create category folder
+      let categoryFolder = categories.get(category);
+      if (!categoryFolder) {
+        categoryFolder = zip.folder(category);
+        categories.set(category, categoryFolder);
         console.log(`Created new category folder: "${category}"`);
       }
 
-      const categoryFolder = topLevelFolders[category];
-
-      // Add content to the appropriate folder
+      // Process based on type
       switch (item.type.toLowerCase()) {
-        case 'file':
-          await processFileContent(item, categoryFolder);
-          break;
         case 'url':
-          await processUrlContent(item, categoryFolder);
-          break;
         case 'parenturl':
-          await processParentUrlContent(item, categoryFolder);
+          await processUrlContent(item, categoryFolder);
           break;
         case 'youtube':
           await processYoutubeContent(item, categoryFolder);
           break;
+        case 'pdf':
+        case 'docx':
+        case 'txt':
+        case 'rtf':
+        case 'odt':
+        case 'epub':
+          console.log(`Processing document type: ${item.type}`);
+          await processFileContent(item, categoryFolder);
+          break;
         default:
-          console.warn(
-            `Unknown type "${item.type}" for item "${item.name}". Adding as a text file.`
-          );
+          console.log(`Processing generic content type: ${item.type}`);
           await processFileContent(item, categoryFolder);
       }
     } catch (error) {
-      console.error(`Error processing item "${item.name}":`, error);
-      // Add to errors folder
-      topLevelFolders.errors.file(
-        `${sanitizeFilename(item.name || 'unknown')}_processing_error.md`,
-        `# ZIP Processing Error\n\n**Error:** ${error.message}\n**Item:** ${
-          item.name
-        }\n**Time:** ${new Date().toISOString()}`
-      );
+      console.error(`Error processing item ${item.name}:`, error);
     }
   }
 
-  // Add conversion summary if any successful items exist
-  if (items.some((item) => item.success)) {
-    console.log('Adding summary.md to ZIP');
-    zip.file('summary.md', generateSummary(items));
-  }
+  // Add summary
+  console.log('Adding summary.md to ZIP');
+  zip.file('summary.md', generateSummary(items));
 
-  const zipBuffer = await zip.generateAsync({ type: 'nodebuffer' });
   console.log('ZIP creation completed');
-
-  return zipBuffer;
+  return zip.generateAsync({ type: 'nodebuffer' });
 }
 
 /**
@@ -166,30 +152,15 @@ export async function createBatchZip(items) {
  * @param {JSZip} folder - The JSZip folder to add content to
  */
 async function processFileContent(item, folder) {
-  console.log(`Processing file content for: "${item.name}" with content length: ${item.content?.length || 0}`);
+  console.log(`Processing ${item.type} file content for: "${item.name}" with content length: ${item.content.length}`);
   
-  if (!item.content) {
-    console.error(`No content found for file: ${item.name}`);
-    throw new Error(`Missing content for file: ${item.name}`);
-  }
-
-  const filename = `${sanitizeFilename(item.name)}.md`;
-  folder.file(filename, item.content);
-  console.log(`Added file: "${filename}" with content length: ${item.content.length}`);
-
+  // Strip .pdf extension if present and add .md
+  const fileName = item.name.replace(/\.pdf$/, '') + '.md';
+  folder.file(fileName, item.content);
+  console.log(`Added file: "${fileName}" with content length: ${item.content.length}`);
+  
   if (item.images?.length) {
-    const assetsFolder = folder.folder('assets');
-    console.log(
-      `Adding ${item.images.length} image(s) to assets for "${item.name}"`
-    );
-    for (const image of item.images) {
-      if (image.data && image.name) {
-        const safeImageName = sanitizeFilename(path.basename(image.name));
-        const buffer = Buffer.from(image.data, 'base64'); // Decode base64
-        assetsFolder.file(safeImageName, buffer, { binary: true });
-        console.log(`Added image: "${safeImageName}"`);
-      }
-    }
+    await processImages(item, folder);
   }
 }
 
@@ -290,53 +261,45 @@ async function processYoutubeContent(item, folder) {
  * @param {Object} item - The conversion result item
  * @param {JSZip} folder - The JSZip folder to add content to
  */
-// routes/utils/zipProcessor.js
+async function processParentUrlContent(item, folder) {
+  if (!item.url) {
+    throw new Error(`Missing 'url' property for item "${item.name}"`);
+  }
 
-/**
- * Processes Parent URL content for ZIP
- * @param {Object} item - The conversion result item
- * @param {JSZip} folder - The JSZip folder to add content to
- */
-  async function processParentUrlContent(item, folder) {
-    if (!item.url) {
-      throw new Error(`Missing 'url' property for item "${item.name}"`);
-    }
+  console.log(`Processing Parent URL content for: "${item.name}"`);
+  const siteName = sanitizeFilename(new URL(item.url).hostname);
+  const siteFolder = folder.folder(siteName);
+  console.log(`Created site folder: "${siteName}"`);
 
-    console.log(`Processing Parent URL content for: "${item.name}"`);
-    const siteName = sanitizeFilename(new URL(item.url).hostname);
-    const siteFolder = folder.folder(siteName);
-    console.log(`Created site folder: "${siteName}"`);
+  // Add index.md
+  siteFolder.file('index.md', item.content);
+  console.log(`Added index.md to "${siteName}"`);
 
-    // Add index.md
-    siteFolder.file('index.md', item.content);
-    console.log(`Added index.md to "${siteName}"`);
-
-    // Add additional pages if any
-    if (item.files && Array.isArray(item.files)) {
-      for (const file of item.files) {
-        const fileName = sanitizeFilename(path.basename(file.name));
-        siteFolder.file(`${fileName}.md`, file.content);
-        console.log(`Added page file: "${fileName}.md" to "${siteName}"`);
-      }
-    }
-
-    // Handle images
-    if (item.images?.length) {
-      const assetsFolder = siteFolder.folder('assets');
-      console.log(
-        `Adding ${item.images.length} image(s) to assets for "${siteName}"`
-      );
-      for (const image of item.images) {
-        if (image.data && image.name) {
-          const safeImageName = sanitizeFilename(path.basename(image.name));
-          const buffer = Buffer.from(image.data, 'base64'); // Decode base64
-          assetsFolder.file(safeImageName, buffer, { binary: true });
-          console.log(`Added image: "${safeImageName}" to "${siteName}/assets"`);
-        }
-      }
+  // Add additional pages if any
+  if (item.files && Array.isArray(item.files)) {
+    for (const file of item.files) {
+      const fileName = sanitizeFilename(path.basename(file.name));
+      siteFolder.file(`${fileName}.md`, file.content);
+      console.log(`Added page file: "${fileName}.md" to "${siteName}"`);
     }
   }
 
+  // Handle images
+  if (item.images?.length) {
+    const assetsFolder = siteFolder.folder('assets');
+    console.log(
+      `Adding ${item.images.length} image(s) to assets for "${siteName}"`
+    );
+    for (const image of item.images) {
+      if (image.data && image.name) {
+        const safeImageName = sanitizeFilename(path.basename(image.name));
+        const buffer = Buffer.from(image.data, 'base64'); // Decode base64
+        assetsFolder.file(safeImageName, buffer, { binary: true });
+        console.log(`Added image: "${safeImageName}" to "${siteName}/assets"`);
+      }
+    }
+  }
+}
 
 /**
  * Generates a summary markdown file for the batch conversion

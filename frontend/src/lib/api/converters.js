@@ -202,10 +202,10 @@ export class Converters {
         byteNumbers[i] = byteCharacters.charCodeAt(i);
     }
     const byteArray = new Uint8Array(byteNumbers);
-    const blob = new Blob([byteArray], { type: 'application/pdf' });
+    const blob = new Blob([byteArray], { type: 'application/pdf' }); // Adjust MIME type as needed
 
     // Append file and metadata
-    formData.append('file', blob, input.name);
+    formData.append('file', blob, input.name); // Ensure 'file' field is used
     formData.append('options', JSON.stringify({
         ...DEFAULT_OPTIONS,
         ...input.options
