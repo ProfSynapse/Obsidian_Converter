@@ -2,16 +2,11 @@
   "name": "obsidian-note-converter",
   "version": "1.0.0",
   "description": "A service to convert various file types to Obsidian-compatible Markdown notes",
-  "main": "server.js",
+  "main": "src/server.js",
   "type": "module",
-  "imports": {
-    "pdfjs-dist": {
-      "default": "pdfjs-dist/build/pdf.mjs"
-    }
-  },
   "scripts": {
-    "start": "node server.js",
-    "dev": "nodemon server.js",
+    "start": "node src/server.js",
+    "dev": "nodemon src/server.js",
     "test": "jest",
     "lint": "eslint .",
     "build": "babel . -d dist",

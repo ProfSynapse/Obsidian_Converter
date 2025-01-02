@@ -4,10 +4,10 @@ import express from 'express';
 import cors from 'cors';
 import helmet from 'helmet';
 import dotenv from 'dotenv';
-import { config } from '../config/default.js';
-import router from '../routes/index.js';  // Changed from named to default import
-import proxyRoutes from '../routes/proxyRoutes.js';
-import { errorHandler, AppError } from '../utils/errorHandler.js';
+import { config } from './config/default.js';
+import router from './routes/index.js';  // Updated path
+import proxyRoutes from './routes/proxyRoutes.js';  // Updated path
+import { errorHandler, AppError } from './utils/errorHandler.js';
 import morgan from 'morgan';
 
 // Load environment variables
@@ -121,7 +121,6 @@ class Server {
      */
     initializeErrorHandling() {
         this.app.use(errorHandler);
-
         // Handle uncaught exceptions
         process.on('uncaughtException', (error) => {
             console.error('UNCAUGHT EXCEPTION! 💥 Shutting down...');

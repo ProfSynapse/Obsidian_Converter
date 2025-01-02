@@ -7,6 +7,7 @@
   import { apiKey } from '$lib/stores/apiKey.js';
   import { conversionStatus } from '$lib/stores/conversionStatus.js';
   import { files } from '$lib/stores/files.js';
+  import { startConversion } from '$lib/utils/conversionManager.js';
   import { slide } from 'svelte/transition';
   import { requiresApiKey } from '$lib/utils/fileUtils.js';
 
@@ -73,17 +74,7 @@
     }
     
     try {
-      console.log('Starting conversion process');
-      conversionStatus.setStatus('converting');
-      conversionStatus.setProgress(0);
-      
-      // Ensure conversion function is imported
-      const convertedFile = await startConversion();
-      
-      if (convertedFile) {
-        console.log('Conversion completed successfully');
-        conversionStatus.setStatus('completed');
-      }
+      await startConversion(); // Call the imported startConversion function
     } catch (error) {
       console.error('Conversion error:', error);
       conversionStatus.setError(error.message);

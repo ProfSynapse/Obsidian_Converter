@@ -4,6 +4,7 @@ import express from 'express';
 import { ConversionController } from './controllers/ConversionController.js';
 import { validateConversion } from './middleware/validators.js';
 import { uploadMiddleware } from './middleware/upload.js';
+import { apiKeyChecker } from './middleware/utils/apiKeyChecker.js';
 
 const router = express.Router();
 const controller = new ConversionController();
@@ -14,42 +15,49 @@ router.use((req, res, next) => {
     next();
 });
 
-// Single file conversion - match frontend endpoint exactly
-router.post('/file',
+// Document endpoints
+router.post('/document/file',
     uploadMiddleware,
     validateConversion,
-    (req, res, next) => {
-        console.log('Processing file conversion request:', {
-            body: req.body,
-            file: req.file,
-            path: req.path
-        });
-        next();
-    },
-    controller.handleConversion
+    controller.handleFileConversion
 );
 
-// Batch conversion
-router.post('/batch',
+// Multimedia endpoints
+router.post('/multimedia/audio',
     uploadMiddleware,
+    apiKeyChecker,
     validateConversion,
-    controller.handleBatchConversion
+    controller.handleAudioConversion
 );
 
-// URL-based conversions
-router.post('/url',
+router.post('/multimedia/video',
+    uploadMiddleware,
+    apiKeyChecker,
+    validateConversion,
+    controller.handleVideoConversion
+);
+
+// Web content endpoints
+router.post('/web/url',
     validateConversion,
     controller.handleUrlConversion
 );
 
-router.post('/parent-url',
+router.post('/web/parent-url',
     validateConversion,
     controller.handleParentUrlConversion
 );
 
-router.post('/youtube',
+router.post('/web/youtube',
     validateConversion,
     controller.handleYouTubeConversion
+);
+
+// Batch conversion endpoint
+router.post('/batch',
+    uploadMiddleware,
+    validateConversion,
+    controller.handleBatchConversion
 );
 
 export default router;

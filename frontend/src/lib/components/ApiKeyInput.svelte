@@ -34,12 +34,17 @@
     console.log('handleSubmit called with API Key:', apiKeyValue);
     try {
       const validatedKey = validateApiKey(apiKeyValue);
-      console.log('API Key validated successfully:', validatedKey);
+      if (!validatedKey.startsWith('sk-')) {
+        throw new Error('API key must start with "sk-"');
+      }
       apiKey.set(validatedKey);
       errorMessage = '';
+      dispatch('apiKeySet', { success: true });
+      apiKeyValue = ''; // Clear input after successful submission
     } catch (error) {
       console.error('API key validation error:', error);
       errorMessage = error.message;
+      dispatch('apiKeySet', { success: false, error: error.message });
     }
   }
 

@@ -1,6 +1,6 @@
 // src/lib/api/requestHandler.js
 
-import { CONFIG } from './config.js';
+import { CONFIG } from '../config';
 import { ConversionError, ErrorUtils } from './errors.js';
 
 /**

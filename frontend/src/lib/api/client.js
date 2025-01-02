@@ -1,6 +1,6 @@
 // src/lib/api/client.js
 
-import { CONFIG } from './config.js';
+import { CONFIG } from '../config';
 import { ConversionError, ErrorUtils } from './errors.js';
 import { Converters } from './converters.js';
 import { conversionStatus } from '../stores/conversionStatus.js';
@@ -10,11 +10,12 @@ import { FileStatus } from '../stores/files.js';
  * Manages file conversion operations and tracks their status
  */
 class ConversionClient {
-  constructor() {
+  constructor(baseUrl = CONFIG.API.BASE_URL) {
     this.activeRequests = new Map();
     this.config = CONFIG;
-    // Get supported types from CONFIG.ITEM_TYPES values
-    this.supportedTypes = Object.values(CONFIG.ITEM_TYPES);
+    this.baseUrl = baseUrl;
+    // Get supported types from FILES.TYPES instead of ITEM_TYPES
+    this.supportedTypes = Object.values(CONFIG.FILES.TYPES || {});
   }
 
   /**
@@ -150,43 +151,170 @@ _validateAndNormalizeItem(item) {
   async processItems(items, apiKey, options = {}) {
     const {
       useBatch = false,
+      getEndpoint,
       onProgress,
       onItemComplete
     } = options;
 
-    if (!Array.isArray(items) || items.length === 0) {
-      throw ConversionError.validation('No items provided for conversion');
+    try {
+      // Only use batch processing for multiple items
+      if (items.length > 1) {
+        return this.processBatch(items, apiKey, options);
+      }
+
+      // Process single item
+      const item = items[0];
+      const endpoint = getEndpoint?.(item) || this.getDefaultEndpoint(item);
+      
+      console.log('Processing item:', { type: item.type, endpoint });
+      
+      const formData = new FormData();
+      
+      // Handle file uploads based on type
+      if (item.file instanceof File) {
+        formData.append('file', item.file);
+        formData.append('name', item.file.name);
+        formData.append('type', item.type);
+      } else if (item.type === 'url') {
+        formData.append('url', item.content);
+      }
+
+      if (item.options) {
+        formData.append('options', JSON.stringify(item.options));
+      }
+
+      const response = await fetch(`${this.baseUrl}${endpoint}`, {
+        method: 'POST',
+        headers: apiKey ? {
+          'Authorization': `Bearer ${apiKey}`,
+          'Accept': 'application/json, application/zip'
+        } : {},
+        body: formData
+      });
+
+      if (!response.ok) {
+        throw new ConversionError(
+          await response.text() || 'Conversion failed',
+          response.status
+        );
+      }
+
+      // Check content type for proper handling
+      const contentType = response.headers.get('content-type');
+      if (contentType?.includes('application/zip') || contentType?.includes('application/octet-stream')) {
+        const blob = await response.blob();
+        // Get filename from Content-Disposition header or generate one
+        const disposition = response.headers.get('content-disposition');
+        const filename = disposition ? 
+          disposition.split('filename=')[1].replace(/"/g, '') : 
+          `obsidian_conversion_${new Date().getTime()}.zip`;
+
+        // Trigger download
+        const url = window.URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = filename;
+        document.body.appendChild(a);
+        a.click();
+        window.URL.revokeObjectURL(url);
+        document.body.removeChild(a);
+
+        onItemComplete?.(item.id, true);
+        return { success: true };
+      }
+
+      // Handle JSON response for other cases
+      const result = await response.json();
+      if (!result.success) {
+        throw new ConversionError(result.error || 'Conversion failed');
+      }
+
+      return result;
+
+    } catch (error) {
+      console.error('API Error:', error);
+      onItemComplete?.(items[0].id, false, error);
+      throw error;
+    }
+  }
+
+  async processBatch(items, apiKey, { onProgress, onItemComplete }) {
+    console.log('[CLIENT] Processing batch:', items);
+
+    const formData = new FormData();
+    // Append each file as 'files[]' or each URL as a JSON item
+    items.forEach((item, index) => {
+      if (item.file) {
+        formData.append('files', item.file, item.name);
+      } else if (item.type === 'url') {
+        // Keep JSON array for non-file items
+        // Example: { type: 'url', url: item.content, name: item.name }
+      }
+    });
+
+    // Add items in JSON if needed for the backend
+    const nonFileItems = items.filter((i) => !i.file);
+    if (nonFileItems.length) {
+      formData.append('items', JSON.stringify(nonFileItems));
     }
 
     try {
-      conversionStatus.setStatus(FileStatus.CONVERTING);
+      const response = await fetch(`${this.baseUrl}/batch`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${apiKey}`
+        },
+        body: formData
+      });
 
-      // Log items being processed
-      console.log('Processing items:', items);
-
-      // Use batch conversion if specified and supported
-      if (useBatch && items.length > 1) {
-        const result = await Converters.convertBatch(items, apiKey);
-        if (onItemComplete) {
-          items.forEach(item => onItemComplete(item.id, true));
-        }
-        return [{ success: true, result }];
+      if (!response.ok) {
+        const err = await response.json();
+        throw new ConversionError(err.message || 'Batch conversion failed', response.status);
       }
 
-      // Otherwise process items sequentially
-      return await this.processItemsSequentially(
-        items,
-        apiKey,
-        onProgress,
-        onItemComplete
-      );
+      // Track final progress
+      onProgress?.(100);
+
+      // Call onItemComplete for each item
+      items.forEach(item => onItemComplete?.(item.id, true));
+      return await response.blob();
 
     } catch (error) {
-      console.error('Failed to process items:', error);
-      throw ErrorUtils.wrap(error);
-    } finally {
-      if (onProgress) onProgress(100);
+      console.error('[CLIENT] Batch error:', error);
+      items.forEach(item => onItemComplete?.(item.id, false, error));
+      throw error;
     }
+  }
+
+  getDefaultEndpoint(item) {
+    const fileType = item.file?.name.split('.').pop().toLowerCase();
+    
+    // Determine endpoint based on file type and item type
+    if (item.type === 'audio' || this.isAudioType(fileType)) {
+      return '/multimedia/audio';
+    }
+    if (item.type === 'video' || this.isVideoType(fileType)) {
+      return '/multimedia/video';
+    }
+    if (item.type === 'url') {
+      return '/web/url';
+    }
+    if (item.type === 'parent') {
+      return '/web/parent-url';
+    }
+    if (item.type === 'youtube') {
+      return '/web/youtube';
+    }
+    
+    return '/document/file';
+  }
+
+  isAudioType(ext) {
+    return this.config.FILES.CATEGORIES.audio.includes(ext);
+  }
+
+  isVideoType(ext) {
+    return this.config.FILES.CATEGORIES.video.includes(ext);
   }
 
   /**

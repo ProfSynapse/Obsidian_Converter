@@ -1,6 +1,6 @@
 // src/lib/api/endpoints.js
 
-import { CONFIG } from './config.js';
+import { CONFIG } from '../config';
 
 /**
  * Generates endpoint URLs based on base URL
@@ -10,11 +10,13 @@ import { CONFIG } from './config.js';
 function generateEndpoints(baseUrl) {
     // Remove apiVersion prefix as it's already in the backend routes
     const endpoints = {
-        CONVERT_FILE: `${baseUrl}/file`, // Changed from /convert/file to /file
-        CONVERT_URL: `${baseUrl}/url`,
-        CONVERT_PARENT_URL: `${baseUrl}/parent-url`,
-        CONVERT_YOUTUBE: `${baseUrl}/youtube`,
+        CONVERT_FILE: `${baseUrl}/document/file`,
+        CONVERT_URL: `${baseUrl}/web/url`,
+        CONVERT_PARENT_URL: `${baseUrl}/web/parent-url`,
+        CONVERT_YOUTUBE: `${baseUrl}/web/youtube`,
         CONVERT_BATCH: `${baseUrl}/batch`,
+        CONVERT_AUDIO: `${baseUrl}/multimedia/audio`,
+        CONVERT_VIDEO: `${baseUrl}/multimedia/video`,
         HEALTH: `${baseUrl}/health`
     };
 
@@ -61,7 +63,9 @@ export function getEndpointUrl(type, id = null) {
         file: ENDPOINTS.CONVERT_FILE,
         parent: ENDPOINTS.CONVERT_PARENT_URL,
         youtube: ENDPOINTS.CONVERT_YOUTUBE,
-        batch: ENDPOINTS.CONVERT_BATCH
+        batch: ENDPOINTS.CONVERT_BATCH,
+        audio: ENDPOINTS.CONVERT_AUDIO,
+        video: ENDPOINTS.CONVERT_VIDEO
     };
     
     const endpoint = endpointMap[type.toLowerCase()] || ENDPOINTS.CONVERT_FILE;

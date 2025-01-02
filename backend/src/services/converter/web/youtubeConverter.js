@@ -2,7 +2,7 @@
 import sanitizeFilename from 'sanitize-filename';
 import puppeteer from 'puppeteer';
 import { YoutubeTranscript } from 'youtube-transcript'; // Ensure this package is installed
-import { extractVideoId, formatTimestamp, extractYoutubeMetadata } from '../../../routes/utils/youtubeUtils.js';
+import { extractVideoId, formatTimestamp, extractYoutubeMetadata } from '../../../routes/middleware/utils/youtubeUtils.js';
 
 /**
  * Generates markdown content with transcript and title

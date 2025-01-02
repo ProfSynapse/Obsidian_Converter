@@ -3,7 +3,7 @@
 import puppeteer from 'puppeteer';
 import TurndownService from 'turndown';
 import * as cheerio from 'cheerio';
-import { extractMetadata } from '../../../utils/metadataExtractor.js';
+import { extractMetadata } from '../../../utils/metadataExtractor.js';  // Fix path
 
 /**
  * Configuration for URL conversion and browser settings

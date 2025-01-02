@@ -1,6 +1,7 @@
 // src/lib/api/converters.js
 
-import { CONFIG } from './config.js';
+// Update import to use root config
+import { CONFIG } from '../config';
 import { ConversionError, ErrorUtils } from './errors.js';
 import { RequestHandler } from './requestHandler.js';
 import { ENDPOINTS } from './endpoints.js';

@@ -16,6 +16,7 @@ import { convertXmlToMarkdown } from './web/xmlConverter.js';
 import { convertUrlToMarkdown } from './web/urlConverter.js';
 import { convertParentUrlToMarkdown } from './web/parentUrlConverter.js';
 import { convertYoutubeToMarkdown } from './web/youtubeConverter.js';
+import { convertAudioToMarkdown } from './multimedia/audioconverter.js';
 
 /**
  * Factory class for managing different types of Markdown converters
@@ -135,7 +136,7 @@ class TextConverterFactory {
    * @param {string} [apiKey] - API key for services that require authentication
    * @returns {Promise<{ content: string, images: Array }>} - Converted content and images
    */
-  async convertToMarkdown(type, input, originalName, apiKey) {
+  async convertToMarkdown(type, input, options = {}) {
     try {
       // Debug logging
       console.log('Converting to Markdown:', {
@@ -157,6 +158,15 @@ class TextConverterFactory {
       }
 
       const normalizedType = type.toLowerCase();
+
+      // Add audio handling
+      if (this.isAudioType(type)) {
+        return await convertAudioToMarkdown(
+          { buffer: input }, // Ensure we pass an object with 'buffer'
+          options.name,
+          options.apiKey
+        );
+      }
 
       // Get the appropriate converter
       const converter = this.converters[normalizedType];
@@ -217,6 +227,16 @@ class TextConverterFactory {
       throw new Error('Converter must be a function');
     }
     this.converters[type.toLowerCase()] = converterFunction;
+  }
+
+  /**
+   * Checks if the file type is an audio type
+   * @param {string} type - The file type
+   * @returns {boolean} - True if the file type is an audio type, false otherwise
+   */
+  isAudioType(type) {
+    const audioTypes = ['mp3', 'mp4', 'mpeg', 'mpga', 'm4a', 'wav', 'webm'];
+    return audioTypes.includes(type.toLowerCase());
   }
 }
 

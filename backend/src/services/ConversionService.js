@@ -1,9 +1,14 @@
 import { textConverterFactory } from './converter/textConverterFactory.js';
-import { createBatchZip } from '../routes/utils/zipProcessor.js';
-import { determineCategory } from '../routes/utils/categoryDetector.js';
+import { createBatchZip } from '../routes/middleware/utils/zipProcessor.js';  // Fix path
+import { determineCategory } from '../utils/fileTypeUtils.js';  // Updated import path
 import path from 'path';
 
 export class ConversionService {
+  constructor() {
+    // Initialize textConverterFactory
+    this.converter = textConverterFactory;
+  }
+
   async convert(data) {
     try {
       const { type, content, name, apiKey, options } = data;
@@ -12,6 +17,42 @@ export class ConversionService {
         throw new Error('Missing required conversion parameters');
       }
 
+      // For file uploads
+      if (Buffer.isBuffer(content)) {
+        const fileType = path.extname(name).slice(1).toLowerCase();
+        const category = determineCategory(type, fileType);
+        
+        // Check if API key is required
+        if (this.requiresApiKey(fileType) && !apiKey) {
+          throw new Error('API key is required for audio/video conversion');
+        }
+
+        const result = await this.converter.convertToMarkdown(
+          fileType,
+          content,
+          {
+            name,
+            apiKey,
+            ...options
+          }
+        );
+
+        if (!result) {
+          throw new Error('Conversion failed - no result returned');
+        }
+
+        return {
+          buffer: await createBatchZip([{
+            ...result,
+            type: fileType,
+            category,
+            name
+          }]),
+          filename: this.generateFilename()
+        };
+      }
+
+      // For other types (URL, YouTube, etc.)
       const fileType = path.extname(name).slice(1).toLowerCase();
       const category = determineCategory(type, fileType);
       const converterType = this.getConverterType(type, fileType);
@@ -152,5 +193,13 @@ export class ConversionService {
 
   generateFilename() {
     return `conversion_${new Date().toISOString().replace(/[:.]/g, '-')}.zip`;
+  }
+
+  isAudioExtension(ext) {
+    return ['mp3', 'mp4', 'mpeg', 'mpga', 'm4a', 'wav', 'webm'].includes(ext.toLowerCase());
+  }
+
+  requiresApiKey(type) {
+    return this.isAudioExtension(type);
   }
 }

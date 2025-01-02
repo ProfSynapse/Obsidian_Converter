@@ -6,6 +6,7 @@ import { apiKey } from '$lib/stores/apiKey.js';
 import { conversionStatus } from '$lib/stores/conversionStatus.js';
 import client, { ConversionError } from '$lib/api/client.js';
 import FileSaver from 'file-saver';
+import { CONFIG } from '$lib/config';  // Add this import
 
 /**
  * Utility function to read a file as base64
@@ -32,7 +33,6 @@ async function prepareItem(item) {
     const baseItem = {
       id: item.id,
       name: item.name,
-      type: item.type || 'document',
       options: {
         includeImages: true,
         includeMeta: true,
@@ -40,25 +40,26 @@ async function prepareItem(item) {
       }
     };
 
-    // Handle URL and Parent URL types
-    if (item.url || item.name.startsWith('http://') || item.name.startsWith('https://')) {
+    // Handle URL types
+    if (item.url || item.name.startsWith('http')) {
       const url = item.url || item.name;
       return {
         ...baseItem,
-        type: item.type === 'parent' ? 'parent' : 'url',  // Set correct type for parent URLs
-        url: url, 
-        content: url // Required for API compatibility
+        type: item.type === 'parent' ? 'parent' : 'url',
+        url: url,
+        content: url
       };
     }
 
-    // Handle File type
+    // Handle File type with proper type detection
     if (item.file instanceof File) {
-      const base64Content = await readFileAsBase64(item.file);
+      const fileExt = item.name.split('.').pop().toLowerCase();
+      const type = determineFileType(fileExt);
+      
       return {
         ...baseItem,
-        type: 'file',
-        content: base64Content,
-        file: item.file 
+        type,
+        file: item.file
       };
     }
 
@@ -67,6 +68,18 @@ async function prepareItem(item) {
     console.error(`Error preparing ${item.name}:`, error);
     throw error instanceof ConversionError ? error : ConversionError.validation(error.message);
   }
+}
+
+function determineFileType(extension) {
+  const categories = CONFIG.FILES.CATEGORIES;
+  
+  if (categories.audio.includes(extension)) return 'audio';
+  if (categories.video.includes(extension)) return 'video';
+  if (categories.documents.includes(extension)) return 'document';
+  if (categories.data.includes(extension)) return 'data';
+  if (categories.web.includes(extension)) return 'web';
+  
+  return 'file';
 }
 
 /**
@@ -110,11 +123,21 @@ export async function startConversion() {
     const items = await prepareBatchItems(currentFiles);
     const itemCount = items.length;
 
+    // Configure endpoint mapping
+    const getEndpoint = (item) => {
+      if (item.type === 'audio') return '/multimedia/audio';
+      if (item.type === 'video') return '/multimedia/video';
+      if (item.type === 'url') return '/web/url';
+      if (item.type === 'parent') return '/web/parent-url';
+      return '/document/file';
+    };
+
     console.log('Starting conversion:', { itemCount, items });
 
     // Process items with progress tracking
     const results = await client.processItems(items, currentApiKey, {
         useBatch: itemCount > 1,
+        getEndpoint,
         onProgress: (progress) => {
             console.log(`Conversion progress: ${progress}%`);
             conversionStatus.setProgress(progress);
@@ -129,7 +152,7 @@ export async function startConversion() {
         }
     });
 
-    // Update status
+    // Update status if we get here (means download was triggered)
     conversionStatus.setStatus('completed');
     showFeedback('Conversion completed successfully', 'success');
 

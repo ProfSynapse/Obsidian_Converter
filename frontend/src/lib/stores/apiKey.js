@@ -1,6 +1,6 @@
 // src/lib/stores/apiKey.js
 
-import { writable } from 'svelte/store';
+import { writable, get } from 'svelte/store';
 import { browser } from '$app/environment';
 
 // Initialize from localStorage if available
@@ -21,4 +21,7 @@ if (browser) {
     });
 }
 
-export { apiKey };
+// Add getter function
+const getApiKey = () => get(apiKey);
+
+export { apiKey, getApiKey };

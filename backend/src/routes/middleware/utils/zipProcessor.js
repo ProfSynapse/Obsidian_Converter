@@ -3,8 +3,8 @@
 import JSZip from 'jszip';
 import sanitizeFilename from 'sanitize-filename';
 import path from 'path';
-import { determineCategory } from './categoryDetector.js';
-import { textConverterFactory } from '../../services/converter/textConverterFactory.js';
+import { determineCategory } from '../../../utils/fileTypeUtils.js';
+import { textConverterFactory } from '../../../services/converter/textConverterFactory.js';  // Fix path with correct number of directory levels
 
 /**
  * Escapes RegExp special characters in a string.
@@ -36,25 +36,20 @@ export async function handleConversion(type, content, name, apiKey) {
       throw new Error('Conversion produced no content');
     }
 
-    console.log(`Conversion successful for ${name}, content length: ${conversionResult.content.length}`);
-
     const fileType = path.extname(name).substring(1).toLowerCase();
+    // Use category from content or determine it using the utility
+    const category = content.category || determineCategory(type, fileType);
 
-    const result = {
+    return {
       success: true,
       content: conversionResult.content,
       type,
       name: sanitizeFilename(name),
-      category: determineCategory(type, fileType),
+      category,
       images: conversionResult.images || [],
       originalContent: content // Preserve original content for debugging
     };
 
-    if (type.toLowerCase() === 'url') {
-      result.url = content;
-    }
-
-    return result;
   } catch (error) {
     console.error(`Conversion error for "${name}":`, error);
     return {
@@ -119,6 +114,9 @@ export async function createBatchZip(items) {
           break;
         case 'youtube':
           await processYoutubeContent(item, categoryFolder);
+          break;
+        case 'audio':  // Add audio handling
+          await processAudioContent(item, categoryFolder);
           break;
         case 'pdf':
         case 'docx':
@@ -302,6 +300,32 @@ async function processParentUrlContent(item, folder) {
 }
 
 /**
+ * Processes audio transcription content for ZIP
+ * @param {Object} item - The conversion result item
+ * @param {JSZip} folder - The JSZip folder to add content to
+ */
+async function processAudioContent(item, folder) {
+  console.log(`Processing audio content for: "${item.name}"`);
+  
+  // Create a transcriptions folder
+  const transcriptFolder = folder.folder('transcriptions');
+  
+  // Create markdown file with transcription
+  const safeFilename = sanitizeFilename(`${item.name}.md`);
+  transcriptFolder.file(safeFilename, item.content);
+  
+  console.log(`Added transcription file: "${safeFilename}"`);
+  
+  // Add original audio if available
+  if (item.originalContent) {
+    const audioFolder = folder.folder('audio');
+    const safeAudioName = sanitizeFilename(item.name);
+    audioFolder.file(safeAudioName, item.originalContent, { binary: true });
+    console.log(`Added original audio file: "${safeAudioName}"`);
+  }
+}
+
+/**
  * Generates a summary markdown file for the batch conversion
  * @param {Array<Object>} items - Array of conversion results
  * @returns {string} - The summary markdown content
@@ -346,5 +370,6 @@ export {
   processUrlContent,
   processYoutubeContent,
   processParentUrlContent,
+  processAudioContent,
   generateSummary,
 };
