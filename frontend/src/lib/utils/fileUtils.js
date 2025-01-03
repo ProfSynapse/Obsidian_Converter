@@ -5,7 +5,7 @@ const FILE_CATEGORIES = {
     audio: ['mp3', 'wav', 'ogg', 'm4a', 'aac', 'wma'],
     video: ['mp4', 'mov', 'avi', 'mkv', 'webm'],
     data: ['csv', 'json', 'yaml', 'yml', 'xlsx', 'pptx'],
-    web: ['html', 'htm', 'xml']
+    web: ['url', 'parenturl', 'youtube'] // Updated web category
 };
 
 // Audio and video formats that require API key
@@ -28,25 +28,37 @@ export function requiresApiKey(file) {
 }
 
 /**
- * Gets the type of a file based on its extension
- * @param {File|String} file - The file object or filename to check
+ * Gets the type of a file based on its extension or type
+ * @param {File|String|Object} file - The file object, filename, or file data to check
  * @returns {string} - The file type category
  */
 export function getFileType(file) {
-  if (!file) return 'unknown';
+    if (!file) return 'unknown';
 
-  const extension = (typeof file === 'string' ? file : file.name || '')
-    .toLowerCase()
-    .split('.')
-    .pop();
-
-  for (const [category, extensions] of Object.entries(FILE_CATEGORIES)) {
-    if (extensions.includes(extension)) {
-      return category;
+    // Handle web content types
+    if (typeof file === 'object' && file.type) {
+        if (['url', 'parenturl', 'youtube'].includes(file.type)) {
+            return 'web';
+        }
     }
-  }
 
-  return 'unknown';
+    const extension = (typeof file === 'string' ? file : file.name || '')
+        .toLowerCase()
+        .split('.')
+        .pop();
+
+    // Direct mapping for audio files
+    if (['mp3', 'wav', 'ogg', 'm4a', 'aac', 'wma'].includes(extension)) {
+        return 'audio';
+    }
+
+    for (const [category, extensions] of Object.entries(FILE_CATEGORIES)) {
+        if (extensions.includes(extension)) {
+            return category;
+        }
+    }
+
+    return 'unknown';
 }
 
 /**

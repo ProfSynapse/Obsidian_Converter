@@ -8,11 +8,4 @@
 
 <style>
   /* Add any page-specific styles here */
-  main {
-    display: flex;
-    justify-content: center;
-    align-items: center;
-    min-height: 100vh;
-    background-color: var(--color-background-page);
-  }
 </style>

@@ -1,315 +1,249 @@
 <!-- src/lib/components/ConversionStatus.svelte -->
-
 <script>
   import { onDestroy } from 'svelte';
-  import { fade, fly } from 'svelte/transition';
-  import { conversionStatus } from '$lib/stores/conversionStatus.js';
-  import Container from './common/Container.svelte';
-  import { apiKey } from '$lib/stores/apiKey.js';
-  import { files } from '$lib/stores/files.js';
-  import { requiresApiKey } from '$lib/utils/fileUtils.js';
   import { createEventDispatcher } from 'svelte';
+  import { fade, fly } from 'svelte/transition';
+
+  import { files } from '$lib/stores/files.js';
+  import { apiKey } from '$lib/stores/apiKey.js';
+  import { requiresApiKey } from '$lib/utils/fileUtils.js';
+  import { conversionStatus } from '$lib/stores/conversionStatus.js';
+
+  import ApiKeyInput from './ApiKeyInput.svelte';
+  import ProgressBar from './common/ProgressBar.svelte';
+
+  /**
+   * Store shape example:
+   * conversionStatus = {
+   *   status: 'idle' | 'converting' | 'completed' | 'error' | 'stopped',
+   *   progress: number,       // 0..100
+   *   error: string|null,
+   *   currentFile: string|null,
+   *   processedCount: number, // how many files done
+   *   totalCount: number      // total files
+   * }
+   */
 
   const dispatch = createEventDispatcher();
 
+  // Reactive local variables
   let status = 'idle';
   let progress = 0;
-  let currentFile = null;
-  let currentIcon = '🔄';
   let error = null;
+  let currentFile = null;
+  let processedCount = 0;
+  let totalCount = 0;
 
-  // Subscribe to conversionStatus store
-  const unsubscribe = conversionStatus.subscribe(value => {
-    console.log('ConversionStatus store update:', value);
+  // Subscribe to your conversionStatus store
+  const unsub = conversionStatus.subscribe(value => {
     status = value.status;
-    progress = value.progress;
+    progress = value.progress || 0;
     error = value.error;
     currentFile = value.currentFile;
+    processedCount = value.processedCount || 0;
+    totalCount = value.totalCount || 0;
   });
 
-  $: console.log('ConversionStatus store update:', $conversionStatus);
+  onDestroy(() => unsub());
 
-  onDestroy(() => {
-    unsubscribe();
-  });
+  // Check if we need an API key (any audio/video file) + if we have one
+  $: needsApiKey = $files.some(file => requiresApiKey(file));
+  $: hasApiKey = !!$apiKey;
 
-  // Reactive declarations for API key check
-  $: needsApiKey = $files.some(file => {
-    const requires = requiresApiKey(file);
-    console.log('Checking file for API key requirement:', file.name, requires);
-    return requires;
-  });
-  
-  $: canConvert = !needsApiKey || !!$apiKey;
-  $: isConverting = status === 'converting';
+  // Show the API key input if needed but not set
+  $: showApiKeyInput = needsApiKey && !hasApiKey;
+
+  // Are we converting?
+  $: isConverting = (status === 'converting');
+
+  // If user can convert
+  $: canConvert = !needsApiKey || hasApiKey;
 
   function handleStartConversion() {
-    if (canConvert) {
-      dispatch('startConversion');
+    if (!canConvert) return;
+    dispatch('startConversion');
+  }
+
+  function handleCancelConversion() {
+    dispatch('cancelConversion');
+  }
+
+  // (Optional) If user sets/clears key
+  function handleApiKeySet(event) {
+    if (event.detail.success) {
+      // Optionally auto-start conversion here or do nothing
+      // dispatch('startConversion');
     }
   }
 </script>
 
-<Container class="conversion-container">
-  {#if needsApiKey && !$apiKey}
-    <div class="api-key-warning" role="alert" in:fly={{ y: 20, duration: 300 }}>
-      <span class="icon">⚠️</span>
-      <span>Please provide an API key above for audio/video conversion</span>
+<!-- Minimal container; remove anything not needed. -->
+<div class="conversion-container" transition:fade>
+  <!-- 1) Show API Key Input if needed & missing -->
+  {#if showApiKeyInput}
+    <div in:fly={{ y: 20, duration: 300 }}>
+      <ApiKeyInput
+        on:apiKeySet={handleApiKeySet}
+      />
     </div>
-  {/if}
-
-  <div 
-    class="conversion-controls"
-    class:is-converting={isConverting}
-  >
-    <!-- Convert Button -->
-    <div class="button-wrapper">
+  
+  <!-- 2) If converting, show progress bar & cancel button -->
+  {:else if isConverting}
+    <div class="progress-section" in:fly={{ y: 20, duration: 300 }}>
+      <ProgressBar
+        value={progress}
+        color="#3B82F6"
+        height="8px"
+        showGlow={true}
+      />
+      <p class="progress-info">
+        Processing {processedCount} / {totalCount}
+        {#if currentFile}
+          <small>({currentFile})</small>
+        {/if}
+      </p>
       <button
-        class="convert-button"
-        class:loading={isConverting}
-        disabled={!canConvert}
-        on:click={handleStartConversion}
-        aria-label="Start file conversion"
+        class="cancel-button"
+        on:click={handleCancelConversion}
       >
-        <span class="button-content">
-          <span class="icon" class:rotating={isConverting}>
-            {currentIcon}
-          </span>
-          <span>
-            {#if isConverting}
-              Converting...
-            {:else}
-              Start Conversion
-            {/if}
-          </span>
-        </span>
+        Cancel
       </button>
     </div>
-  </div>
-
-  <!-- Status Display -->
-  <div class="status-section" in:fade={{ duration: 200 }}>
-    {#if status !== 'ready'}
-      <div 
-        class="status-info {status}"
-        in:fly={{ y: 20, duration: 300 }}
-      >
-        <span class="icon" class:rotating={status === 'converting'}>
-          {currentIcon}
-        </span>
-        <span class="status-text">
-          {#if status === 'converting'}
-            Converting {#if currentFile}
-              file {currentFile}
-            {/if}
-          {:else if status === 'completed'}
-            Conversion Completed!
-          {:else if status === 'error'}
-            Error: {error}
-          {:else if status === 'stopped'}
-            Conversion Stopped
-          {/if}
-        </span>
-      </div>
-
-      <!-- Progress Bar -->
-      {#if status === 'converting' || status === 'completed'}
-        <div 
-          class="progress-container"
-          in:fly={{ y: 20, duration: 300, delay: 100 }}
-        >
-          <div class="progress-bar">
-            <div 
-              class="progress-fill"
-              style="width: {progress}%"
-            >
-              <div class="progress-glow"></div>
-            </div>
-          </div>
-          <span class="progress-text">{Math.round(progress)}%</span>
-        </div>
-      {/if}
+  
+  <!-- 3) If finished or not started => Show a single "Start Conversion" button -->
+  {:else}
+    <!-- If there's an error or completed status, show minimal messages (optional) -->
+    {#if status === 'completed'}
+      <p class="status-message success" in:fade>All {totalCount} files converted!</p>
+    {:else if status === 'error'}
+      <p class="status-message error" in:fade>{error}</p>
+    {:else if status === 'stopped'}
+      <p class="status-message stopped" in:fade>Conversion stopped at {processedCount}/{totalCount} files</p>
     {/if}
-  </div>
-</Container>
+
+    <button
+      class="start-button breathing-gradient"
+      disabled={!canConvert}
+      on:click={handleStartConversion}
+      in:fly={{ y: 20, duration: 300 }}
+    >
+      Start Conversion
+    </button>
+  {/if}
+</div>
 
 <style>
-  .conversion-controls {
-    display: flex;
-    flex-direction: column;
-    gap: var(--spacing-md);
-    align-items: center;
-    width: 100%;
-    padding: var(--spacing-md);
-  }
-
-  .status-section {
-    width: 100%;
+  /* Make a fixed light background so it's consistent across machines */
+  .conversion-container {
+    background-color: #F7F8FA;
+    padding: 1rem 1.5rem;
+    border-radius: 8px;
     max-width: 600px;
+    margin: 1.5rem auto;
+    text-align: center;
+    box-shadow: 0 2px 6px rgba(0,0,0,0.05);
+  }
+
+  /* Minimal text styling */
+  .status-message {
+    margin: 0 0 1rem 0;
+    font-size: 0.95rem;
+    line-height: 1.4;
+  }
+  .status-message.success {
+    color: #16a34a;
+  }
+  .status-message.error {
+    color: #dc2626;
+  }
+  .status-message.stopped {
+    color: #f97316;
+  }
+
+  /* The progress + cancel layout */
+  .progress-section {
     display: flex;
     flex-direction: column;
-    gap: var(--spacing-sm);
-  }
-
-  /* Status Info Styles */
-  .status-info {
-    display: flex;
     align-items: center;
-    gap: var(--spacing-sm);
-    font-size: var(--font-size-lg);
-    font-weight: var(--font-weight-medium);
-    padding: var(--spacing-sm) var(--spacing-md);
-    border-radius: var(--rounded-lg);
-    background: var(--color-background);
-    box-shadow: var(--shadow-sm);
+    gap: 1rem;
   }
 
-  .status-info.converting { color: var(--color-prime); }
-  .status-info.completed { color: var(--color-success); }
-  .status-info.error { color: var(--color-error); }
-  .status-info.stopped { color: var(--color-warning); }
-
-  .progress-container {
-    display: flex;
-    align-items: center;
-    gap: var(--spacing-sm);
-    width: 100%;
+  .progress-info {
+    font-size: 0.9rem;
+    color: #555;
+    margin: 0;
+  }
+  .progress-info small {
+    margin-left: 0.25rem;
+    color: #777;
+    font-size: 0.8rem;
   }
 
-  .progress-bar {
-    flex: 1;
-    height: 8px;
-    background: var(--color-background-secondary);
-    border-radius: var(--rounded-full);
-    overflow: hidden;
-    position: relative;
-  }
-
-  .progress-fill {
-    height: 100%;
-    background: linear-gradient(
-      90deg,
-      var(--color-prime) 0%,
-      var(--color-second) 100%
-    );
-    border-radius: var(--rounded-full);
-    transition: width 0.3s ease;
-    position: relative;
-  }
-
-  .progress-glow {
-    position: absolute;
-    top: 0;
-    left: 0;
-    right: 0;
-    bottom: 0;
-    background: linear-gradient(
-      90deg,
-      transparent 0%,
-      rgba(255, 255, 255, 0.2) 50%,
-      transparent 100%
-    );
-    animation: shine 1.5s linear infinite;
-  }
-
-  .progress-text {
-    min-width: 4em;
-    text-align: right;
-    font-size: var(--font-size-sm);
-    color: var (--color-text-secondary);
-  }
-
-  .button-wrapper {
-    width: 100%;
-    max-width: 300px;
-    margin-top: var(--spacing-md);
-  }
-
-  .convert-button {
-    width: 100%;
-    padding: var(--spacing-md) var(--spacing-lg);
-    background: var(--gradient-primary);
+  .cancel-button {
+    padding: 0.6rem 1.2rem;
+    background: #E5E7EB;
     border: none;
-    border-radius: var(--rounded-lg);
-    color: var(--color-text-on-dark);
-    font-size: var(--font-size-lg);
-    font-weight: var (--font-weight-medium);
+    border-radius: 6px;
+    font-size: 1rem;
     cursor: pointer;
-    transition: all 0.3s ease;
+  }
+  .cancel-button:hover {
+    background: #D1D5DB;
+  }
+
+  /* The main Start Conversion button with a "breathing" gradient effect */
+  .start-button {
     position: relative;
+    padding: 0.75rem 1.5rem;
+    font-size: 1rem;
+    font-weight: 600;
+    color: #fff;
+    background: none;
+    border: none;
+    border-radius: 6px;
+    cursor: pointer;
     overflow: hidden;
   }
-
-  .convert-button:not(:disabled):hover {
-    transform: translateY(-2px);
-    box-shadow: var(--shadow-lg);
-  }
-
-  .convert-button:disabled {
-    opacity: 0.7;
+  .start-button:disabled {
+    background: #9CA3AF;
     cursor: not-allowed;
   }
 
-  .button-content {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    gap: var(--spacing-sm);
+  /* "Breathing" gradient animation */
+  .breathing-gradient {
+    background: linear-gradient(90deg, #3B82F6 0%, #9333EA 100%);
+    background-size: 200% 200%;
+    animation: breathe 3s ease-in-out infinite;
   }
 
-  .rotating {
-    animation: rotate 1s linear infinite;
-  }
-
-  @keyframes rotate {
-    from { transform: rotate(0deg); }
-    to { transform: rotate(360deg); }
-  }
-
-  @keyframes shine {
-    from { transform: translateX(-100%); }
-    to { transform: translateX(100%); }
-  }
-
-  .api-key-warning {
-    background: var(--color-warning-light);
-    color: var(--color-warning-dark);
-    padding: var(--spacing-md);
-    border-radius: var (--rounded-lg);
-    margin-bottom: var(--spacing-md);
-    display: flex;
-    align-items: center;
-    gap: var(--spacing-sm);
-  }
-
-  /* Responsive Design */
-  @media (max-width: 768px) {
-    .button-wrapper {
-      max-width: 100%;
+  @keyframes breathe {
+    0% {
+      background-position: 0% 50%;
     }
-
-    .status-info {
-      font-size: var(--font-size-base);
+    50% {
+      background-position: 100% 50%;
+    }
+    100% {
+      background-position: 0% 50%;
     }
   }
 
-  /* High Contrast Mode */
-  @media (prefers-contrast: high) {
-    .convert-button,
-    .status-info {
-      border: 2px solid currentColor;
+  /* Hover state for the gradient button */
+  .start-button:not(:disabled):hover {
+    transform: scale(1.02);
+    box-shadow: 0 4px 10px rgba(0,0,0,0.1);
+  }
+
+  /* Basic responsiveness */
+  @media (max-width: 600px) {
+    .conversion-container {
+      margin: 1rem;
+    }
+    .progress-info {
+      font-size: 0.85rem;
     }
   }
 
-  /* Reduced Motion */
-  @media (prefers-reduced-motion: reduce) {
-    .rotating,
-    .progress-glow {
-      animation: none;
-    }
-
-    .convert-button:hover:not(:disabled) {
-      transform: none;
-    }
-  }
+  /* (Optional) If you want to forcibly ignore dark mode, remove 
+     any @media (prefers-color-scheme) rules from your global. */
 </style>

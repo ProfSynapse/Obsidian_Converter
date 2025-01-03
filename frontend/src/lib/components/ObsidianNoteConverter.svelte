@@ -1,9 +1,8 @@
 <!-- src/lib/components/ObsidianNoteConverter.svelte -->
 <script>
   import FileUploader from './FileUploader.svelte';
-  import ConversionStatus from './ConversionStatus.svelte';
-  import ApiKeyInput from './ApiKeyInput.svelte';
   import ResultDisplay from './ResultDisplay.svelte';
+  import ApiKeyInput from './ApiKeyInput.svelte';
   import { apiKey } from '$lib/stores/apiKey.js';
   import { conversionStatus } from '$lib/stores/conversionStatus.js';
   import { files } from '$lib/stores/files.js';
@@ -41,6 +40,8 @@
   $: canStartConversion = (!needsApiKey || !!$apiKey) && $files.length > 0 && $conversionStatus.status !== 'converting';
   $: isComplete = $conversionStatus.status === 'completed';
   $: hasError = $conversionStatus.status === 'error';
+  $: isConverting = $conversionStatus.status === 'converting';
+  $: showUploader = !isConverting && !isComplete;
 
   // Debug logging for state changes
   $: {
@@ -51,6 +52,8 @@
       canStartConversion,
       isComplete,
       hasError,
+      isConverting,
+      showUploader,
       filesCount: $files.length,
       conversionStatus: $conversionStatus.status
     });
@@ -61,10 +64,15 @@
    * Validates preconditions and manages conversion state
    */
   async function handleStartConversion() {
-    console.log('handleStartConversion called');
+    console.log('ObsidianNoteConverter: handleStartConversion called', {
+      filesCount: $files.length,
+      conversionStatus: $conversionStatus.status,
+      needsApiKey,
+      hasApiKey: !!$apiKey
+    });
     
     if (!canStartConversion) {
-      console.log('Cannot start conversion:', {
+      console.log('ObsidianNoteConverter: Cannot start conversion - conditions not met', {
         needsApiKey,
         hasApiKey: !!$apiKey,
         filesPresent: $files.length > 0,
@@ -74,9 +82,11 @@
     }
     
     try {
-      await startConversion(); // Call the imported startConversion function
+      console.log('ObsidianNoteConverter: Starting conversion process');
+      await startConversion();
+      console.log('ObsidianNoteConverter: Conversion started successfully');
     } catch (error) {
-      console.error('Conversion error:', error);
+      console.error('ObsidianNoteConverter: Conversion error:', error);
       conversionStatus.setError(error.message);
       conversionStatus.setStatus('error');
     }
@@ -85,44 +95,27 @@
 
 <main class="converter-app">
   <div class="converter-sections">
-    <!-- File Uploader Section -->
-    <section 
-      class="section upload-section" 
-      class:is-active={!isComplete}
-    >
-      <FileUploader />
-    </section>
-
-    {#if $files.length > 0}
-      <!-- API Key Input Section - Show when needed -->
-      {#if needsApiKey}
-        <section 
-          class="section api-key-section" 
-          transition:slide|local={{ duration: 300 }}
-        >
-          <ApiKeyInput />
-        </section>
-      {/if}
-
-      <!-- Conversion Status Section -->
+    <!-- Only show FileUploader when not converting and not complete -->
+    {#if showUploader}
       <section 
-        class="section status-section" 
+        class="section upload-section" 
+        class:is-active={!isComplete}
         transition:slide|local
       >
-        <ConversionStatus 
+        <FileUploader />
+      </section>
+    {/if}
+
+    {#if $files.length > 0}
+      <section 
+        class="section results-section" 
+        transition:slide|local
+      >
+        <ResultDisplay 
           on:startConversion={handleStartConversion}
+          on:convertMore={() => window.location.reload()}
         />
       </section>
-
-      <!-- Results Section -->
-      {#if isComplete}
-        <section 
-          class="section results-section" 
-          transition:slide|local
-        >
-          <ResultDisplay />
-        </section>
-      {/if}
     {/if}
   </div>
 </main>
@@ -154,15 +147,6 @@
 
   .section.is-active {
     transform: scale(1.01);
-  }
-
-  /* API Key Section Styles */
-  .api-key-section {
-    margin-bottom: var(--spacing-md);
-    background: var(--color-surface);
-    border-radius: var(--rounded-lg);
-    padding: var(--spacing-md);
-    border: 2px solid var(--color-border);
   }
 
   /* Responsive Design */
