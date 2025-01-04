@@ -1,0 +1,14 @@
+{
+    "name": "Obsidian Converter",
+    "version": "1.0.0",
+    "private": true,
+    "workspaces": [
+      "frontend",
+      "backend"
+    ],
+    "scripts": {
+      "start": "node backend/index.js",
+      "install": "npm install"
+    }
+  }
+  
