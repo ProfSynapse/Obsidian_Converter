@@ -7,22 +7,24 @@ RUN apt-get update && apt-get install -y poppler-utils
 # Stage 1: Frontend build
 FROM base AS frontend-builder
 WORKDIR /app/frontend
-# Copy package files first for better caching
+# Copy root package files first
+COPY package*.json ./
 COPY frontend/package*.json ./
-# Install ALL dependencies including dev dependencies
-RUN npm ci
+# Install dependencies at root level for workspaces
+RUN npm install
 # Copy frontend source
 COPY frontend/ ./
-# Build frontend
-RUN npm run build
+# Build frontend with explicit path to vite
+RUN npm exec vite build
 
 # Stage 2: Backend build  
 FROM base AS backend-builder
 WORKDIR /app/backend
-# Copy package files first for better caching
+# Copy package files
+COPY package*.json ./
 COPY backend/package*.json ./
-# Install ALL dependencies including dev dependencies
-RUN npm ci
+# Install dependencies
+RUN npm install
 # Copy backend source
 COPY backend/ ./
 # Build backend
@@ -32,12 +34,9 @@ RUN npm run build
 FROM base
 WORKDIR /app
 
-# Copy built assets
-COPY --from=frontend-builder /app/frontend/build ./frontend/build
+# Copy built assets correctly
+COPY --from=frontend-builder /app/frontend/dist ./frontend/dist
 COPY --from=backend-builder /app/backend/dist ./backend/dist
-
-# Copy package files
-COPY backend/package*.json ./backend/
 
 # Install only production dependencies
 WORKDIR /app/backend

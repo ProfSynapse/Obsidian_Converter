@@ -37,12 +37,19 @@ class Server {
             const frontendPath = path.join(__dirname, '../../frontend/dist');
             this.app.use(express.static(frontendPath));
             
-            // Serve frontend's index.html for any unmatched routes
+            // Move API routes before catch-all
+            this.app.use('/api/v1', router);
+            this.app.use('/api/v1/proxy', proxyRoutes);
+            
+            // Catch-all route for SPA
             this.app.get('*', (req, res) => {
-                // Skip API routes
                 if (req.path.startsWith('/api/')) return next();
                 res.sendFile(path.join(frontendPath, 'index.html'));
             });
+        } else {
+            // API routes for development
+            this.app.use('/api/v1', router);
+            this.app.use('/api/v1/proxy', proxyRoutes);
         }
 
         // Initialize server
