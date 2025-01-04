@@ -12,7 +12,7 @@
     "dev:backend": "npm --prefix backend run dev",
     "build": "npm run build:frontend && npm run build:backend",
     "build:frontend": "npm --prefix frontend run build",
-    "build:backend": "rm -rf dist && babel backend/src -d dist --copy-files --out-file-extension .js",
+    "build:backend": "rm -rf dist && babel backend/src -d dist --copy-files --out-file-extension .js && cp backend/package.json dist/",
     "start": "npm --prefix backend run start",
     "test": "npm --prefix backend run test",
     "lint": "npm --prefix backend run lint"
@@ -26,6 +26,7 @@
     "@smui/textfield": "7.0.0",
     "@squoosh/lib": "^0.3.1",
     "archiver": "^7.0.1",
+    "axios": "^1.7.7",
     "axios-retry": "^3.3.1",
     "config": "^3.3.6",
     "cors": "^2.8.5",
