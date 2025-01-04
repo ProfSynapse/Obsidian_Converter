@@ -1,6 +1,7 @@
 {
   "name": "obsidian-converter-root",
   "private": true,
+  "type": "module",
   "workspaces": [
     "frontend",
     "backend"
@@ -11,7 +12,7 @@
     "dev:backend": "npm --prefix backend run dev",
     "build": "npm run build:frontend && npm run build:backend",
     "build:frontend": "npm --prefix frontend run build",
-    "build:backend": "rm -rf dist && babel backend/src -d dist --copy-files",
+    "build:backend": "rm -rf dist && babel backend/src -d dist --copy-files --out-file-extension .js",
     "start": "npm --prefix backend run start",
     "test": "npm --prefix backend run test",
     "lint": "npm --prefix backend run lint"
