@@ -42,7 +42,8 @@
     "winston": "^3.3.3",
     "winston-daily-rotate-file": "^4.6.5",
     "xlsx": "^0.18.5",
-    "cheerio": "^1.0.0"
+    "cheerio": "^1.0.0",
+    "youtube-transcript": "^1.2.1"
   },
   "devDependencies": {
     "jest": "^27.0.6",
