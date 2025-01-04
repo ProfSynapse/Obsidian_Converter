@@ -2,6 +2,5 @@
 **/dist
 **/.git
 **/logs
-frontend/
 .genai*
 codeSummaryLogs/
