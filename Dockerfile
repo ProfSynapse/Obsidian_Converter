@@ -6,36 +6,42 @@ RUN apt-get update && apt-get install -y poppler-utils
 
 # Stage 1: Frontend build
 FROM base AS frontend-builder
-COPY frontend/package*.json ./frontend/
 WORKDIR /app/frontend
-RUN npm install
+# Copy package files first for better caching
+COPY frontend/package*.json ./
+# Install ALL dependencies including dev dependencies
+RUN npm ci
+# Copy frontend source
 COPY frontend/ ./
+# Build frontend
 RUN npm run build
 
-# Stage 2: Backend build
+# Stage 2: Backend build  
 FROM base AS backend-builder
-COPY backend/package*.json ./backend/
 WORKDIR /app/backend
-RUN npm install
+# Copy package files first for better caching
+COPY backend/package*.json ./
+# Install ALL dependencies including dev dependencies
+RUN npm ci
+# Copy backend source
 COPY backend/ ./
+# Build backend
 RUN npm run build
 
 # Stage 3: Production
 FROM base
 WORKDIR /app
 
-# Copy built frontend
-COPY --from=frontend-builder /app/frontend/dist ./frontend/dist
-# Copy built backend
+# Copy built assets
+COPY --from=frontend-builder /app/frontend/build ./frontend/build
 COPY --from=backend-builder /app/backend/dist ./backend/dist
 
 # Copy package files
 COPY backend/package*.json ./backend/
-COPY frontend/package*.json ./frontend/
 
-# Install production dependencies
+# Install only production dependencies
 WORKDIR /app/backend
-RUN npm install --production
+RUN npm ci --omit=dev
 
 # Set environment variables
 ENV NODE_ENV=production
