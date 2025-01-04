@@ -7,5 +7,5 @@
 <ObsidianNoteConverter />
 
 <style>
-  /* Add any page-specific styles */
+  /* Add any page-specific */
 </style>
