@@ -5,10 +5,11 @@ RUN apt-get update && apt-get install -y poppler-utils
 
 WORKDIR /app
 
-COPY package*.json ./
-
+# Copy backend package.json and install dependencies
+COPY backend/package*.json ./
 RUN npm install
 
-COPY . .
+# Copy backend files
+COPY backend/ .
 
-CMD ["node", "index.js"]
+CMD ["node", "src/server.js"]
