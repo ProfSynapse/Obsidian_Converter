@@ -4,9 +4,9 @@
   "description": "A service to convert various file types to Obsidian-compatible Markdown notes",
   "private": true,
   "type": "module",
-  "main": "src/server.js",
+  "main": "dist/server.js",
   "scripts": {
-    "start": "node src/server.js",
+    "start": "node dist/server.js",
     "dev": "nodemon src/server.js",
     "test": "jest",
     "lint": "eslint .",

@@ -17,9 +17,11 @@ RUN npm run build:backend
 FROM node:18-slim
 WORKDIR /app
 
-# Copy built backend artifacts and node_modules
+# Copy only necessary files
 COPY --from=builder /app/dist ./dist
-COPY --from=builder /app/node_modules ./node_modules
+COPY --from=builder /app/package*.json ./
+COPY --from=builder /app/backend/package*.json ./backend/
+RUN npm install --production
 
 RUN apt-get update && apt-get install -y poppler-utils
 
