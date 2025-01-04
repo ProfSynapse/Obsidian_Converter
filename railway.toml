@@ -1,7 +1,7 @@
 [build]
 builder = "dockerfile"
-dockerfilePath = "./Dockerfile"
+dockerfilePath = "dockerfile"
 
 [deploy]
-startCommand = "node dist/server.js"
+startCommand = "node src/server.js"
 restartPolicyType = "ON_FAILURE"
