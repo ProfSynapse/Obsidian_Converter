@@ -5,9 +5,6 @@ WORKDIR /app
 # Copy root package files
 COPY package.json package-lock.json ./
 COPY backend/package.json ./backend/
-COPY frontend/package.json ./frontend/
-
-# Install dependencies
 RUN npm install
 
 # Copy the entire repo
