@@ -2,15 +2,13 @@
 FROM node:18-slim AS builder
 WORKDIR /app
 
-# Copy root package files
-COPY package.json package-lock.json ./
-COPY backend/package.json ./backend/
-RUN npm install
-
-# Copy the entire repo
+# Copy entire repo so frontend folder exists
 COPY . .
 
-# Build the monorepo (this will run build:frontend && build:backend)
+# Install dependencies
+RUN npm install
+
+# Now run the build
 RUN npm run build
 
 # Stage 2: Production

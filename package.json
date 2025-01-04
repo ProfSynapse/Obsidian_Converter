@@ -14,8 +14,7 @@
     "build:backend": "cd backend && npm run build",
     "start": "cd backend && node dist/server.js",
     "test": "cd backend && npm run test",
-    "lint": "cd backend && npm run lint",
-    "postinstall": "npm run build"
+    "lint": "cd backend && npm run lint"
   },
   "dependencies": {
     "@bundled-es-modules/pdfjs-dist": "^3.6.172-alpha.1",
