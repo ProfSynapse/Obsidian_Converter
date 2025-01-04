@@ -8,44 +8,29 @@ import { Document, VideoCamera, MusicalNote, Photo, Link } from 'svelte-hero-ico
  * Constants for file handling
  */
 const VALID_EXTENSIONS = [
-    'txt', 'rtf', 'pdf', 'docx', 'odt', 'epub',
-    'csv', 'json', 'yaml', 'yml', 'xlsx', 'pptx',
-    'html', 'htm', 'xml', 'mp3', 'wav', 'ogg',
-    'mp4', 'mov', 'avi', 'webm'
+    'txt', 'pdf', 'docx', 'pptx',
+    'csv', 'xlsx',
+    'mp3', 'wav', 'm4a',
+    'mp4', 'webm', 'avi'
 ];
 
 const MIME_TYPE_MAPPING = {
     // Document formats
     'application/vnd.openxmlformats-officedocument.wordprocessingml.document': 'docx',
-    'application/msword': 'doc',
     'application/pdf': 'pdf',
-    'application/rtf': 'rtf',
-    'text/plain': 'txt',
-    'application/vnd.oasis.opendocument.text': 'odt',
-    'application/epub+zip': 'epub',
     
     // Spreadsheet and presentation formats
     'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': 'xlsx',
     'application/vnd.openxmlformats-officedocument.presentationml.presentation': 'pptx',
     
-    // Web formats
-    'text/html': 'html',
-    'text/xml': 'xml',
-    'application/json': 'json',
-    'text/csv': 'csv',
-    'text/yaml': 'yaml',
-    'text/yml': 'yml',
-    
     // Audio formats
     'audio/mpeg': 'mp3',
     'audio/wav': 'wav',
-    'audio/ogg': 'ogg',
     
     // Video formats
     'video/mp4': 'mp4',
-    'video/quicktime': 'mov',
-    'video/x-msvideo': 'avi',
-    'video/webm': 'webm'
+    'video/webm': 'webm',
+    'video/x-msvideo': 'avi'
 };
 
 /**

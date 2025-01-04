@@ -14,11 +14,10 @@ export const CONFIG = {
 
     FILES: {
         CATEGORIES: {
-            documents: ['txt', 'rtf', 'pdf', 'docx', 'odt', 'epub', 'doc'],
-            audio: ['mp3', 'wav', 'ogg', 'm4a', 'aac', 'wma'],
-            video: ['mp4', 'mov', 'avi', 'mkv', 'webm'],
-            data: ['csv', 'json', 'yaml', 'yml', 'xlsx', 'pptx'],
-            web: ['html', 'htm', 'xml']
+            documents: ['txt', 'pdf', 'docx', 'pptx'],
+            audio: ['mp3', 'wav', 'm4a'],
+            video: ['mp4', 'webm', 'avi'],
+            data: ['csv', 'xlsx']
         },
         TYPES: {
             // Document types
@@ -38,8 +37,8 @@ export const CONFIG = {
             BATCH: 'batch'
         },
         API_REQUIRED: [
-            'mp3', 'wav', 'ogg', 'm4a', 'mpga',
-            'mp4', 'webm', 'avi', 'mov', 'mpeg'
+            'mp3', 'wav', 'm4a',
+            'mp4', 'webm', 'avi'
         ],
         ICONS: {
             document: 'file-text',

@@ -15,10 +15,10 @@ export const config = {
   },
   conversion: {
     allowedFileTypes: [
-      "txt", "rtf", "pdf", "docx", "odt", "epub",
-      "csv", "json", "yaml", "yml", "xlsx", "pptx",
-      "html", "htm", "xml",
-      "mp3", "wav", "ogg", "mp4", "mov", "avi", "webm"
+      "txt", "pdf", "docx", "pptx",
+      "csv", "xlsx",
+      "mp3", "wav", "m4a",
+      "mp4", "webm", "avi"
     ],
     maxFileSize: 52428800
   },

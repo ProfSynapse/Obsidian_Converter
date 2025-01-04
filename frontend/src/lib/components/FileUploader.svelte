@@ -19,11 +19,10 @@
    * (Here we break out audio vs video explicitly)
    */
   const SUPPORTED_FILES = {
-    documents: ['txt', 'rtf', 'pdf', 'docx', 'odt', 'epub', 'pptx'],
-    data: ['csv', 'json', 'yaml', 'yml', 'xlsx'],
-    web: ['html', 'htm', 'xml'],
-    audio: ['mp3', 'wav', 'ogg'],
-    video: ['mp4', 'mov', 'avi', 'webm', 'youtube']
+    documents: ['txt', 'pdf', 'docx', 'pptx'],
+    data: ['csv', 'xlsx'],
+    audio: ['mp3', 'wav', 'm4a'],
+    video: ['mp4', 'webm', 'avi', 'youtube']
   };
 
   // Flatten

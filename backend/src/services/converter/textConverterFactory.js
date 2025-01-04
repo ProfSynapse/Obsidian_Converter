@@ -1,18 +1,10 @@
 // services/converter/textConverterFactory.js
 
-import { convertTxtToMarkdown } from './text/txtConverter.js';
-import { convertRtfToMarkdown } from './text/rtfConverter.js';
 import { convertPdfToMarkdown } from './text/pdfConverter.js';
 import { convertDocxToMarkdown } from './text/docxConverter.js';
-import { convertOdtToMarkdown } from './text/odtConverter.js';
-import { convertEpubToMarkdown } from './text/epubConverter.js';
 import { convertPptxToMarkdown } from './text/pptxConverter.js';
 import { convertCsvToMarkdown } from './data/csvConverter.js';
-import { convertJsonToMarkdown } from './data/jsonConverter.js';
-import { convertYamlToMarkdown } from './data/yamlConverter.js';
 import { convertXlsxToMarkdown } from './data/xlsxConverter.js';
-import { convertHtmlToMarkdown } from './web/htmlConverter.js';
-import { convertXmlToMarkdown } from './web/xmlConverter.js';
 import { convertUrlToMarkdown } from './web/urlConverter.js';
 import { convertParentUrlToMarkdown } from './web/parentUrlConverter.js';
 import { convertYoutubeToMarkdown } from './web/youtubeConverter.js';
@@ -29,25 +21,15 @@ class TextConverterFactory {
   constructor() {
     this.converters = {
       // Text converters
-      txt: convertTxtToMarkdown,
-      rtf: convertRtfToMarkdown,
       pdf: convertPdfToMarkdown,
       docx: convertDocxToMarkdown,
-      odt: convertOdtToMarkdown,
-      epub: convertEpubToMarkdown,
       pptx: convertPptxToMarkdown,
 
       // Data converters
       csv: convertCsvToMarkdown,
-      json: convertJsonToMarkdown,
-      yaml: convertYamlToMarkdown,
-      yml: convertYamlToMarkdown,
       xlsx: convertXlsxToMarkdown,
 
       // Web converters
-      html: convertHtmlToMarkdown,
-      htm: convertHtmlToMarkdown,
-      xml: convertXmlToMarkdown,
       url: convertUrlToMarkdown,
       parenturl: convertParentUrlToMarkdown,
       youtube: convertYoutubeToMarkdown,
@@ -57,14 +39,7 @@ class TextConverterFactory {
     this.expectedInputTypes = {
       docx: ['buffer'],
       pdf: ['buffer'],
-      txt: ['string', 'buffer'],
-      rtf: ['buffer'],
-      epub: ['buffer'],
-      odt: ['buffer'],
       pptx: ['buffer'],
-      html: ['string'],
-      htm: ['string'],
-      xml: ['string'],
       url: ['string'],
       parenturl: ['string', 'object'],
       youtube: ['string'],
@@ -174,6 +149,13 @@ class TextConverterFactory {
           case 'webm':
           case 'avi':
             return await convertVideoToMarkdown(input, options);
+          case 'audio':
+          case 'mp3':
+          case 'wav':
+          case 'm4a':
+          case 'mpeg':
+          case 'mpga':
+            return await convertAudioToMarkdown(input, options);
           default:
             throw new Error(`Unsupported file type: ${type}`);
         }
