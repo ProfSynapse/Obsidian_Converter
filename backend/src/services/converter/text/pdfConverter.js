@@ -9,7 +9,6 @@ import * as fs from 'fs/promises';
 import { promisify } from 'util';
 import { exec } from 'child_process';
 import { v4 as uuidv4 } from 'uuid';
-import pdfParse from 'pdf-parse';
 
 const execAsync = promisify(exec);
 const __filename = fileURLToPath(import.meta.url);
@@ -246,6 +245,23 @@ async function extractImagesWithFallback(pdfPath, originalName) {
 }
 
 /**
+ * Extract text from PDF using poppler-utils pdftotext
+ * @param {string} pdfPath - Path to the PDF file
+ * @returns {Promise<string>} - Extracted text content
+ */
+async function extractText(pdfPath) {
+  try {
+    // Use pdftotext command from poppler
+    const command = `pdftotext "${pdfPath}" -`;
+    const { stdout } = await execAsync(command);
+    return stdout.trim();
+  } catch (error) {
+    console.error('Text extraction error:', error);
+    return ''; // Return empty string if text extraction fails
+  }
+}
+
+/**
  * Validates PDF input buffer
  * @param {Buffer} input - The input buffer to validate
  * @returns {boolean} True if input is a valid PDF
@@ -299,36 +315,33 @@ export async function convertPdfToMarkdown(input, originalName, apiKey) {
     await fs.mkdir(tempDir, { recursive: true });
     await fs.writeFile(tempPdfPath, input);
     
-    // Extract text
-    const pdfData = await pdfParse(input);
+    // Extract text using poppler instead of pdf-parse
+    const textContent = await extractText(tempPdfPath);
     
-    // Extract images
+    // Extract images (using existing code)
     const images = await extractImages(tempPdfPath, originalName);
     
-    // Generate markdown content
     const baseName = path.basename(originalName, '.pdf');
     
-    // Create frontmatter
+    // Create frontmatter (modified to not rely on pdf-parse)
     const frontmatter = [
       '---',
       `title: ${baseName}`,
       `created: ${new Date().toISOString()}`,
       `source: ${originalName}`,
       `type: pdf`,
-      `pages: ${pdfData.numpages}`,
       `image_count: ${images.length}`,
       '---',
       ''
     ].join('\n');
 
     // Process text content
-    let textContent = pdfData.text
-      .replace(/\f/g, '\n\n---\n\n')
+    const processedText = textContent
       .replace(/(\r\n|\r|\n){3,}/g, '\n\n')
       .replace(/[^\S\r\n]+/g, ' ')
       .trim();
 
-    // Add image references
+    // Add image references (using existing code)
     let imageSection = '';
     if (images.length > 0) {
       imageSection = '\n\n## Extracted Images\n\n' +
@@ -340,7 +353,7 @@ export async function convertPdfToMarkdown(input, originalName, apiKey) {
     const markdownContent = [
       frontmatter,
       '## Content\n',
-      textContent,
+      processedText,
       imageSection
     ].join('\n');
 
@@ -353,7 +366,7 @@ export async function convertPdfToMarkdown(input, originalName, apiKey) {
     console.error('Error converting PDF:', error);
     throw error;
   } finally {
-    // Cleanup
+    // Cleanup (using existing code)
     try {
       await fs.rm(tempDir, { recursive: true, force: true });
     } catch (error) {
