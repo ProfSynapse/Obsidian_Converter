@@ -2,11 +2,14 @@
 FROM node:18-slim AS builder
 WORKDIR /app
 
+# Copy package files
+COPY package*.json ./
+COPY frontend/package*.json ./frontend/
+COPY backend/package*.json ./backend/
+RUN npm install
+
 # Copy entire repo so frontend folder exists
 COPY . .
-
-# Install dependencies
-RUN npm install
 
 # Now run the build
 RUN npm run build
