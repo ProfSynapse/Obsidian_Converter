@@ -9,6 +9,7 @@ import router from './routes/index.js';  // Updated path
 import proxyRoutes from './routes/proxyRoutes.js';  // Updated path
 import { errorHandler, AppError } from './utils/errorHandler.js';
 import morgan from 'morgan';
+import path from 'path';  // Add path module
 
 // Load environment variables
 dotenv.config();
@@ -17,14 +18,12 @@ class Server {
     constructor() {
         this.app = express();
         this.server = null; // Initialize server property
-        this.port = process.env.PORT || config.server.port || 3000;
-        this.env = process.env.NODE_ENV || config.server.env || 'development';
+        this.port = process.env.PORT || 3000;
+        this.env = process.env.NODE_ENV || 'development';
         this.corsOptions = {
-            origin: [
-                'http://localhost:5173',    // Dev frontend
-                'http://localhost:3000',    // Dev backend
-                ...(process.env.CORS_ORIGIN ? [process.env.CORS_ORIGIN] : [])
-            ],
+            origin: process.env.CORS_ORIGIN ? 
+                process.env.CORS_ORIGIN.split(',').map(origin => origin.trim()) : 
+                ['http://localhost:5173'],
             methods: ['GET', 'POST', 'OPTIONS'],
             allowedHeaders: ['Content-Type', 'Authorization', 'x-api-key'],
             exposedHeaders: ['Content-Disposition'],
@@ -33,6 +32,19 @@ class Server {
             optionsSuccessStatus: 204
         };
         
+        // Serve frontend static files in production
+        if (process.env.NODE_ENV === 'production') {
+            const frontendPath = path.join(__dirname, '../../frontend/dist');
+            this.app.use(express.static(frontendPath));
+            
+            // Serve frontend's index.html for any unmatched routes
+            this.app.get('*', (req, res) => {
+                // Skip API routes
+                if (req.path.startsWith('/api/')) return next();
+                res.sendFile(path.join(frontendPath, 'index.html'));
+            });
+        }
+
         // Initialize server
         this.initializeMiddleware();
         this.initializeRoutes();

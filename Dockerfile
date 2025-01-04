@@ -1,38 +1,45 @@
-# Stage 1: Dependencies
-FROM node:18-slim AS builder
+FROM node:18-slim as base
 WORKDIR /app
-
-# Copy package files and babel config
-COPY package*.json .babelrc ./
-COPY backend/package*.json ./backend/
-
-# Install all dependencies including devDependencies
-RUN npm install
-
-# Copy source code
-COPY . .
-
-# Build backend
-RUN npm run build:backend
-
-# Stage 2: Production
-FROM node:18-slim
-WORKDIR /app
-
-# Copy necessary files
-COPY --from=builder /app/dist ./dist
-COPY --from=builder /app/package*.json ./
-COPY --from=builder /app/backend/package*.json ./backend/
-COPY --from=builder /app/.babelrc ./
-
-# Install production dependencies at the root and in backend
-RUN npm install --production && \
-    cd backend && npm install --production && cd ..
 
 # Install system dependencies
 RUN apt-get update && apt-get install -y poppler-utils
 
-# Set environment variable
-ENV NODE_ENV=production
+# Stage 1: Frontend build
+FROM base AS frontend-builder
+COPY frontend/package*.json ./frontend/
+WORKDIR /app/frontend
+RUN npm install
+COPY frontend/ ./
+RUN npm run build
 
+# Stage 2: Backend build
+FROM base AS backend-builder
+COPY backend/package*.json ./backend/
+WORKDIR /app/backend
+RUN npm install
+COPY backend/ ./
+RUN npm run build
+
+# Stage 3: Production
+FROM base
+WORKDIR /app
+
+# Copy built frontend
+COPY --from=frontend-builder /app/frontend/dist ./frontend/dist
+# Copy built backend
+COPY --from=backend-builder /app/backend/dist ./backend/dist
+
+# Copy package files
+COPY backend/package*.json ./backend/
+COPY frontend/package*.json ./frontend/
+
+# Install production dependencies
+WORKDIR /app/backend
+RUN npm install --production
+
+# Set environment variables
+ENV NODE_ENV=production
+ENV PORT=8080
+
+# Start command
 CMD ["node", "dist/server.js"]
