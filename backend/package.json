@@ -10,6 +10,6 @@
     "dev": "nodemon src/server.js",
     "test": "jest",
     "lint": "eslint .",
-    "build": "babel . -d dist"
+    "build": "babel src -d dist --copy-files"
   }
 }
