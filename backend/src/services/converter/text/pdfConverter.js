@@ -37,6 +37,7 @@ async function getPopplerPath() {
   if (process.platform === 'win32') {
     // Check common installation paths
     const possiblePaths = [
+      'C:\\Program Files\\poppler-24.08.0\\Library\\bin',
       'C:\\Program Files\\poppler\\Library\\bin',
       'C:\\Program Files\\poppler-23.11.0\\Library\\bin',
       'C:\\Program Files (x86)\\poppler\\Library\\bin',

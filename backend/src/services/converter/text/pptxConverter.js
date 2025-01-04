@@ -5,6 +5,20 @@ import TurndownService from 'turndown';
 import path from 'path';
 
 /**
+ * Simple XML text extractor using regex
+ * @param {string} xml - XML content
+ * @returns {string} - Extracted text
+ */
+function extractTextFromXml(xml) {
+  // Extract text between <a:t> tags
+  const matches = xml.match(/<a:t>([^<]*)<\/a:t>/g) || [];
+  return matches
+    .map(match => match.replace(/<a:t>|<\/a:t>/g, ''))
+    .join(' ')
+    .trim();
+}
+
+/**
  * Converts a PPTX buffer to Markdown format, extracting text and images.
  * @param {Buffer} input - The PPTX file buffer.
  * @param {string} originalName - Original filename for context.
@@ -15,82 +29,105 @@ import path from 'path';
 export async function convertPptxToMarkdown(input, originalName, apiKey) {
   try {
     const zip = await JSZip.loadAsync(input);
-    const slides = [];
+    const presentationName = path.basename(originalName, path.extname(originalName));
+    
+    // Extract slides content
+    const slideFiles = Object.keys(zip.files)
+      .filter(fileName => /^ppt\/slides\/slide\d+\.xml$/.test(fileName))
+      .sort((a, b) => {
+        const numA = parseInt(a.match(/slide(\d+)\.xml/)[1]);
+        const numB = parseInt(b.match(/slide(\d+)\.xml/)[1]);
+        return numA - numB;
+      });
 
-    // Extract all slide XML files
-    const slideFiles = Object.keys(zip.files).filter(fileName => /^ppt\/slides\/slide\d+\.xml$/.test(fileName));
+    // Initialize markdown content with metadata
+    let markdown = [
+      `# ${presentationName}`,
+      '',
+      '---',
+      'type: presentation',
+      `created: ${new Date().toISOString()}`,
+      `original: ${originalName}`,
+      '---',
+      '',
+      ''
+    ].join('\n');
 
-    // Extract images from 'ppt/media/' folder
-    const mediaFolder = zip.folder('ppt/media');
     const images = [];
-
-    if (mediaFolder) {
-      const imageFiles = Object.keys(mediaFolder.files);
-      for (const imageFileName of imageFiles) {
-        const file = mediaFolder.file(imageFileName);
-        if (file) {
-          const imageBuffer = await file.async('base64');
-          const imageType = imageFileName.split('.').pop().toLowerCase();
-          images.push({
-            name: file.name,
-            data: imageBuffer,
-            type: `image/${imageType}`,
-            path: `attachments/${path.basename(originalName, path.extname(originalName))}/${file.name}`
-          });
-        }
-      }
-    }
-
-    const turndownService = new TurndownService({
-      headingStyle: 'atx',
-      codeBlockStyle: 'fenced'
-    });
-
-    let markdown = `# ${path.basename(originalName, path.extname(originalName))}\n\n`;
-    markdown += `**Converted on:** ${new Date().toISOString()}\n\n`;
 
     // Process each slide
     for (const slideFileName of slideFiles) {
+      const slideNumber = slideFileName.match(/slide(\d+)\.xml/)[1];
       const slideXml = await zip.file(slideFileName).async('string');
-      const slideContent = extractTextFromPPTX(slideXml);
-
-      markdown += `## Slide ${extractSlideNumber(slideFileName)}\n\n`;
-      markdown += turndownService.turndown(slideContent) + '\n\n';
+      const slideText = extractTextFromXml(slideXml);
+      
+      markdown += `## Slide ${slideNumber}\n\n`;
+      
+      // Extract images for this slide
+      const slideImages = await extractImagesForSlide(zip, slideNumber, presentationName);
+      images.push(...slideImages);
+      
+      // Add image references using Obsidian attachment format
+      slideImages.forEach(img => {
+        markdown += `![[${img.filename}]]\n\n`;
+      });
+      
+      // Add slide text content
+      if (slideText) {
+        markdown += `${slideText}\n\n`;
+      }
+      
+      markdown += `---\n\n`;
     }
 
-    // Append image references to markdown (optional)
-    images.forEach((image, index) => {
-      markdown += `![Image ${index + 1}](attachments/${path.basename(originalName, path.extname(originalName))}/${image.name})\n\n`;
-    });
-
     return {
-      content: markdown,
-      images: images
+      content: markdown.trim(),
+      images: images.map(img => ({
+        name: img.filename,
+        data: img.data,
+        type: img.type,
+        // Ensure path follows Obsidian attachment structure
+        path: `attachments/${presentationName}/${img.filename}`
+      }))
     };
   } catch (error) {
-    console.error('Error converting PPTX to Markdown:', error);
+    console.error('PPTX conversion error:', error);
     throw error;
   }
 }
 
-/**
- * Extracts text content from PPTX slide XML.
- * @param {string} slideXml - The slide XML content.
- * @returns {string} - Extracted text as HTML.
- */
-function extractTextFromPPTX(slideXml) {
-  // Simple regex-based extraction of text within <a:t> tags
-  const textMatches = slideXml.match(/<a:t>(.*?)<\/a:t>/g);
-  const texts = textMatches ? textMatches.map(match => match.replace(/<\/?a:t>/g, '')) : [];
-  return texts.join(' ');
-}
-
-/**
- * Extracts slide number from slide file name.
- * @param {string} slideFileName - The slide file name (e.g., ppt/slides/slide1.xml).
- * @returns {number} - The slide number.
- */
-function extractSlideNumber(slideFileName) {
-  const match = slideFileName.match(/slide(\d+)\.xml$/);
-  return match ? parseInt(match[1], 10) : 0;
+async function extractImagesForSlide(zip, slideNumber, presentationName) {
+  const images = [];
+  const mediaFolder = zip.folder('ppt/media');
+  
+  if (mediaFolder) {
+    // Get relationship file for this slide
+    const relsFile = `ppt/slides/_rels/slide${slideNumber}.xml.rels`;
+    const relsContent = await zip.file(relsFile)?.async('string');
+    
+    if (relsContent) {
+      // Find image references in relationships
+      const imageRefs = relsContent.match(/Target="\.\.\/media\/[^"]+"/g) || [];
+      
+      for (const ref of imageRefs) {
+        const imageFile = ref.match(/media\/([^"]+)/)[1];
+        const file = mediaFolder.file(imageFile);
+        
+        if (file && /\.(png|jpg|jpeg|gif|svg)$/i.test(imageFile)) {
+          const imageData = await file.async('base64');
+          const extension = path.extname(imageFile);
+          const filename = `${presentationName}_slide${slideNumber}_${path.basename(imageFile)}`;
+          
+          images.push({
+            filename,
+            data: imageData,
+            type: `image/${extension.slice(1).toLowerCase()}`,
+            slideNumber: parseInt(slideNumber)
+          });
+        }
+      }
+    }
+  }
+  
+  return images;
 }

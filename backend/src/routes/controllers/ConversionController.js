@@ -39,12 +39,51 @@ export class ConversionController {
 
   handleBatchConversion = async (req, res, next) => {
     try {
-      const items = this.#extractBatchItems(req);
-      const result = await this.conversionService.convertBatch(items);
-      
-      this.#sendZipResponse(res, result);
+        const files = req.files || [];
+        const items = JSON.parse(req.body.items || '[]');
+        
+        // Process file uploads with proper content handling
+        const fileItems = files.map(file => ({
+            id: crypto.randomUUID(),
+            type: this.#determineFileType(path.extname(file.originalname).slice(1), file.mimetype),
+            content: file.buffer, // Ensure buffer is passed
+            name: file.originalname,
+            mimeType: file.mimetype,
+            options: {
+                includeImages: true,
+                includeMeta: true,
+                convertLinks: true
+            }
+        }));
+
+        // Process URL items with proper content
+        const urlItems = items.map(item => ({
+            ...item,
+            content: item.url,
+            type: item.type.toLowerCase(),
+            options: {
+                includeImages: true,
+                includeMeta: true,
+                convertLinks: true,
+                ...item.options
+            }
+        }));
+
+        // Combine all items
+        const allItems = [...fileItems, ...urlItems];
+
+        console.log(`Processing batch conversion of ${allItems.length} items:`, 
+            allItems.map(i => ({ name: i.name, type: i.type })));
+
+        const result = await this.conversionService.convertBatch(allItems);
+        this.#sendZipResponse(res, result);
+
     } catch (error) {
-      next(new AppError(error.message, 500));
+        console.error('Batch conversion error:', error);
+        next(new AppError(
+            error.message || 'Failed to process batch conversion',
+            error.statusCode || 500
+        ));
     }
   };
 
@@ -101,13 +140,15 @@ export class ConversionController {
       const file = req.file;
       const options = JSON.parse(req.body.options || '{}');
       
-      const result = await this.conversionService.convert({
-        type: 'document',
+      const fileType = path.extname(file.originalname).slice(1).toLowerCase();
+      const conversionData = {
+        type: fileType,  // Use actual file extension
         content: file.buffer,
         name: file.originalname,
         options
-      });
+      };
 
+      const result = await this.conversionService.convert(conversionData);
       this.#sendZipResponse(res, result);
     } catch (error) {
       next(new AppError(error.message, 500));
@@ -145,25 +186,31 @@ export class ConversionController {
 
   handleVideoConversion = async (req, res, next) => {
     try {
-      const file = req.file;
-      const options = JSON.parse(req.body.options || '{}');
-      
-      const apiKey = req.headers['x-api-key'] || req.headers['authorization']?.replace('Bearer ', '');
-      if (!apiKey) {
-        throw new AppError('API key is required for video conversion', 401);
-      }
+        const file = req.file;
+        if (!file) {
+            throw new AppError('No video file provided', 400);
+        }
 
-      const result = await this.conversionService.convert({
-        type: 'video',
-        content: file.buffer,
-        name: file.originalname,
-        apiKey,
-        options
-      });
+        const options = JSON.parse(req.body.options || '{}');
+        const apiKey = req.headers['x-api-key'] || req.headers['authorization']?.replace('Bearer ', '');
+        
+        if (!apiKey) {
+            throw new AppError('API key is required for video conversion', 401);
+        }
 
-      this.#sendZipResponse(res, result);
+        const conversionData = {
+            type: 'video',
+            content: file.buffer,
+            name: file.originalname,
+            apiKey,
+            options,
+            mimeType: file.mimetype
+        };
+
+        const result = await this.conversionService.convert(conversionData);
+        this.#sendZipResponse(res, result);
     } catch (error) {
-      next(new AppError(error.message, error.statusCode || 500));
+        next(new AppError(error.message, error.statusCode || 500, error.details));
     }
   };
 
@@ -211,17 +258,31 @@ export class ConversionController {
   }
 
   #determineFileType(extension, mimetype) {
-    // Map of common mime types to file extensions
     const mimeTypeMap = {
       'application/pdf': 'pdf',
       'application/vnd.openxmlformats-officedocument.wordprocessingml.document': 'docx',
-      'application/msword': 'doc'
+      'application/msword': 'doc',
+      'text/csv': 'csv',
+      'application/csv': 'csv',
+      'application/vnd.ms-excel': extension === 'csv' ? 'csv' : 'xlsx',
+      'application/vnd.openxmlformats-officedocument.presentationml.presentation': 'pptx',
+      'application/vnd.ms-powerpoint': 'pptx',
     };
+
+    // Trust the extension for known document types
+    if (['pptx', 'docx'].includes(extension.toLowerCase())) {
+      return extension.toLowerCase();
+    }
 
     // If extension is docx but mime type is pdf, trust the extension
     if (extension === 'docx' && mimetype === 'application/pdf') {
       console.log('Overriding PDF mime type for DOCX file');
       return 'docx';
+    }
+
+    // Special handling for CSV files
+    if (extension === 'csv') {
+      return 'csv';
     }
 
     // Otherwise use the mime type mapping or fall back to extension

@@ -4,15 +4,39 @@ import multer from 'multer';
 import { AppError } from '../../utils/errorHandler.js';
 import path from 'path';
 
-const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10MB limit
-
 const storage = multer.memoryStorage();
 
-// Define accepted file types
+// Define supported MIME types
+const supportedMimeTypes = {
+    // Documents
+    'application/pdf': 'pdf',
+    'application/msword': 'doc',
+    'application/vnd.openxmlformats-officedocument.wordprocessingml.document': 'docx',
+    'text/plain': 'txt',
+    'text/markdown': 'md',
+    // Audio
+    'audio/mpeg': 'mp3',
+    'audio/mp4': 'm4a',
+    'audio/wav': 'wav',
+    'audio/webm': 'webm',
+    'audio/mp3': 'mp3',
+    // Video
+    'video/mp4': 'mp4',
+    'video/webm': 'webm',
+    // CSV
+    'text/csv': 'csv',
+    'application/csv': 'csv',
+    'application/vnd.ms-excel': 'xls',
+    // Presentations
+    'application/vnd.openxmlformats-officedocument.presentationml.presentation': 'pptx',
+    'application/vnd.ms-powerpoint': 'ppt'
+};
+
 const fileFilter = (req, file, cb) => {
     // Get request path
     const requestPath = req.path;
     const fileType = file.mimetype;
+    const fileExt = file.originalname.split('.').pop().toLowerCase();
     
     console.log('Processing file upload:', { path: requestPath, type: fileType });
 
@@ -25,50 +49,37 @@ const fileFilter = (req, file, cb) => {
         return cb(null, true);
     }
 
-    const allowedMimes = [
-        // Documents
-        'application/pdf',
-        'application/msword',
-        'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-        'text/plain',
-        'text/markdown',
-        // Audio
-        'audio/mpeg',
-        'audio/mp4',
-        'audio/wav',
-        'audio/webm',
-        'audio/mp3',
-        // Video
-        'video/mp4',
-        'video/webm'
-    ];
-
-    if (allowedMimes.includes(fileType)) {
-        cb(null, true);
-    } else {
-        cb(new Error(`Unsupported file type: ${fileType}`));
+    const extension = supportedMimeTypes[fileType];
+    if (!extension) {
+        return cb(new AppError(`Unsupported file type: ${fileType}`, 400));
     }
+
+    // Set the determined file extension for later use
+    file.detectedExtension = extension;
+    cb(null, true);
 };
 
-// Create and configure multer instance with memory storage
-const upload = multer({
-  storage,
-  limits: {
-    fileSize: MAX_FILE_SIZE,
-    files: 1
-  },
-  fileFilter
+// Create multer instances
+export const upload = multer({
+    storage,
+    fileFilter
+});
+
+export const videoUpload = multer({
+    storage,
+    fileFilter
 });
 
 // Wrapper function to handle multer errors
 export const uploadMiddleware = (req, res, next) => {
-    // Get the last part of the path
     const pathSegments = req.path.split('/');
     const lastSegment = pathSegments[pathSegments.length - 1];
     
     let uploadHandler;
 
-    if (lastSegment === 'file' || lastSegment === 'audio' || lastSegment === 'video') {
+    if (lastSegment === 'video') {
+        uploadHandler = videoUpload.single('file');
+    } else if (lastSegment === 'file' || lastSegment === 'audio') {
         uploadHandler = upload.single('file');
     } else if (lastSegment === 'batch') {
         uploadHandler = upload.array('files', 10);

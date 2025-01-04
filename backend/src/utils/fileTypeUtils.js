@@ -21,17 +21,40 @@ export function requiresApiKey(fileType) {
 }
 
 export function determineCategory(type, fileType) {
-  // Special handling for URL types
-  if (type === 'url' || type === 'parenturl' || type === 'youtube') {
+  // Normalize input
+  const normalizedType = type?.toLowerCase();
+  const normalizedFileType = fileType?.toLowerCase();
+
+  // Handle presentation files
+  if (normalizedFileType === 'pptx' || normalizedFileType === 'ppt') {
+    return 'text';
+  }
+  
+  // Audio types
+  if (['mp3', 'wav', 'ogg', 'm4a'].includes(fileType)) {
+    return 'multimedia';
+  }
+  
+  // Video types
+  if (['mp4', 'webm', 'avi'].includes(fileType)) {
+    return 'multimedia';
+  }
+  
+  // Document types - add pptx explicitly
+  if (['pdf', 'doc', 'docx', 'txt', 'rtf', 'pptx', 'ppt'].includes(fileType)) {
+    return 'text';
+  }
+  
+  // Data files
+  if (['csv', 'xlsx', 'xls'].includes(fileType)) {
+    return 'data';
+  }
+  
+  // Web content
+  if (['url', 'html', 'htm', 'parenturl', 'youtube'].includes(type)) {
     return 'web';
   }
   
-  // Look up category from mapping
-  for (const [category, extensions] of Object.entries(FILE_CATEGORIES)) {
-    if (extensions.includes(fileType?.toLowerCase())) {
-      return category;
-    }
-  }
-  
-  return 'others';
+  // Default to text for unknown types
+  return 'text';
 }

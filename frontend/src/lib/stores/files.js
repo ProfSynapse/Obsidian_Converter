@@ -38,10 +38,11 @@ const FileUtils = {
      * Creates a standardized file object
      */
     createFileObject(file) {
+        const extension = file.name?.split('.').pop()?.toLowerCase();
         return {
             id: uuidv4(),
             name: file.name,
-            type: file.type || 'unknown',
+            type: file.type || extension || 'unknown',  // Ensure type is set from extension if not provided
             size: file.size || 0,
             url: file.url || null,
             file: file.file || null,
@@ -51,8 +52,8 @@ const FileUtils = {
             selected: false,
             createdAt: new Date().toISOString(),
             updatedAt: new Date().toISOString(),
-            requiresApiKey: requiresApiKey(file), // Ensure this flag is set
-            ...file
+            requiresApiKey: requiresApiKey(file),
+            ...file  // Allow override but after setting defaults
         };
     },
 

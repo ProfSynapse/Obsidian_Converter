@@ -21,22 +21,59 @@ export async function convertCsvToMarkdown(input, originalName, apiKey) {
     });
 
     if (records.length === 0) {
-      return { content: "The CSV file is empty.", images: [] };
+      return { content: "# Empty CSV File\nNo data found in the file.", images: [] };
     }
 
-    // Get headers
-    const headers = Object.keys(records[0]);
+    // Create frontmatter
+    const frontmatter = [
+      '---',
+      `source: ${originalName}`,
+      `type: spreadsheet`,
+      `format: csv`,
+      `rows: ${records.length}`,
+      `columns: ${Object.keys(records[0]).length}`,
+      `created: ${new Date().toISOString()}`,
+      '---',
+      ''
+    ].join('\n');
 
-    // Create Markdown table
-    let markdownTable = `| ${headers.join(' | ')} |\n`;
-    markdownTable += `| ${headers.map(() => '---').join(' | ')} |\n`;
+    // Get headers and clean them
+    const headers = Object.keys(records[0]).map(header => header.trim());
 
-    // Add data rows
-    records.forEach(record => {
-      markdownTable += `| ${headers.map(header => record[header] || '').join(' | ')} |\n`;
+    // Calculate column widths for better formatting
+    const columnWidths = headers.map(header => {
+      const maxContentWidth = Math.max(
+        header.length,
+        ...records.map(row => String(row[header] || '').length)
+      );
+      return maxContentWidth;
     });
 
-    return { content: markdownTable, images: [] };
+    // Create table header with proper spacing
+    let markdownContent = `# ${originalName}\n\n`;
+    markdownContent += `Total Rows: ${records.length}\n\n`;
+    
+    // Create the table
+    markdownContent += '| ' + headers.map((header, i) => 
+      header.padEnd(columnWidths[i])
+    ).join(' | ') + ' |\n';
+    
+    markdownContent += '| ' + columnWidths.map(width => 
+      '-'.repeat(width)
+    ).join(' | ') + ' |\n';
+
+    // Add data rows with proper spacing
+    records.forEach(record => {
+      const row = headers.map((header, i) => 
+        String(record[header] || '').padEnd(columnWidths[i])
+      ).join(' | ');
+      markdownContent += `| ${row} |\n`;
+    });
+
+    return { 
+      content: frontmatter + markdownContent,
+      images: [] 
+    };
   } catch (error) {
     console.error('Error converting CSV to Markdown:', error);
     throw error;

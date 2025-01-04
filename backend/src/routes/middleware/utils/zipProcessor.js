@@ -62,86 +62,99 @@ export async function handleConversion(type, content, name, apiKey) {
   }
 }
 
+const CATEGORIES = {
+  multimedia: ['audio', 'video', 'mp3', 'mp4', 'wav', 'ogg', 'webm'],
+  web: ['url', 'parenturl', 'youtube', 'html', 'htm'],
+  text: ['txt', 'rtf', 'pdf', 'docx', 'odt', 'epub', 'pptx'],
+  data: ['csv', 'json', 'yaml', 'yml', 'xlsx']
+};
+
+function getCategory(type) {
+  return Object.entries(CATEGORIES).find(([_, types]) => 
+    types.includes(type.toLowerCase())
+  )?.[0] || 'other';
+}
+
 /**
  * Creates a structured ZIP file from multiple converted items
  * @param {Array<Object>} items - Array of conversion results
  * @returns {Promise<Buffer>} - The ZIP file buffer
  */
 export async function createBatchZip(items) {
-  console.log('Starting ZIP creation with items:', 
-    items.map(item => ({
-      name: item.name,
-      type: item.type,
-      success: item.success,
-      contentLength: item.content?.length,
-      imageCount: item.images?.length
-    }))
-  );
-
   const zip = new JSZip();
   const categories = new Map();
 
+  // Add summary first
+  const summary = generateSummary(items);
+  zip.file('summary.md', summary);
+
   for (const item of items) {
     try {
-      if (!item.content) {
-        console.warn(`Skipping item ${item.name}: No content`);
-        continue;
-      }
-
-      console.log('Processing item:', {
-        name: item.name,
-        type: item.type,
-        success: item.success,
-        hasContent: !!item.content
-      });
-
-      const category = item.category || 'others';
-      console.log(`Determined category: "${category}" for item: "${item.name}"`);
+      if (!item) continue; // Skip null/undefined items
+      
+      const { content, images = [], name, type = 'unknown' } = item;
+      const category = item.category || getCategory(type);
+      categories.set(category, true);
 
       // Get or create category folder
-      let categoryFolder = categories.get(category);
-      if (!categoryFolder) {
-        categoryFolder = zip.folder(category);
-        categories.set(category, categoryFolder);
-        console.log(`Created new category folder: "${category}"`);
-      }
+      const categoryFolder = zip.folder(category);
+      if (!categoryFolder) continue;
 
-      // Process based on type
-      switch (item.type.toLowerCase()) {
-        case 'url':
-        case 'parenturl':
-          await processUrlContent(item, categoryFolder);
-          break;
-        case 'youtube':
-          await processYoutubeContent(item, categoryFolder);
-          break;
-        case 'audio':  // Add audio handling
-          await processAudioContent(item, categoryFolder);
-          break;
-        case 'pdf':
-        case 'docx':
-        case 'txt':
-        case 'rtf':
-        case 'odt':
-        case 'epub':
-          console.log(`Processing document type: ${item.type}`);
-          await processFileContent(item, categoryFolder);
-          break;
-        default:
-          console.log(`Processing generic content type: ${item.type}`);
-          await processFileContent(item, categoryFolder);
+      const baseName = path.basename(name, path.extname(name));
+
+      // Handle web content specially
+      if (category === 'web') {
+        const siteFolder = categoryFolder.folder(baseName);
+        if (siteFolder) {
+          siteFolder.file('index.md', content);
+          if (images?.length > 0) {
+            const assetsFolder = siteFolder.folder('assets');
+            for (const image of images) {
+              if (image?.data && image?.name) {
+                const imageBuffer = Buffer.from(image.data, 'base64');
+                assetsFolder.file(image.name, imageBuffer);
+              }
+            }
+          }
+        }
+      } else {
+        // Other content types
+        categoryFolder.file(`${baseName}.md`, content);
+        
+        // Handle attachments
+        if (images?.length > 0) {
+          const attachmentsFolder = zip.folder(`${category}/${baseName}_attachments`);
+          for (const image of images) {
+            if (image?.data && image?.name) {
+              const imageBuffer = Buffer.from(image.data, 'base64');
+              attachmentsFolder.file(image.name, imageBuffer);
+            }
+          }
+        }
       }
     } catch (error) {
-      console.error(`Error processing item ${item.name}:`, error);
+      console.error('Error processing item for zip:', error);
     }
   }
 
-  // Add summary
-  console.log('Adding summary.md to ZIP');
-  zip.file('summary.md', generateSummary(items));
+  // Clean up empty folders recursively
+  const cleanupFolders = (folder) => {
+    if (!folder || !folder.files) return;
+    
+    folder.forEach((relativePath, file) => {
+      if (file.dir && file.files && Object.keys(file.files).length === 0) {
+        zip.remove(relativePath);
+      }
+    });
+  };
 
-  console.log('ZIP creation completed');
-  return zip.generateAsync({ type: 'nodebuffer' });
+  cleanupFolders(zip);
+
+  return zip.generateAsync({
+    type: 'nodebuffer',
+    compression: 'DEFLATE',
+    compressionOptions: { level: 9 }
+  });
 }
 
 /**

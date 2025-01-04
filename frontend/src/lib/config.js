@@ -20,7 +20,6 @@ export const CONFIG = {
             data: ['csv', 'json', 'yaml', 'yml', 'xlsx', 'pptx'],
             web: ['html', 'htm', 'xml']
         },
-        MAX_SIZE: 50 * 1024 * 1024, // 50MB
         TYPES: {
             // Document types
             FILE: 'file',
@@ -122,7 +121,6 @@ export const CONFIG = {
 
 // Error messages
 export const ERRORS = {
-    FILE_TOO_LARGE: `File size exceeds the maximum limit of ${CONFIG.FILES.MAX_SIZE / (1024 * 1024)}MB`,
     UNSUPPORTED_FILE_TYPE: 'Unsupported file type',
     API_KEY_REQUIRED: 'API key is required',
     INVALID_API_KEY: 'Invalid API key format',

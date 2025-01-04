@@ -17,6 +17,7 @@ import { convertUrlToMarkdown } from './web/urlConverter.js';
 import { convertParentUrlToMarkdown } from './web/parentUrlConverter.js';
 import { convertYoutubeToMarkdown } from './web/youtubeConverter.js';
 import { convertAudioToMarkdown } from './multimedia/audioconverter.js';
+import { convertVideoToMarkdown } from './multimedia/videoConverter.js';
 
 /**
  * Factory class for managing different types of Markdown converters
@@ -93,6 +94,15 @@ class TextConverterFactory {
       throw new Error('Invalid DOCX file format');
     }
 
+    // Add specific validation for PPTX
+    if (normalizedType === 'pptx' && Buffer.isBuffer(input)) {
+      // Check for ZIP/PPTX file signature (PK)
+      if (input[0] === 0x50 && input[1] === 0x4B) {
+        return true;
+      }
+      throw new Error('Invalid PPTX file format');
+    }
+
     console.log('Validating input:', {
       originalType: type,
       normalizedType,
@@ -138,15 +148,12 @@ class TextConverterFactory {
    */
   async convertToMarkdown(type, input, options = {}) {
     try {
-      // Debug logging
       console.log('Converting to Markdown:', {
         type,
         inputType: typeof input,
-        input: Buffer.isBuffer(input)
-          ? '[Buffer data]'
-          : typeof input === 'object'
-          ? JSON.stringify(input)
-          : input
+        hasInput: !!input,
+        isBuffer: Buffer.isBuffer(input),
+        options
       });
 
       if (!input) {
@@ -158,38 +165,25 @@ class TextConverterFactory {
       }
 
       const normalizedType = type.toLowerCase();
-
-      // Add audio handling
-      if (this.isAudioType(type)) {
-        return await convertAudioToMarkdown(
-          { buffer: input }, // Ensure we pass an object with 'buffer'
-          options.name,
-          options.apiKey
-        );
-      }
-
-      // Get the appropriate converter
       const converter = this.converters[normalizedType];
+
       if (!converter) {
-        throw new Error(`Unsupported file type: ${type}`);
+        switch (normalizedType) {
+          case 'video':
+          case 'mp4':
+          case 'webm':
+          case 'avi':
+            return await convertVideoToMarkdown(input, options);
+          default:
+            throw new Error(`Unsupported file type: ${type}`);
+        }
       }
 
       // Validate input type
       this.validateInput(normalizedType, input);
 
-      // If input is an object with a url property, use that for parenturl
-      const processedInput = normalizedType === 'parenturl' && typeof input === 'object'
-        ? input.url || input.parenturl
-        : input;
-
-      const convertedResult = await converter(processedInput, originalName, apiKey);
-
-      // Preserve success flag if it exists, otherwise set to true
-      return {
-        ...convertedResult,
-        success: convertedResult.success !== undefined ? convertedResult.success : true,
-        images: convertedResult.images || []
-      };
+      // Call converter with proper parameters
+      return await converter(input, options.name || 'Untitled', options.apiKey);
 
     } catch (error) {
       console.error('Conversion error:', {
@@ -198,7 +192,6 @@ class TextConverterFactory {
         stack: error.stack
       });
 
-      // Return error content instead of throwing
       return {
         success: false,
         content: [

@@ -135,7 +135,7 @@ export async function startConversion() {
     console.log('Starting conversion:', { itemCount, items });
 
     // Process items with progress tracking
-    const results = await client.processItems(items, currentApiKey, {
+    const response = await client.processItems(items, currentApiKey, {
         useBatch: itemCount > 1,
         getEndpoint,
         onProgress: (progress) => {
@@ -144,15 +144,20 @@ export async function startConversion() {
         },
         onItemComplete: (itemId, success, error) => {
             console.log(`Item ${itemId} completed:`, { success, error });
-            const status = success ? 'completed' : 'error';
             files.updateFile(itemId, {
-                status,
+                status: success ? 'completed' : 'error',
                 error: error?.message || null
             });
         }
     });
 
-    // Update status if we get here (means download was triggered)
+    // Handle ZIP blob response
+    if (response instanceof Blob) {
+        const filename = `conversion_${new Date().toISOString().replace(/[:.]/g, '-')}.zip`;
+        FileSaver.saveAs(response, filename);
+    }
+
+    // Update status
     conversionStatus.setStatus('completed');
     showFeedback('Conversion completed successfully', 'success');
 

@@ -224,7 +224,7 @@
         flex-direction: column;
         gap: var(--spacing-xs);
         width: 100%;
-        max-width: 600px;
+        max-width: 800px; /* Increased from 600px to match container */
         margin: 0 auto;
     }
 
@@ -305,7 +305,8 @@
     .url-type-indicator {
         font-size: var(--font-size-sm);
         color: var(--color-text-secondary);
-        padding: var(--spacing-xs) var(--spacing-md);
+        padding: var(--spacing-2xs) var(--spacing-md);
+        margin-bottom: var(--spacing-xs);
     }
 
     /* Dark Mode */

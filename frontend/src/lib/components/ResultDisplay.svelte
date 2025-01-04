@@ -14,6 +14,7 @@
   import { apiKey } from '$lib/stores/apiKey.js';
   import { requiresApiKey } from '$lib/utils/fileUtils.js';
   import { conversionStatus } from '$lib/stores/conversionStatus.js';
+  import { getFileIcon } from '$lib/utils/iconUtils.js';  // Add this import
 
   /**
    * conversionStatus shape (example):
@@ -113,9 +114,13 @@
 
       <ul class="result-list">
         {#each $convertedFiles as file (file.id)}
+          {#if file.type}
+            {@const icon = getFileIcon(file.type)}
+            {@const debug = console.log('File type and icon:', { name: file.name, type: file.type, icon })}
+          {/if}
           <li class="result-item" in:fade out:fade>
             <div class="file-info">
-              <span class="icon">📄</span>
+              <span class="icon">{getFileIcon(file.type)}</span>
               <span class="file-name">{file.name}</span>
               <span class="badge-success" title="Conversion successful">
                 ✨ Success

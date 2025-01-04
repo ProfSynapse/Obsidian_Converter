@@ -71,6 +71,10 @@ const MIME_TYPE_MAP = {
   'video/x-matroska': 'mkv',
   'application/vnd.openxmlformats-officedocument.wordprocessingml.document': 'docx',
   'application/pdf': 'pdf',
+  'application/vnd.ms-excel': 'xlsx',
+  'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': 'xlsx',
+  'text/csv': 'csv',
+  'application/csv': 'csv',
   // Add more MIME types as needed
 };
 
@@ -81,24 +85,40 @@ const MIME_TYPE_MAP = {
  * @returns {Object} Icon configuration object
  */
 export function getFileIconConfig(type) {
-  if (!type) return FILE_ICONS.default;
+  console.log('Getting icon config for type:', type);
+
+  if (!type) {
+    console.log('No type provided, using default');
+    return FILE_ICONS.default;
+  }
 
   let normalized = type.toLowerCase();
+  console.log('Normalized type:', normalized);
 
   // If it's a known MIME type, map it to the extension first
   if (MIME_TYPE_MAP[normalized]) {
     normalized = MIME_TYPE_MAP[normalized];
+    console.log('Mapped MIME type to:', normalized);
   }
 
   // Remove any leading '.' (e.g., '.pdf' -> 'pdf')
   normalized = normalized.replace(/^\.*/, '');
 
-  // Return the corresponding icon or fallback to base type or default
-  return (
-    FILE_ICONS[normalized] ||
-    FILE_ICONS[getBaseFileType(normalized)] ||
-    FILE_ICONS.default
-  );
+  // Direct lookup first
+  if (FILE_ICONS[normalized]) {
+    console.log('Found direct icon match:', FILE_ICONS[normalized].icon);
+    return FILE_ICONS[normalized];
+  }
+
+  // Try base type
+  const baseType = getBaseFileType(normalized);
+  if (baseType && FILE_ICONS[baseType]) {
+    console.log('Found base type match:', FILE_ICONS[baseType].icon);
+    return FILE_ICONS[baseType];
+  }
+
+  console.log('No match found, using default');
+  return FILE_ICONS.default;
 }
 
 /**
@@ -110,10 +130,13 @@ export function getFileIconConfig(type) {
 function getBaseFileType(extension) {
   const typeMap = {
     audio: ['mp3', 'wav', 'ogg', 'm4a', 'aac', 'wma', 'mpga'],
-    video: ['mp4', 'webm', 'avi', 'mov', 'mpeg', 'mkv']
-    // Add more base types if needed
+    video: ['mp4', 'webm', 'avi', 'mov', 'mpeg', 'mkv'],
+    data: ['csv', 'xlsx', 'xls', 'json', 'yaml', 'yml'] // Added data types
   };
 
+  // Ensure lowercase comparison
+  extension = extension.toLowerCase();
+  
   for (const [type, extensions] of Object.entries(typeMap)) {
     if (extensions.includes(extension)) {
       return type;

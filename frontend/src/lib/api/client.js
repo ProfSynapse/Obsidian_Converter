@@ -156,6 +156,45 @@ _validateAndNormalizeItem(item) {
       onItemComplete
     } = options;
 
+    if (useBatch) {
+        const endpoint = '/batch'; // Your batch endpoint
+        const formData = new FormData();
+        
+        // Add items metadata
+        formData.append('items', JSON.stringify(
+            items.map(item => ({
+                id: item.id,
+                type: item.type,
+                name: item.name,
+                url: item.url,
+                options: item.options
+            }))
+        ));
+
+        // Add files to FormData if they exist
+        items.forEach(item => {
+            if (item.file) {
+                formData.append('files', item.file, item.name);
+            }
+        });
+
+        const response = await fetch(`${this.baseUrl}${endpoint}`, {
+            method: 'POST',
+            headers: {
+                'Authorization': `Bearer ${apiKey}`
+            },
+            body: formData
+        });
+
+        if (!response.ok) {
+            const error = await response.json();
+            throw new ConversionError(error.message || 'Batch conversion failed');
+        }
+
+        // Return blob for ZIP file
+        return response.blob();
+    }
+
     try {
       // Only use batch processing for multiple items
       if (items.length > 1) {
@@ -242,47 +281,52 @@ _validateAndNormalizeItem(item) {
     console.log('[CLIENT] Processing batch:', items);
 
     const formData = new FormData();
-    // Append each file as 'files[]' or each URL as a JSON item
-    items.forEach((item, index) => {
-      if (item.file) {
-        formData.append('files', item.file, item.name);
-      } else if (item.type === 'url') {
-        // Keep JSON array for non-file items
-        // Example: { type: 'url', url: item.content, name: item.name }
-      }
+    const urlItems = [];
+
+    // Separate files and URLs
+    items.forEach(item => {
+        if (item.file instanceof File) {
+            formData.append('files', item.file);
+        } else if (item.url || item.type === 'url') {
+            urlItems.push({
+                id: item.id,
+                type: item.type,
+                url: item.url || item.content,
+                name: item.name,
+                options: item.options
+            });
+        }
     });
 
-    // Add items in JSON if needed for the backend
-    const nonFileItems = items.filter((i) => !i.file);
-    if (nonFileItems.length) {
-      formData.append('items', JSON.stringify(nonFileItems));
+    // Add URL items as JSON
+    if (urlItems.length > 0) {
+        formData.append('items', JSON.stringify(urlItems));
     }
 
     try {
-      const response = await fetch(`${this.baseUrl}/batch`, {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${apiKey}`
-        },
-        body: formData
-      });
+        const response = await fetch(`${this.baseUrl}/batch`, {
+            method: 'POST',
+            headers: {
+                'Authorization': `Bearer ${apiKey}`
+            },
+            body: formData
+        });
 
-      if (!response.ok) {
-        const err = await response.json();
-        throw new ConversionError(err.message || 'Batch conversion failed', response.status);
-      }
+        if (!response.ok) {
+            const err = await response.json();
+            throw new ConversionError(err.message || 'Batch conversion failed', response.status);
+        }
 
-      // Track final progress
-      onProgress?.(100);
+        // Update progress and completion status
+        onProgress?.(100);
+        items.forEach(item => onItemComplete?.(item.id, true));
 
-      // Call onItemComplete for each item
-      items.forEach(item => onItemComplete?.(item.id, true));
-      return await response.blob();
+        return await response.blob();
 
     } catch (error) {
-      console.error('[CLIENT] Batch error:', error);
-      items.forEach(item => onItemComplete?.(item.id, false, error));
-      throw error;
+        console.error('[CLIENT] Batch error:', error);
+        items.forEach(item => onItemComplete?.(item.id, false, error));
+        throw error;
     }
   }
 

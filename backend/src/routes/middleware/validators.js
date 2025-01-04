@@ -132,19 +132,34 @@ const validators = {
     // Batch validation
     batch: [
         body('items')
-            .isArray()
-            .withMessage('Items must be an array')
-            .notEmpty()
-            .withMessage('Items array cannot be empty'),
+            .custom((value, { req }) => {
+                // Handle string JSON input
+                try {
+                    const items = typeof value === 'string' ? JSON.parse(value) : value;
+                    if (!Array.isArray(items)) {
+                        throw new Error('Items must be an array');
+                    }
+                    if (items.length === 0 && (!req.files || req.files.length === 0)) {
+                        throw new Error('No items provided for conversion');
+                    }
+                    // Store parsed items for later use
+                    req.parsedItems = items;
+                    return true;
+                } catch (error) {
+                    throw new Error(`Invalid items format: ${error.message}`);
+                }
+            }),
         body('items.*.type')
+            .optional()
             .isString()
-            .withMessage('Each item must have a type')
-            .isIn(['file', 'url', 'parenturl', 'youtube'])
+            .isIn(['file', 'url', 'parenturl', 'youtube', 'pptx'])
             .withMessage('Invalid item type'),
         body('items.*.content')
+            .optional()
             .notEmpty()
             .withMessage('Each item must have content'),
         body('items.*.name')
+            .optional()
             .notEmpty()
             .withMessage('Each item must have a name')
     ],

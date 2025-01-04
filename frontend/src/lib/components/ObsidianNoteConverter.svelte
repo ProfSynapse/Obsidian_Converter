@@ -3,6 +3,7 @@
   import FileUploader from './FileUploader.svelte';
   import ResultDisplay from './ResultDisplay.svelte';
   import ApiKeyInput from './ApiKeyInput.svelte';
+  import Instructions from './Instructions.svelte';
   import { apiKey } from '$lib/stores/apiKey.js';
   import { conversionStatus } from '$lib/stores/conversionStatus.js';
   import { files } from '$lib/stores/files.js';
@@ -95,6 +96,11 @@
 
 <main class="converter-app">
   <div class="converter-sections">
+    <!-- Instructions Section -->
+    <section class="section instructions-section">
+      <Instructions />
+    </section>
+
     <!-- Only show FileUploader when not converting and not complete -->
     {#if showUploader}
       <section 
@@ -133,7 +139,7 @@
   .converter-sections {
     display: flex;
     flex-direction: column;
-    gap: var(--spacing-xl);
+    gap: var(--spacing-md); /* Reduced from xl */
   }
 
   .section {
@@ -147,6 +153,10 @@
 
   .section.is-active {
     transform: scale(1.01);
+  }
+
+  .instructions-section {
+    margin-bottom: var(--spacing-sm); /* Reduced from xl */
   }
 
   /* Responsive Design */

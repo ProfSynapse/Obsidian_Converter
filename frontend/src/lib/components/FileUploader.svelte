@@ -19,8 +19,8 @@
    * (Here we break out audio vs video explicitly)
    */
   const SUPPORTED_FILES = {
-    documents: ['txt', 'rtf', 'pdf', 'docx', 'odt', 'epub'],
-    data: ['csv', 'json', 'yaml', 'yml', 'xlsx', 'pptx'],
+    documents: ['txt', 'rtf', 'pdf', 'docx', 'odt', 'epub', 'pptx'],
+    data: ['csv', 'json', 'yaml', 'yml', 'xlsx'],
     web: ['html', 'htm', 'xml'],
     audio: ['mp3', 'wav', 'ogg'],
     video: ['mp4', 'mov', 'avi', 'webm', 'youtube']
@@ -44,6 +44,14 @@
   }
 
   function getFileCategory(extension) {
+    // Ensure lowercase comparison
+    extension = extension.toLowerCase();
+    
+    // Special handling for spreadsheet files
+    if (['csv', 'xlsx', 'xls'].includes(extension)) {
+      return 'data';
+    }
+
     for (const [category, extensions] of Object.entries(SUPPORTED_FILES)) {
       if (extensions.includes(extension)) {
         return category;
@@ -66,7 +74,7 @@
         id: crypto.randomUUID(),
         name: file.name,
         file: file,
-        type: getFileCategory(extension),  // <-- 'audio', 'video', 'documents', etc.
+        type: extension,  // Changed: Use the extension directly instead of category
         status: 'Ready',
         progress: 0,
         selected: false,
@@ -104,24 +112,27 @@
 </script>
 
 <div class="file-uploader" in:fade={{ duration: 200 }}>
-  <!-- URL Input Section -->
-  <Container title="Add from URL" subtitle="Convert web content or YouTube videos">
-    <div class="upload-section">
+  <!-- Single Container for all upload options -->
+  <Container title="Add Files" subtitle="Upload files or convert from URL">
+    <!-- URL Input Section -->
+    <div class="section url-section">
       <TabNavigation />
       <UrlInput 
         on:submitUrl={handleUrlSubmit}
         on:submitYoutube={(e) => handleUrlSubmit({ detail: { url: e.detail.url, type: 'youtube' } })}
       />
     </div>
-  </Container>
 
-  <!-- File Upload Section -->
-  <Container title="Upload Files" subtitle="Drag and drop or click to select">
-    <DropZone 
-      acceptedTypes={SUPPORTED_EXTENSIONS}
-      on:filesDropped={(event) => handleFilesAdded(event.detail.files)}
-      on:filesSelected={(event) => handleFilesAdded(event.detail.files)}
-    />
+    <div class="section-divider"></div>
+
+    <!-- File Upload Section -->
+    <div class="section upload-section">
+      <DropZone 
+        acceptedTypes={SUPPORTED_EXTENSIONS}
+        on:filesDropped={(event) => handleFilesAdded(event.detail.files)}
+        on:filesSelected={(event) => handleFilesAdded(event.detail.files)}
+      />
+    </div>
     
     {#if $uploadStore.errorMessage}
       <div class="error-container" transition:fade>
@@ -138,5 +149,52 @@
 </div>
 
 <style>
-  /* your existing styles */
+  .file-uploader {
+    width: 100%;
+    max-width: 800px;
+    margin: 0 auto;
+  }
+
+  .section {
+    width: 100%;
+    padding: var(--spacing-md);
+  }
+
+  .url-section {
+    background: var(--color-background);
+    border-radius: var(--rounded-lg);
+  }
+
+  .section-divider {
+    width: 100%;
+    height: 1px;
+    background: var(--color-border);
+    margin: var(--spacing-lg) 0;
+    opacity: 0.5;
+  }
+
+  .upload-section {
+    display: flex;
+    flex-direction: column;
+    gap: var(--spacing-lg);
+  }
+
+  .error-container {
+    margin-top: var(--spacing-md);
+  }
+
+  .file-list-wrapper {
+    margin-top: var(--spacing-lg);
+  }
+
+  /* Responsive adjustments */
+  @media (max-width: 768px) {
+    .section {
+      padding: var(--spacing-sm);
+    }
+
+    .section-divider {
+      margin: var(--spacing-md) 0;
+    }
+  }
 </style>

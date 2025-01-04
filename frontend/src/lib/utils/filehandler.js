@@ -114,25 +114,12 @@ export function getFileType(file) {
 }
 
 /**
- * Validates file size
- * @param {File} file - The file to validate
- * @param {number} maxSize - Maximum allowed size in bytes
- * @throws {Error} If file is too large
- */
-function validateFileSize(file, maxSize = 50 * 1024 * 1024) { // 50MB default
-    if (file.size > maxSize) {
-        throw new Error(`File size exceeds maximum limit of ${maxSize / (1024 * 1024)}MB`);
-    }
-}
-
-/**
  * Adds a file to the store with proper metadata
  * @param {File} file - The file object to add
  * @returns {Object} The created file object with metadata
  */
 export function addFile(file) {
     try {
-        validateFileSize(file);
         const fileType = getFileType(file);
         
         const newFile = {

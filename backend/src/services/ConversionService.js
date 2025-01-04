@@ -11,7 +11,12 @@ export class ConversionService {
 
   async convert(data) {
     try {
-      const { type, content, name, apiKey, options } = data;
+      // Add PPTX MIME type handling
+      if (data.mimeType === 'application/vnd.openxmlformats-officedocument.presentationml.presentation') {
+        data.type = 'pptx';
+      }
+
+      const { type, content, name, apiKey, options, mimeType } = data;
       
       if (!type || !content) {
         throw new Error('Missing required conversion parameters');
@@ -28,11 +33,12 @@ export class ConversionService {
         }
 
         const result = await this.converter.convertToMarkdown(
-          fileType,
+          type,
           content,
           {
             name,
             apiKey,
+            mimeType,
             ...options
           }
         );
@@ -95,16 +101,65 @@ export class ConversionService {
   }
 
   async convertBatch(items) {
-    const results = await Promise.all(
-      items.map(item => this.processItem(item))
-    );
+    if (!Array.isArray(items) || items.length === 0) {
+      throw new Error('No items provided for batch conversion');
+    }
 
-    const zipResult = await createBatchZip(results);
+    try {
+      console.log('Starting batch conversion of', items.length, 'items');
+      
+      const results = await Promise.all(
+        items.map(async (item) => {
+          try {
+            if (!item) return null;
+            
+            const fileType = path.extname(item.name || '').slice(1).toLowerCase();
+            const category = determineCategory(item.type, fileType);
+            
+            console.log(`Converting item: ${item.name} (${item.type})`);
 
-    return {
-      buffer: zipResult,
-      filename: this.generateFilename()
-    };
+            // Check API key requirement
+            if (this.requiresApiKey(item.type) && !item.apiKey) {
+              throw new Error(`API key required for ${item.type} conversion`);
+            }
+
+            const result = await this.processItem(item);
+            return {
+              ...result,
+              id: item.id,
+              category,
+              type: item.type,
+              name: item.name
+            };
+          } catch (error) {
+            console.error(`Error converting item ${item.name}:`, error);
+            return {
+              id: item.id,
+              name: item.name,
+              type: item.type,
+              category: 'error',
+              success: false,
+              error: error.message,
+              content: `# Conversion Error\n\nFailed to convert ${item.name}\nError: ${error.message}`
+            };
+          }
+        })
+      );
+
+      // Filter out null results
+      const validResults = results.filter(Boolean);
+      
+      // Create zip with all results
+      const zipBuffer = await createBatchZip(validResults);
+      
+      return {
+        buffer: zipBuffer,
+        filename: this.generateFilename()
+      };
+    } catch (error) {
+      console.error('Batch conversion failed:', error);
+      throw error;
+    }
   }
 
   async processItem(item) {
@@ -113,6 +168,12 @@ export class ConversionService {
     const fileType = path.extname(name).slice(1).toLowerCase();
     const category = determineCategory(type, fileType);
     const converterType = this.getConverterType(type, fileType);
+
+    // Add specific handling for data files (CSV, XLSX)
+    if (fileType === 'csv' || fileType === 'xlsx') {
+      console.log('Processing data file:', { name, category, type: fileType });
+      return this.handleDataFileConversion(fileType, content, name, options);
+    }
 
     switch (type) {
       case 'youtube':
@@ -158,22 +219,60 @@ export class ConversionService {
 
   async handleFileConversion(type, content, name, options) {
     try {
-      const result = await textConverterFactory.convertToMarkdown(type, content, name);
-      const category = determineCategory(type, path.extname(name).slice(1));
-      
-      // Add additional metadata for conversion result
+        if (!content) {
+            throw new Error(`No content provided for file conversion: ${name}`);
+        }
+
+        const result = await this.converter.convertToMarkdown(type, content, {
+            name,
+            ...options
+        });
+
+        const category = determineCategory(type, path.extname(name).slice(1));
+        
+        return {
+            ...result,
+            success: true,
+            type,
+            category,
+            name,
+            options,
+            contentLength: result.content?.length || 0,
+            imageCount: result.images?.length || 0
+        };
+    } catch (error) {
+        console.error('File conversion error:', error);
+        return {
+            success: false,
+            error: error.message,
+            type,
+            name,
+            content: `# Conversion Error\n\nFailed to convert ${name}\nError: ${error.message}`
+        };
+    }
+  }
+
+  async handleDataFileConversion(type, content, name, options) {
+    try {
+      const result = await this.converter.convertToMarkdown(
+        type,
+        content,
+        {
+          name,
+          ...options
+        }
+      );
+
       return {
         ...result,
         success: true,
         type,
-        category,
+        category: 'data',
         name,
-        options,
-        contentLength: result.content?.length || 0,
-        imageCount: result.images?.length || 0
+        options
       };
     } catch (error) {
-      console.error('File conversion error:', error);
+      console.error('Data file conversion error:', error);
       return {
         success: false,
         error: error.message,
@@ -185,6 +284,9 @@ export class ConversionService {
   }
 
   getConverterType(type, fileType) {
+    if (type === 'video' || ['mp4', 'webm', 'avi'].includes(fileType)) {
+      return 'video';
+    }
     if (type === 'url') return 'url';
     if (type === 'parenturl') return 'parenturl';
     if (type === 'youtube') return 'youtube';
@@ -200,6 +302,10 @@ export class ConversionService {
   }
 
   requiresApiKey(type) {
-    return this.isAudioExtension(type);
+    return this.isAudioExtension(type) || this.isVideoExtension(type);
+  }
+
+  isVideoExtension(ext) {
+    return ['mp4', 'webm', 'avi'].includes(ext.toLowerCase());
   }
 }
