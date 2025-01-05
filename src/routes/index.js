@@ -3,7 +3,7 @@
 import express from 'express';
 import { ConversionController } from './controllers/ConversionController.js';
 import { validateConversion } from './middleware/validators.js';
-import { uploadMiddleware, preprocessRequest } from './middleware/upload.js';
+import { uploadMiddleware } from './middleware/upload.js';
 import { apiKeyChecker } from './middleware/utils/apiKeyChecker.js';
 
 const router = express.Router();
@@ -24,7 +24,6 @@ router.post('/document/file',
         });
         next();
     },
-    preprocessRequest,  // Add preprocessing
     uploadMiddleware,
     (req, res, next) => {
         console.log('🔄 Processing file:', {
