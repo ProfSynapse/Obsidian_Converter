@@ -78,16 +78,24 @@ class Server {
             this.app.use(morgan('dev'));
         }
 
-        // Request parsing configuration
-        this.app.use(express.json({ 
-            limit: '50mb',
-            verify: (req, res, buf) => { req.rawBody = buf }
-        }));
+        // Conditionally parse JSON only for application/json
+        this.app.use((req, res, next) => {
+            if (req.is('application/json')) {
+                return express.json({ limit: '50mb' })(req, res, next);
+            }
+            next();
+        });
 
-        this.app.use(express.urlencoded({ 
-            extended: true, 
-            limit: '50mb' 
-        }));
+        // Conditionally parse urlencoded only for form submissions
+        this.app.use((req, res, next) => {
+            if (req.is('application/x-www-form-urlencoded')) {
+                return express.urlencoded({
+                    extended: true,
+                    limit: '50mb'
+                })(req, res, next);
+            }
+            next();
+        });
 
         // Consolidate raw body handling into a single middleware
         this.app.use(express.raw({
