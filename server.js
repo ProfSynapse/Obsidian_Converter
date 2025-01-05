@@ -30,7 +30,7 @@ class Server {
         this.corsOptions = {
             origin: process.env.CORS_ORIGIN ? 
                 process.env.CORS_ORIGIN.split(',').map(origin => origin.trim()) : 
-                ['http://localhost:5173'],
+                ['http://localhost:5173', 'https://your-frontend-domain.com'], // Add your frontend URL
             methods: ['GET', 'POST', 'OPTIONS'],
             allowedHeaders: ['Content-Type', 'Authorization', 'x-api-key'],
             exposedHeaders: ['Content-Disposition'],

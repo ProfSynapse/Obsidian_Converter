@@ -4,3 +4,8 @@
 **/logs
 .genai*
 codeSummaryLogs/
+node_modules
+.env
+.git
+.gitignore
+README.md
