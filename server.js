@@ -58,7 +58,7 @@ class Server {
         // Apply CORS
         this.app.use(cors(this.corsOptions));
 
-        // Security headers with fixed configuration
+        // Security headers configuration
         this.app.use(helmet({
             crossOriginResourcePolicy: { policy: "cross-origin" },
             contentSecurityPolicy: {
@@ -78,26 +78,55 @@ class Server {
             this.app.use(morgan('dev'));
         }
 
-        // Body parsers with limits
+        // Request parsing configuration
         this.app.use(express.json({ 
             limit: '50mb',
             verify: (req, res, buf) => { req.rawBody = buf }
         }));
+
+        this.app.use(express.raw({ 
+            type: [
+                'application/octet-stream',
+                'application/x-www-form-urlencoded',
+                'multipart/form-data',
+                'text/*',
+                'application/*',
+                'audio/*', 
+                'video/*'
+            ],
+            limit: config.conversion.maxFileSize || '50mb'
+        }));
+
         this.app.use(express.urlencoded({ 
             extended: true, 
             limit: '50mb' 
         }));
 
-        // Request parsing - consolidated configuration
-        this.app.use(express.raw({ 
-            type: ['audio/*', 'video/*'],
-            limit: config.conversion.maxFileSize || '50mb'
-        }));
-
         // Add request timestamp
         this.app.use((req, res, next) => {
             req.requestTime = new Date().toISOString();
+            // Log incoming requests for debugging
+            console.log(`${req.method} ${req.path}`, {
+                contentType: req.headers['content-type'],
+                bodyType: typeof req.body
+            });
             next();
+        });
+
+        // Add error handling for parsing errors
+        this.app.use((err, req, res, next) => {
+            if (err instanceof SyntaxError && err.status === 400 && 'body' in err) {
+                console.error('Request Parse Error:', err);
+                return res.status(400).json({
+                    status: 400,
+                    error: {
+                        message: 'Invalid request format',
+                        code: 'PARSE_ERROR',
+                        details: err.message
+                    }
+                });
+            }
+            next(err);
         });
     }
 
