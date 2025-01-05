@@ -11,7 +11,7 @@ COPY package*.json ./
 COPY frontend/package*.json ./frontend/
 COPY backend/package*.json ./backend/
 # Install ALL dependencies including dev dependencies
-RUN npm install
+RUN npm run install:all
 # Copy frontend source
 WORKDIR /app/frontend
 COPY frontend/ ./
@@ -25,7 +25,7 @@ COPY package*.json ./
 COPY frontend/package*.json ./frontend/
 COPY backend/package*.json ./backend/
 # Install ALL dependencies
-RUN npm install
+RUN npm run install:all
 # Copy backend source
 WORKDIR /app/backend
 COPY backend/ ./
