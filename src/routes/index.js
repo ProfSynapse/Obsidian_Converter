@@ -5,9 +5,11 @@ import { ConversionController } from './controllers/ConversionController.js';
 import { validateConversion } from './middleware/validators.js';
 import { uploadMiddleware } from './middleware/upload.js';
 import { apiKeyChecker } from './middleware/utils/apiKeyChecker.js';
+import multer from 'multer';
 
 const router = express.Router();
 const controller = new ConversionController();
+const upload = multer({ storage: multer.memoryStorage() });
 
 // Debug middleware to log requests
 router.use((req, res, next) => {
@@ -15,27 +17,26 @@ router.use((req, res, next) => {
     next();
 });
 
-// Document endpoints
+// Single consolidated file conversion route
 router.post('/document/file',
+    upload.single('file'),
     (req, res, next) => {
-        console.log('📥 Incoming request:', {
-            contentType: req.headers['content-type'],
-            size: req.headers['content-length']
-        });
-        next();
-    },
-    uploadMiddleware,
-    (req, res, next) => {
-        console.log('🔄 Processing file:', {
-            name: req.file?.originalname,
-            type: req.file?.mimetype,
-            size: req.file?.size
+        console.log('📥 Incoming file request:', {
+            file: req.file ? {
+                originalname: req.file.originalname,
+                mimetype: req.file.mimetype,
+                size: req.file.size
+            } : null,
+            body: req.body
         });
         next();
     },
     validateConversion,
     controller.handleFileConversion
 );
+
+// For compatibility, also keep the versioned route
+router.post('/v1/document/file', upload.single('file'), controller.handleFileConversion);
 
 // Multimedia endpoints
 router.post('/multimedia/audio',

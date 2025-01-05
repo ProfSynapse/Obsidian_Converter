@@ -224,6 +224,18 @@ class Server {
             }
             next(err);
         });
+
+        // Update multipart handling
+        this.app.use((req, res, next) => {
+            if (req.headers['content-type']?.includes('multipart/form-data')) {
+                console.log('🔍 Processing multipart request:', {
+                    method: req.method,
+                    path: req.path,
+                    contentType: req.headers['content-type']
+                });
+            }
+            next();
+        });
     }
 
     /**
