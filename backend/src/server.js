@@ -10,6 +10,12 @@ import proxyRoutes from './routes/proxyRoutes.js';  // Updated path
 import { errorHandler, AppError } from './utils/errorHandler.js';
 import morgan from 'morgan';
 import path from 'path';  // Add path module
+import { fileURLToPath } from 'url';
+import { dirname } from 'path';
+
+// Get directory name in ES module
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
 
 // Load environment variables
 dotenv.config();
@@ -34,7 +40,8 @@ class Server {
         
         // Serve frontend static files in production
         if (process.env.NODE_ENV === 'production') {
-            const frontendPath = path.join(__dirname, '../../frontend/build');
+            // Use relative path from current directory to frontend build
+            const frontendPath = path.join(dirname(__dirname), '../frontend/build');
             this.app.use(express.static(frontendPath));
             
             // Move API routes before catch-all
