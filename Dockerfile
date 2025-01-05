@@ -7,13 +7,15 @@ RUN apt-get update && apt-get install -y poppler-utils
 FROM base AS builder
 WORKDIR /app
 
-# Copy package files
+# Copy package files including lock files
 COPY package*.json ./
 COPY frontend/package*.json frontend/
 COPY backend/package*.json backend/
+COPY frontend/package-lock.json* frontend/
+COPY backend/package-lock.json* backend/
 
-# Install root dependencies
-RUN npm install
+# Install dependencies
+RUN npm ci
 
 # Copy source code
 COPY . .
@@ -25,13 +27,18 @@ RUN npm run build
 FROM base
 WORKDIR /app
 
-# Copy built assets with correct paths
-COPY --from=builder /app/frontend/build ./frontend/build
-COPY --from=builder /app/backend/dist ./dist
+# Copy package files and lock files
 COPY package*.json ./
+COPY backend/package*.json backend/
+COPY backend/package-lock.json* backend/
 
 # Install production dependencies
-RUN npm install --only=production
+RUN cd backend && npm ci --only=production
+RUN npm ci --only=production
+
+# Copy built assets
+COPY --from=builder /app/frontend/build ./frontend/build
+COPY --from=builder /app/backend/dist ./dist
 
 ENV NODE_ENV=production
 ENV PORT=8080
