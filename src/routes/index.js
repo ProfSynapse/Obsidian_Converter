@@ -3,7 +3,7 @@
 import express from 'express';
 import { ConversionController } from './controllers/ConversionController.js';
 import { validateConversion } from './middleware/validators.js';
-import { uploadMiddleware } from './middleware/upload.js';
+import { uploadMiddleware, handleUpload } from './middleware/upload.js';
 import { apiKeyChecker } from './middleware/utils/apiKeyChecker.js';
 
 const router = express.Router();
@@ -17,7 +17,7 @@ router.use((req, res, next) => {
 
 // Document endpoints
 router.post('/document/file',
-    uploadMiddleware,
+    handleUpload, // Replace uploadMiddleware with new handler
     validateConversion,
     controller.handleFileConversion
 );

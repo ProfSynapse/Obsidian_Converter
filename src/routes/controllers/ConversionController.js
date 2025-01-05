@@ -137,41 +137,36 @@ export class ConversionController {
 
   handleFileConversion = async (req, res, next) => {
     try {
-      const file = req.file || req.rawBody;
-      if (!file) {
-        throw new AppError('No file provided', 400);
-      }
-
-      let options = {};
-      if (req.body.options) {
-        try {
-          options = JSON.parse(req.body.options);
-        } catch (err) {
-          return next(new AppError("Invalid JSON format in 'options'", 400));
+        if (!req.file) {
+            throw new AppError('No file provided', 400);
         }
-      }
 
-      const fileName = req.file?.originalname || req.query.filename || 'untitled.docx';
-      
-      // Create conversion data with proper buffer handling
-      const conversionData = {
-        type: this.#determineFileType(path.extname(fileName).slice(1), req.headers['content-type']),
-        content: Buffer.isBuffer(file) ? file : file.buffer,
-        name: fileName,
-        options
-      };
+        // Get the original content type that was stored by multer
+        const contentType = req.file.originalContentType || req.file.mimetype;
+        
+        const conversionData = {
+            type: this.#determineFileType(
+                path.extname(req.file.originalname).slice(1),
+                contentType
+            ),
+            content: req.file.buffer,
+            name: req.file.originalname,
+            options: JSON.parse(req.body.options || '{}'),
+            mimeType: contentType
+        };
 
-      console.log('Processing file conversion:', {
-        fileName: conversionData.name,
-        fileType: conversionData.type,
-        bufferLength: conversionData.content.length,
-        firstBytes: conversionData.content.slice(0, 4).toString('hex')
-      });
+        console.log('Processing file conversion:', {
+            fileName: conversionData.name,
+            fileType: conversionData.type,
+            mimeType: conversionData.mimeType,
+            bufferLength: conversionData.content.length,
+            firstBytes: conversionData.content.slice(0, 4).toString('hex')
+        });
 
-      const result = await this.conversionService.convert(conversionData);
-      this.#sendZipResponse(res, result);
+        const result = await this.conversionService.convert(conversionData);
+        this.#sendZipResponse(res, result);
     } catch (error) {
-      next(new AppError(error.message, 500));
+        next(new AppError(error.message, 500));
     }
   };
 
