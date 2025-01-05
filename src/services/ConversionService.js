@@ -17,14 +17,33 @@ export class ConversionService {
         throw new Error('Missing required conversion parameters');
       }
 
-      // Ensure we have a valid buffer
-      let buffer = content;
-      if (!Buffer.isBuffer(buffer)) {
-        if (buffer instanceof Uint8Array) {
-          buffer = Buffer.from(buffer);
+      // Ensure we have a valid buffer for binary files
+      let buffer;
+      if (['docx', 'pdf', 'doc'].includes(type.toLowerCase())) {
+        if (!Buffer.isBuffer(content)) {
+          if (content instanceof Uint8Array) {
+            buffer = Buffer.from(content);
+          } else {
+            throw new Error(`Invalid content type for ${type}: Expected Buffer or Uint8Array`);
+          }
         } else {
-          throw new Error('Invalid content: Expected buffer or Uint8Array');
+          // Create a copy to prevent modifications
+          buffer = Buffer.from(content);
         }
+
+        // Validate file signatures
+        const signatures = {
+          docx: [0x50, 0x4B, 0x03, 0x04], // PK\x03\x04
+          pdf: [0x25, 0x50, 0x44, 0x46],  // %PDF
+          doc: [0xD0, 0xCF, 0x11, 0xE0]   // DOC
+        };
+
+        const fileSignature = signatures[type.toLowerCase()];
+        if (fileSignature && !buffer.slice(0, 4).equals(Buffer.from(fileSignature))) {
+          throw new Error(`Invalid ${type.toUpperCase()} file signature`);
+        }
+      } else {
+        buffer = content;
       }
 
       // Log buffer state for debugging

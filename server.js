@@ -118,6 +118,21 @@ class Server {
             }
         }));
 
+        // Handle binary data properly
+        this.app.use(express.raw({
+            type: [
+                'application/octet-stream',
+                'application/pdf',
+                'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+                'application/msword'
+            ],
+            limit: '50mb',
+            verify: (req, res, buf) => {
+                // Store original binary data
+                req.rawBody = buf;
+            }
+        }));
+
         // Add buffer validation and logging middleware
         this.app.use((req, res, next) => {
             const contentType = req.headers['content-type'];
@@ -133,6 +148,23 @@ class Server {
                     return res.status(400).json({
                         status: 'error',
                         message: 'Invalid file buffer received'
+                    });
+                }
+            }
+            next();
+        });
+
+        // Add content-type validation
+        this.app.use((req, res, next) => {
+            if (req.is('multipart/form-data')) {
+                return next();
+            }
+            
+            if (req.headers['content-type']?.includes('application/')) {
+                if (!req.rawBody) {
+                    return res.status(400).json({
+                        status: 'error',
+                        message: 'Missing binary content'
                     });
                 }
             }

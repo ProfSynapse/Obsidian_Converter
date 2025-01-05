@@ -5,27 +5,30 @@ import { AppError } from '../../utils/errorHandler.js';
 import path from 'path';
 
 // Configure multer for memory storage
-const storage = multer.memoryStorage();
+const storage = multer.memoryStorage({
+    filename: (req, file, cb) => {
+        const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
+        cb(null, file.fieldname + '-' + uniqueSuffix + path.extname(file.originalname));
+    }
+});
 
 const fileFilter = (req, file, cb) => {
-    // Validate content type
-    const allowedTypes = [
-        'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-        'application/pdf',
-        'application/msword'
-    ];
+    const mimeTypeMap = {
+        'application/pdf': 'pdf',
+        'application/vnd.openxmlformats-officedocument.wordprocessingml.document': 'docx',
+        'application/msword': 'doc'
+    };
 
-    if (!allowedTypes.includes(file.mimetype) && 
-        !file.originalname.match(/\.(docx|pdf|doc)$/i)) {
-        return cb(new Error('Invalid file type'), false);
-    }
+    const fileType = mimeTypeMap[file.mimetype] || path.extname(file.originalname).slice(1).toLowerCase();
 
-    // Set original content type for later use
-    file.detectedType = file.mimetype;
+    // Store file metadata for later use
+    file.detectedType = fileType;
+    file.originalContentType = file.mimetype;
 
-    console.log('Receiving file:', {
+    console.log('Processing file upload:', {
         filename: file.originalname,
         mimetype: file.mimetype,
+        detectedType: fileType,
         fieldname: file.fieldname
     });
 
@@ -36,7 +39,8 @@ export const uploadMiddleware = multer({
     storage,
     fileFilter,
     limits: {
-        fileSize: 50 * 1024 * 1024 // 50MB limit
+        fileSize: 50 * 1024 * 1024, // 50MB
+        files: 1
     }
 }).single('file');
 
