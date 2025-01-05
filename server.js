@@ -29,24 +29,19 @@ class Server {
         this.port = process.env.PORT ? parseInt(process.env.PORT, 10) : 3000;
         this.env = process.env.RAILWAY_ENVIRONMENT || process.env.NODE_ENV || 'development';
         
-        // Updated CORS configuration
-        const allowedOrigins = [
-            'https://frontend-production-2748.up.railway.app',
-            'http://localhost:5173',
-            'http://localhost:3000'
-        ];
-
+        // Updated CORS configuration using config
         this.corsOptions = {
             origin: (origin, callback) => {
-                if (!origin || allowedOrigins.includes(origin)) {
+                if (!origin || config.CORS.ORIGIN.includes(origin)) {
                     callback(null, true);
                 } else {
+                    console.warn('Rejected Origin:', origin);
                     callback(new Error('Not allowed by CORS'));
                 }
             },
-            methods: ['GET', 'POST', 'OPTIONS'],
-            allowedHeaders: ['Content-Type', 'Authorization', 'x-api-key'],
-            exposedHeaders: ['Content-Disposition'],
+            methods: config.CORS.METHODS,
+            allowedHeaders: config.CORS.ALLOWED_HEADERS,
+            exposedHeaders: config.CORS.EXPOSED_HEADERS,
             credentials: true,
             preflightContinue: false,
             optionsSuccessStatus: 204
@@ -62,11 +57,27 @@ class Server {
      * Initialize all middleware
      */
     initializeMiddleware() {
-        // Apply CORS first
+        // Apply CORS with proper preflight handling
         this.app.use(cors(this.corsOptions));
-
-        // Handle preflight requests
+        
+        // Handle OPTIONS preflight requests
         this.app.options('*', cors(this.corsOptions));
+
+        // Add CORS error handling
+        this.app.use((err, req, res, next) => {
+            if (err.message.includes('Not allowed by CORS')) {
+                console.error('CORS Error:', {
+                    origin: req.headers.origin,
+                    method: req.method,
+                    path: req.path
+                });
+                return res.status(403).json({
+                    status: 'error',
+                    message: 'CORS policy violation'
+                });
+            }
+            next(err);
+        });
 
         // Remove existing raw and JSON body parsers
         // Only use express.json() for non-multipart requests

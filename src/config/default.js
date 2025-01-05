@@ -27,5 +27,21 @@ export const config = {
   },
   security: {
     rateLimitPerMinute: 100
+  },
+  CORS: {
+    ORIGIN: [
+      'https://frontend-production-2748.up.railway.app',
+      'http://localhost:5173',
+      'http://localhost:3000'
+    ],
+    METHODS: ['GET', 'POST', 'OPTIONS'],
+    ALLOWED_HEADERS: [
+      'Content-Type',
+      'Authorization',
+      'x-api-key',
+      'Origin',
+      'Accept'
+    ],
+    EXPOSED_HEADERS: ['Content-Disposition']
   }
 };
