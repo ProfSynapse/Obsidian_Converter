@@ -78,6 +78,33 @@ class Server {
             this.app.use(morgan('dev'));
         }
 
+        // Handle multipart and raw data before JSON parsing
+        this.app.use((req, res, next) => {
+            console.log('🔍 Request interceptor:', {
+                method: req.method,
+                path: req.path,
+                contentType: req.headers['content-type']
+            });
+
+            // Skip JSON parsing for multipart and binary data
+            if (req.headers['content-type']?.includes('multipart/form-data') ||
+                req.headers['content-type']?.includes('application/octet-stream')) {
+                return next();
+            }
+
+            // Only parse JSON for appropriate requests
+            if (req.headers['content-type']?.includes('application/json')) {
+                express.json({
+                    limit: '50mb',
+                    verify: (req, res, buf) => {
+                        req.rawBody = buf;
+                    }
+                })(req, res, next);
+            } else {
+                next();
+            }
+        });
+
         // Conditionally parse JSON only for application/json
         this.app.use((req, res, next) => {
             if (req.is('application/json')) {

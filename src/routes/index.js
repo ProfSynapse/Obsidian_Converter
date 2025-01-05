@@ -17,14 +17,20 @@ router.use((req, res, next) => {
 
 // Document endpoints
 router.post('/document/file',
+    (req, res, next) => {
+        console.log('📥 Incoming request:', {
+            contentType: req.headers['content-type'],
+            size: req.headers['content-length']
+        });
+        next();
+    },
     preprocessRequest,  // Add preprocessing
     uploadMiddleware,
     (req, res, next) => {
-        console.log('📄 Received file:', {
+        console.log('🔄 Processing file:', {
             name: req.file?.originalname,
             type: req.file?.mimetype,
-            size: req.file?.size,
-            bufferHead: req.file?.buffer?.slice(0, 4).toString('hex')
+            size: req.file?.size
         });
         next();
     },
