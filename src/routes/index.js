@@ -20,9 +20,9 @@ router.use((req, res, next) => {
 // Document endpoints with enhanced error handling
 router.post('/document/file',
     (req, res, next) => {
-        console.log('📥 Incoming request headers:', {
-            'content-type': req.headers['content-type'],
-            'content-length': req.headers['content-length']
+        console.log('📥 File upload request:', {
+            contentType: req.headers['content-type'],
+            contentLength: req.headers['content-length']
         });
         next();
     },

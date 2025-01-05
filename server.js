@@ -57,8 +57,18 @@ class Server {
      * Initialize all middleware
      */
     initializeMiddleware() {
-        // Basic security and CORS
-        this.app.use(cors(this.corsOptions));
+        // Apply CORS with proper preflight handling
+        this.app.use(cors({
+            ...this.corsOptions,
+            maxAge: 86400, // 24 hours
+            credentials: true,
+            exposedHeaders: ['Content-Disposition', 'Content-Length']
+        }));
+        
+        // Handle OPTIONS preflight requests
+        this.app.options('*', cors(this.corsOptions));
+
+        // Update security headers
         this.app.use(helmet({
             crossOriginResourcePolicy: { policy: "cross-origin" },
             contentSecurityPolicy: {
@@ -67,15 +77,11 @@ class Server {
                     connectSrc: ["'self'", ...config.CORS.ORIGIN],
                     imgSrc: ["'self'", "data:", "blob:"],
                     styleSrc: ["'self'", "'unsafe-inline'"],
-                    scriptSrc: ["'self'"]
+                    scriptSrc: ["'self'"],
+                    formAction: ["'self'"]
                 }
             }
         }));
-
-        // Request logging
-        if (this.env !== 'test') {
-            this.app.use(morgan('dev'));
-        }
 
         // Simple body parsing strategy
         this.app.use((req, res, next) => {
@@ -84,6 +90,7 @@ class Server {
                     limit: config.conversion.maxFileSize || '50mb'
                 })(req, res, next);
             } else {
+                // Let multer handle multipart
                 next();
             }
         });

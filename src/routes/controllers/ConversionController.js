@@ -140,12 +140,11 @@ export class ConversionController {
         console.log('📝 File conversion request:', {
             headers: req.headers,
             fileInfo: req.file ? {
+                fieldname: req.file.fieldname,
                 originalname: req.file.originalname,
                 mimetype: req.file.mimetype,
-                size: req.file.buffer?.length,
-                signature: req.file.buffer?.slice(0, 4).toString('hex')
-            } : null,
-            body: typeof req.body === 'object' ? Object.keys(req.body) : typeof req.body
+                size: req.file.buffer?.length
+            } : null
         });
 
         if (!req.file) {

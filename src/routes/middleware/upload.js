@@ -16,49 +16,54 @@ const ALLOWED_TYPES = {
 
 const storage = multer.memoryStorage();
 
-const upload = multer({
+const createUpload = (fieldName) => multer({
     storage,
     limits: {
         fileSize: config.conversion.maxFileSize || 50 * 1024 * 1024,
         files: 1
     },
     fileFilter: (req, file, cb) => {
-        // Log incoming file
         console.log('📝 Processing upload:', {
+            fieldname: file.fieldname,
             filename: file.originalname,
             mimetype: file.mimetype
         });
 
-        // Check MIME type
-        if (!ALLOWED_TYPES[file.mimetype]) {
-            return cb(new AppError(`Unsupported file type: ${file.mimetype}`, 415));
-        }
-
-        // Validate extension matches MIME type
-        const ext = file.originalname.split('.').pop().toLowerCase();
-        if (ext !== ALLOWED_TYPES[file.mimetype]) {
-            return cb(new AppError(`File extension does not match type: ${ext}`, 415));
-        }
-
+        // Accept all file types initially and validate later
         cb(null, true);
     }
-});
+}).single(fieldName);
 
 export const uploadMiddleware = (req, res, next) => {
-    const handler = upload.single('document');
+    console.log('💡 Upload request received:', {
+        contentType: req.headers['content-type'],
+        contentLength: req.headers['content-length']
+    });
 
-    handler(req, res, (err) => {
-        if (err instanceof multer.MulterError) {
-            return next(new AppError(
-                err.code === 'LIMIT_FILE_SIZE' 
-                    ? 'File size exceeds 50MB limit'
-                    : `Upload error: ${err.message}`,
-                413
-            ));
-        }
-        
-        if (err) {
-            return next(new AppError(err.message, 400));
+    // Try both field names that the client might send
+    const tryUpload = async () => {
+        try {
+            // Try 'uploadedFile' first (used by client)
+            const handler = createUpload('uploadedFile');
+            await new Promise((resolve, reject) => {
+                handler(req, res, (err) => {
+                    if (err) reject(err);
+                    else resolve();
+                });
+            });
+        } catch (firstError) {
+            try {
+                // Fallback to 'file'
+                const handler = createUpload('file');
+                await new Promise((resolve, reject) => {
+                    handler(req, res, (err) => {
+                        if (err) reject(err);
+                        else resolve();
+                    });
+                });
+            } catch (secondError) {
+                return next(new AppError('File upload failed: Invalid field name or file', 400));
+            }
         }
 
         if (!req.file) {
@@ -67,11 +72,14 @@ export const uploadMiddleware = (req, res, next) => {
 
         // Log successful upload
         console.log('✅ Upload successful:', {
+            fieldname: req.file.fieldname,
             filename: req.file.originalname,
-            size: req.file.size,
-            mimetype: req.file.mimetype
+            mimetype: req.file.mimetype,
+            size: req.file.size
         });
 
         next();
-    });
+    };
+
+    tryUpload().catch(next);
 };
