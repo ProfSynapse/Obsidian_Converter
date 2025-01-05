@@ -12,7 +12,7 @@
     "dev:backend": "npm --prefix backend run dev",
     "build": "npm run build:frontend && npm run build:backend",
     "build:frontend": "cd frontend && npm install && npm run build",
-    "build:backend": "cd backend && npm install && npm run build && cp -r dist ../dist",
+    "build:backend": "cd backend && npm install && npm run build",
     "start": "npm --prefix backend run start",
     "test": "npm --prefix backend run test",
     "lint": "npm --prefix backend run lint",

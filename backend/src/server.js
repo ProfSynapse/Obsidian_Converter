@@ -1,6 +1,7 @@
 // server.js
 
 import express from 'express';
+import fs from 'fs';  // Add fs import
 import cors from 'cors';
 import helmet from 'helmet';
 import dotenv from 'dotenv';
