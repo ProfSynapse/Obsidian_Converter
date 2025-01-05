@@ -35,9 +35,6 @@ router.post('/document/file',
     controller.handleFileConversion
 );
 
-// For compatibility, also keep the versioned route
-router.post('/v1/document/file', upload.single('file'), controller.handleFileConversion);
-
 // Multimedia endpoints
 router.post('/multimedia/audio',
     uploadMiddleware,
