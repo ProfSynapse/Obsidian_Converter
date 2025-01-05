@@ -5,40 +5,19 @@ import { AppError } from '../../utils/errorHandler.js';
 import path from 'path';
 
 // Configure multer for memory storage
-const storage = multer.memoryStorage({
-    filename: (req, file, cb) => {
-        const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
-        cb(null, file.fieldname + '-' + uniqueSuffix + path.extname(file.originalname));
-    }
-});
+const storage = multer.memoryStorage();
 
 const fileFilter = (req, file, cb) => {
-    console.log('📥 Upload received:', {
+    console.log('📦 Incoming file:', {
         originalname: file.originalname,
         mimetype: file.mimetype,
-        size: file.size,
-        fieldname: file.fieldname,
-        headers: file.headers
+        size: file.size
     });
 
-    const mimeTypeMap = {
-        'application/pdf': 'pdf',
-        'application/vnd.openxmlformats-officedocument.wordprocessingml.document': 'docx',
-        'application/msword': 'doc'
-    };
-
-    const fileType = mimeTypeMap[file.mimetype] || path.extname(file.originalname).slice(1).toLowerCase();
-
-    // Store file metadata for later use
-    file.detectedType = fileType;
-    file.originalContentType = file.mimetype;
-
-    console.log('Processing file upload:', {
-        filename: file.originalname,
-        mimetype: file.mimetype,
-        detectedType: fileType,
-        fieldname: file.fieldname
-    });
+    // Don't try to parse binary files as JSON
+    if (file.mimetype.includes('application/')) {
+        req.isFileUpload = true;
+    }
 
     cb(null, true);
 };
@@ -46,11 +25,28 @@ const fileFilter = (req, file, cb) => {
 export const uploadMiddleware = multer({
     storage,
     fileFilter,
+    preservePath: true,
     limits: {
-        fileSize: 50 * 1024 * 1024, // 50MB
-        files: 1
+        fileSize: 50 * 1024 * 1024 // 50MB
     }
 }).single('file');
+
+// Add new pre-processing middleware
+export const preprocessRequest = (req, res, next) => {
+    console.log('🔍 Request type:', {
+        contentType: req.headers['content-type'],
+        method: req.method,
+        isFileUpload: req.isFileUpload
+    });
+
+    // Skip JSON parsing for file uploads
+    if (req.isFileUpload) {
+        return next();
+    }
+
+    // Only parse JSON for non-file requests
+    express.json()(req, res, next);
+};
 
 // Error handling wrapper
 export const handleUpload = (req, res, next) => {

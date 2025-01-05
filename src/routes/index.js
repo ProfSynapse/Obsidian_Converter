@@ -3,7 +3,7 @@
 import express from 'express';
 import { ConversionController } from './controllers/ConversionController.js';
 import { validateConversion } from './middleware/validators.js';
-import { uploadMiddleware, handleUpload } from './middleware/upload.js';
+import { uploadMiddleware, preprocessRequest } from './middleware/upload.js';
 import { apiKeyChecker } from './middleware/utils/apiKeyChecker.js';
 
 const router = express.Router();
@@ -17,7 +17,17 @@ router.use((req, res, next) => {
 
 // Document endpoints
 router.post('/document/file',
-    handleUpload, // Replace uploadMiddleware with new handler
+    preprocessRequest,  // Add preprocessing
+    uploadMiddleware,
+    (req, res, next) => {
+        console.log('📄 Received file:', {
+            name: req.file?.originalname,
+            type: req.file?.mimetype,
+            size: req.file?.size,
+            bufferHead: req.file?.buffer?.slice(0, 4).toString('hex')
+        });
+        next();
+    },
     validateConversion,
     controller.handleFileConversion
 );

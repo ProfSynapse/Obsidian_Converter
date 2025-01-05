@@ -114,6 +114,37 @@ class TextConverterFactory {
   }
 
   /**
+   * Validates buffer content against expected file signatures
+   * @param {Buffer} buffer - The buffer to validate
+   * @param {string} type - The file type
+   * @returns {boolean} - True if buffer is valid, false otherwise
+   */
+  validateBuffer(buffer, type) {
+    console.log('🔍 Validating buffer:', {
+      type,
+      length: buffer?.length,
+      head: buffer?.slice(0, 4).toString('hex')
+    });
+
+    if (!Buffer.isBuffer(buffer)) {
+      console.error('❌ Invalid buffer type:', typeof buffer);
+      return false;
+    }
+
+    const signatures = {
+      docx: [0x50, 0x4B, 0x03, 0x04],
+      pdf: [0x25, 0x50, 0x44, 0x46]
+    };
+
+    const sig = signatures[type.toLowerCase()];
+    if (!sig) return true;
+
+    const isValid = buffer.slice(0, sig.length).equals(Buffer.from(sig));
+    console.log(`📝 Signature check (${type}):`, isValid);
+    return isValid;
+  }
+
+  /**
    * Converts input content to Markdown format
    * @param {string} type - The type of content
    * @param {Buffer|string|Object} input - The content to convert
@@ -122,13 +153,11 @@ class TextConverterFactory {
    * @returns {Promise<{ content: string, images: Array }>} - Converted content and images
    */
   async convertToMarkdown(type, content, options = {}) {
-    console.log('🏭 Factory converting:', {
+    console.log('🔄 Starting conversion:', {
       type,
       contentType: typeof content,
       isBuffer: Buffer.isBuffer(content),
-      options: Object.keys(options),
-      contentLength: content?.length,
-      bufferSignature: Buffer.isBuffer(content) ? content.slice(0, 4).toString('hex') : null
+      options: Object.keys(options)
     });
 
     // Validate buffer for binary files
