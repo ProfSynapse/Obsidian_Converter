@@ -25,8 +25,14 @@ export default defineConfig({
 		outDir: 'build',
 		target: 'esnext',
 		sourcemap: true,
+		rollupOptions: {
+			external: [/^@sveltejs\/kit/]
+		}
 	},
 	optimizeDeps: {
-		exclude: ['@smui/button', '@smui/textfield']
+		exclude: ['@sveltejs/kit']
+	},
+	ssr: {
+		noExternal: ['@sveltejs/kit']
 	}
 });

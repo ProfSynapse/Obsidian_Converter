@@ -10,10 +10,12 @@ WORKDIR /app
 COPY package*.json ./
 COPY frontend/package*.json ./frontend/
 COPY backend/package*.json ./backend/
-# Install ALL dependencies including dev dependencies
-RUN npm run install:all
-# Copy frontend source
+# Install dependencies at root level
+RUN npm install
+# Install frontend dependencies
 WORKDIR /app/frontend
+RUN npm install
+# Copy frontend source and build
 COPY frontend/ ./
 RUN npm run build
 
