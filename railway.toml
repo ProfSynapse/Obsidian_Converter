@@ -4,8 +4,6 @@ dockerfilePath = "Dockerfile"
 
 [deploy]
 startCommand = "node backend/dist/server.js"
-healthcheckPath = "/health"
-healthcheckTimeout = 100
 restartPolicyType = "on_failure"
 
 # Use Railway's service URLs

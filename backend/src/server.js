@@ -117,9 +117,6 @@ class Server {
         this.app.use('/api/v1', router);  // Mount routes directly under /api/v1
         this.app.use('/api/v1/proxy', proxyRoutes);
 
-        // Health check route
-        this.app.get('/health', this.handleHealthCheck.bind(this));
-
         // Root route
         this.app.get('/', (req, res) => {
             res.status(200).json({
@@ -162,23 +159,6 @@ class Server {
             this.server.close(() => {
                 console.log('💥 Process terminated!');
             });
-        });
-    }
-
-    /**
-     * Health check endpoint handler
-     */
-    handleHealthCheck(req, res) {
-        res.status(200).json({
-            status: 'success',
-            data: {
-                serverTime: new Date().toISOString(),
-                environment: this.env,
-                uptime: process.uptime(),
-                memory: process.memoryUsage(),
-                version: process.env.npm_package_version || '1.0.0',
-                allowedTypes: config.conversion.allowedFileTypes
-            }
         });
     }
 

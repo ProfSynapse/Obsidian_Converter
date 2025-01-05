@@ -16,8 +16,7 @@ function generateEndpoints(baseUrl) {
         CONVERT_YOUTUBE: `${baseUrl}/web/youtube`,
         CONVERT_BATCH: `${baseUrl}/batch`,
         CONVERT_AUDIO: `${baseUrl}/multimedia/audio`,
-        CONVERT_VIDEO: `${baseUrl}/multimedia/video`,
-        HEALTH: `${baseUrl}/health`
+        CONVERT_VIDEO: `${baseUrl}/multimedia/video`
     };
 
     // Freeze endpoints to prevent modifications
