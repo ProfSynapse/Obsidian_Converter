@@ -84,23 +84,52 @@ class Server {
             verify: (req, res, buf) => { req.rawBody = buf }
         }));
 
-        this.app.use(express.raw({ 
+        this.app.use(express.urlencoded({ 
+            extended: true, 
+            limit: '50mb' 
+        }));
+
+        // Consolidate raw body handling into a single middleware
+        this.app.use(express.raw({
             type: [
+                'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+                'application/pdf',
+                'application/msword',
                 'application/octet-stream',
                 'application/x-www-form-urlencoded',
                 'multipart/form-data',
                 'text/*',
                 'application/*',
-                'audio/*', 
+                'audio/*',
                 'video/*'
             ],
-            limit: config.conversion.maxFileSize || '50mb'
+            limit: config.conversion.maxFileSize || '50mb',
+            verify: (req, res, buf) => {
+                // Store original buffer
+                req.rawBody = Buffer.from(buf);
+            }
         }));
 
-        this.app.use(express.urlencoded({ 
-            extended: true, 
-            limit: '50mb' 
-        }));
+        // Add buffer validation and logging middleware
+        this.app.use((req, res, next) => {
+            const contentType = req.headers['content-type'];
+            if (contentType?.includes('application/')) {
+                // Log buffer details for debugging
+                console.log('Received file buffer:', {
+                    contentType,
+                    bufferLength: req.rawBody?.length,
+                    firstBytes: req.rawBody?.slice(0, 4).toString('hex')
+                });
+
+                if (!req.rawBody || !Buffer.isBuffer(req.rawBody)) {
+                    return res.status(400).json({
+                        status: 'error',
+                        message: 'Invalid file buffer received'
+                    });
+                }
+            }
+            next();
+        });
 
         // Add request timestamp
         this.app.use((req, res, next) => {

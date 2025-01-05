@@ -137,16 +137,28 @@ export class ConversionController {
 
   handleFileConversion = async (req, res, next) => {
     try {
-      const file = req.file;
+      const file = req.file || req.rawBody;
+      if (!file) {
+        throw new AppError('No file provided', 400);
+      }
+
       const options = JSON.parse(req.body.options || '{}');
+      const fileName = req.file?.originalname || req.query.filename || 'untitled.docx';
       
-      const fileType = path.extname(file.originalname).slice(1).toLowerCase();
+      // Create conversion data with proper buffer handling
       const conversionData = {
-        type: fileType,  // Use actual file extension
-        content: file.buffer,
-        name: file.originalname,
+        type: this.#determineFileType(path.extname(fileName).slice(1), req.headers['content-type']),
+        content: Buffer.isBuffer(file) ? file : file.buffer,
+        name: fileName,
         options
       };
+
+      console.log('Processing file conversion:', {
+        fileName: conversionData.name,
+        fileType: conversionData.type,
+        bufferLength: conversionData.content.length,
+        firstBytes: conversionData.content.slice(0, 4).toString('hex')
+      });
 
       const result = await this.conversionService.convert(conversionData);
       this.#sendZipResponse(res, result);

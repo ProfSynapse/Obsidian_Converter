@@ -11,87 +11,65 @@ export class ConversionService {
 
   async convert(data) {
     try {
-      // Add PPTX MIME type handling
-      if (data.mimeType === 'application/vnd.openxmlformats-officedocument.presentationml.presentation') {
-        data.type = 'pptx';
-      }
-
       const { type, content, name, apiKey, options, mimeType } = data;
       
       if (!type || !content) {
         throw new Error('Missing required conversion parameters');
       }
 
-      // For file uploads
-      if (Buffer.isBuffer(content)) {
-        const fileType = path.extname(name).slice(1).toLowerCase();
-        const category = determineCategory(type, fileType);
-        
-        // Check if API key is required
-        if (this.requiresApiKey(fileType) && !apiKey) {
-          throw new Error('API key is required for audio/video conversion');
+      // Ensure we have a valid buffer
+      let buffer = content;
+      if (!Buffer.isBuffer(buffer)) {
+        if (buffer instanceof Uint8Array) {
+          buffer = Buffer.from(buffer);
+        } else {
+          throw new Error('Invalid content: Expected buffer or Uint8Array');
         }
-
-        const result = await this.converter.convertToMarkdown(
-          type,
-          content,
-          {
-            name,
-            apiKey,
-            mimeType,
-            ...options
-          }
-        );
-
-        if (!result) {
-          throw new Error('Conversion failed - no result returned');
-        }
-
-        return {
-          buffer: await createBatchZip([{
-            ...result,
-            type: fileType,
-            category,
-            name
-          }]),
-          filename: this.generateFilename()
-        };
       }
 
-      // For other types (URL, YouTube, etc.)
-      const fileType = path.extname(name).slice(1).toLowerCase();
-      const category = determineCategory(type, fileType);
-      const converterType = this.getConverterType(type, fileType);
-
-      console.log('Converting file:', {
+      // Log buffer state for debugging
+      console.log('Converting content:', {
         type,
-        fileType,
-        category,
-        converterType,
-        name
+        name,
+        bufferLength: buffer.length,
+        firstBytes: buffer.slice(0, 4).toString('hex')
       });
 
-      const result = await textConverterFactory.convertToMarkdown(
-        converterType,
-        content,
-        name,
-        apiKey
+      // Add PPTX MIME type handling
+      if (data.mimeType === 'application/vnd.openxmlformats-officedocument.presentationml.presentation') {
+        data.type = 'pptx';
+      }
+
+      const fileType = path.extname(name).slice(1).toLowerCase();
+      const category = determineCategory(type, fileType);
+      
+      // Check if API key is required
+      if (this.requiresApiKey(fileType) && !apiKey) {
+        throw new Error('API key is required for audio/video conversion');
+      }
+
+      const result = await this.converter.convertToMarkdown(
+        type,
+        buffer,
+        {
+          name,
+          apiKey,
+          mimeType,
+          ...options
+        }
       );
 
       if (!result) {
         throw new Error('Conversion failed - no result returned');
       }
 
-      const zipResult = await createBatchZip([{
-        ...result,
-        type,
-        category,
-        name,
-        options
-      }]);
-
       return {
-        buffer: zipResult,
+        buffer: await createBatchZip([{
+          ...result,
+          type: fileType,
+          category,
+          name
+        }]),
         filename: this.generateFilename()
       };
     } catch (error) {

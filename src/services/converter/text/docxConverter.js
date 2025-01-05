@@ -12,40 +12,42 @@ import { v4 as uuidv4 } from 'uuid';
  */
 export async function convertDocxToMarkdown(buffer, originalName) {
   try {
+    // Ensure we have a valid buffer
+    if (!Buffer.isBuffer(buffer)) {
+      if (buffer instanceof Uint8Array) {
+        buffer = Buffer.from(buffer);
+      } else {
+        throw new Error('Invalid input: Expected buffer or Uint8Array');
+      }
+    }
+
+    // Create a copy of the buffer to prevent modifications
+    const workingBuffer = Buffer.from(buffer);
+
     console.log('Starting DOCX conversion:', {
       originalName,
-      bufferLength: buffer.length,
-      bufferType: typeof buffer,
-      isBuffer: Buffer.isBuffer(buffer),
-      firstBytes: buffer.slice(0, 4).toString('hex')
+      bufferLength: workingBuffer.length,
+      bufferType: typeof workingBuffer,
+      isBuffer: Buffer.isBuffer(workingBuffer),
+      firstBytes: workingBuffer.slice(0, 4).toString('hex')
     });
 
-    // Validate buffer is a valid DOCX file
-    if (!buffer || !Buffer.isBuffer(buffer)) {
-      throw new Error('Invalid input: Expected a buffer');
+    // Validate DOCX structure
+    if (workingBuffer.length < 4 || 
+        workingBuffer[0] !== 0x50 || // P
+        workingBuffer[1] !== 0x4B || // K
+        workingBuffer[2] !== 0x03 || // \x03
+        workingBuffer[3] !== 0x04) { // \x04
+      throw new Error('Invalid DOCX format: Not a valid ZIP/DOCX file');
     }
 
-    // Check for DOCX file signature (PK zip header)
-    if (buffer[0] !== 0x50 || buffer[1] !== 0x4B) {
-      throw new Error('Invalid DOCX format: Missing ZIP header');
-    }
+    // Log buffer state
+    console.log('Processing DOCX buffer:', {
+      length: workingBuffer.length,
+      header: workingBuffer.slice(0, 4).toString('hex'),
+      isValid: workingBuffer.slice(0, 4).equals(Buffer.from([0x50, 0x4B, 0x03, 0x04]))
+    });
 
-    // Validate buffer
-    if (!buffer || !Buffer.isBuffer(buffer)) {
-      throw new Error('Invalid input: Buffer expected');
-    }
-
-    // Check minimum file size
-    if (buffer.length < 4) {
-      throw new Error('Invalid DOCX: File too small');
-    }
-
-    // Verify DOCX signature (PKZip header)
-    const signature = buffer.slice(0, 4);
-    if (signature[0] !== 0x50 || signature[1] !== 0x4B || signature[2] !== 0x03 || signature[3] !== 0x04) {
-      throw new Error('Invalid DOCX format: File appears to be corrupted');
-    }
-    
     // Store extracted images
     const images = [];
     
@@ -90,7 +92,7 @@ export async function convertDocxToMarkdown(buffer, originalName) {
     console.log('Converting DOCX with options:', options);
 
     // Convert to markdown with enhanced error handling
-    const result = await mammoth.convertToMarkdown(buffer, options);
+    const result = await mammoth.convertToMarkdown(workingBuffer, options);
 
     if (!result || !result.value) {
       throw new Error('Conversion produced no content');
