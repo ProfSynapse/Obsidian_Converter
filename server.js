@@ -29,7 +29,7 @@ class Server {
         this.port = process.env.PORT ? parseInt(process.env.PORT, 10) : 3000;
         this.env = process.env.RAILWAY_ENVIRONMENT || process.env.NODE_ENV || 'development';
         
-        // Update CORS configuration for Railway
+        // Simplified CORS configuration
         const allowedOrigins = [
             'https://frontend-production-2748.up.railway.app',
             'http://localhost:5173',
@@ -37,31 +37,13 @@ class Server {
         ];
 
         this.corsOptions = {
-            origin: (origin, callback) => {
-                // Allow requests with no origin (like mobile apps or curl requests)
-                if (!origin) return callback(null, true);
-                
-                if (allowedOrigins.indexOf(origin) !== -1 || process.env.CORS_ORIGIN?.includes(origin)) {
-                    callback(null, true);
-                } else {
-                    callback(new Error('Not allowed by CORS'));
-                }
-            },
+            origin: allowedOrigins,
             methods: ['GET', 'POST', 'OPTIONS'],
             allowedHeaders: ['Content-Type', 'Authorization', 'x-api-key'],
             exposedHeaders: ['Content-Disposition'],
             credentials: true,
-            preflightContinue: false,
             optionsSuccessStatus: 204
         };
-
-        // Apply CORS immediately
-        this.app.use(cors(this.corsOptions));
-        this.app.options('*', cors(this.corsOptions));
-
-        // API routes for development and production
-        this.app.use('/api/v1', router);
-        this.app.use('/api/v1/proxy', proxyRoutes);
 
         // Initialize server
         this.initializeMiddleware();
@@ -73,15 +55,16 @@ class Server {
      * Initialize all middleware
      */
     initializeMiddleware() {
-        // Remove the duplicate CORS setup from here since we do it in constructor
+        // Apply CORS
+        this.app.use(cors(this.corsOptions));
 
-        // Security headers
+        // Security headers with fixed configuration
         this.app.use(helmet({
             crossOriginResourcePolicy: { policy: "cross-origin" },
             contentSecurityPolicy: {
                 directives: {
                     defaultSrc: ["'self'"],
-                    connectSrc: ["'self'", ...this.corsOptions.origin],
+                    connectSrc: ["'self'", 'https://frontend-production-2748.up.railway.app'],
                     frameSrc: ["'self'"],
                     imgSrc: ["'self'", "data:", "blob:"],
                     styleSrc: ["'self'", "'unsafe-inline'"],
