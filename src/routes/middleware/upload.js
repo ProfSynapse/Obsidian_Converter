@@ -6,57 +6,52 @@ import path from 'path';
 
 const storage = multer.memoryStorage();
 
-const fileFilter = (req, file, cb) => {
-    console.log('🔍 Incoming file details:', {
-        fieldname: file.fieldname,
-        originalname: file.originalname,
-        mimetype: file.mimetype,
-        encoding: file.encoding,
-        headers: file.headers
-    });
-
-    // Mark request as multipart
-    req.isMultipart = true;
-
-    cb(null, true);
-};
-
-export const uploadMiddleware = multer({
+const upload = multer({
     storage,
-    fileFilter,
     limits: {
-        fileSize: 50 * 1024 * 1024
+        fileSize: 50 * 1024 * 1024, // 50MB limit
+        files: 1
     }
-}).single('file');
+});
 
-export const handleUpload = async (req, res, next) => {
-    try {
-        console.log('⚙️ Processing upload request:', {
-            contentType: req.headers['content-type'],
-            isMultipart: req.isMultipart
-        });
+export const uploadMiddleware = (req, res, next) => {
+    const multerSingle = upload.single('file');
 
-        uploadMiddleware(req, res, (err) => {
-            if (err) {
-                console.error('❌ Upload error:', err);
-                return next(new AppError(err.message, 400));
-            }
-
-            if (!req.file) {
-                return next(new AppError('No file uploaded', 400));
-            }
-
-            console.log('✅ File received:', {
-                filename: req.file.originalname,
-                size: req.file.size,
-                mimeType: req.file.mimetype,
-                bufferLength: req.file.buffer?.length,
-                header: req.file.buffer?.slice(0, 4).toString('hex')
+    multerSingle(req, res, (err) => {
+        if (err) {
+            console.error('File upload error:', {
+                error: err.message,
+                code: err.code,
+                field: err.field,
+                type: 'UPLOAD_ERROR'
             });
 
-            next();
-        });
-    } catch (error) {
-        next(error);
-    }
+            if (err instanceof multer.MulterError) {
+                return next(new AppError(`Upload error: ${err.message}`, 400));
+            }
+            
+            if (err.message.includes('Unexpected end of form')) {
+                return next(new AppError('Upload incomplete or corrupted', 400));
+            }
+
+            return next(new AppError(err.message, 500));
+        }
+
+        // Validate file was received
+        if (!req.file && req.headers['content-type']?.includes('multipart/form-data')) {
+            return next(new AppError('No file received', 400));
+        }
+
+        // Log successful file details
+        if (req.file) {
+            console.log('📁 File received:', {
+                filename: req.file.originalname,
+                size: req.file.size,
+                mimetype: req.file.mimetype,
+                fieldname: req.file.fieldname
+            });
+        }
+
+        next();
+    });
 };

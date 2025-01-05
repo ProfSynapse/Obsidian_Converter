@@ -17,20 +17,16 @@ router.use((req, res, next) => {
     next();
 });
 
-// Single consolidated file conversion route
+// Document endpoints with enhanced error handling
 router.post('/document/file',
-    upload.single('file'),
     (req, res, next) => {
-        console.log('📥 Incoming file request:', {
-            file: req.file ? {
-                originalname: req.file.originalname,
-                mimetype: req.file.mimetype,
-                size: req.file.size
-            } : null,
-            body: req.body
+        console.log('📥 Incoming request headers:', {
+            'content-type': req.headers['content-type'],
+            'content-length': req.headers['content-length']
         });
         next();
     },
+    uploadMiddleware,
     validateConversion,
     controller.handleFileConversion
 );
