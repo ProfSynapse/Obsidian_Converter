@@ -1,6 +1,0 @@
-{
-	"/": [],
-	"/api/create-zip": [
-		"src/routes/api/create-zip/+server.js"
-	]
-}

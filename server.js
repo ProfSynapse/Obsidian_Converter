@@ -5,10 +5,10 @@ import fs from 'fs';  // Add fs import
 import cors from 'cors';
 import helmet from 'helmet';
 import dotenv from 'dotenv';
-import { config } from './config/default.js';
-import router from './routes/index.js';  // Updated path
-import proxyRoutes from './routes/proxyRoutes.js';  // Updated path
-import { errorHandler, AppError } from './utils/errorHandler.js';
+import { config } from './src/config/default.js';
+import router from './src/routes/index.js';  // Updated path
+import proxyRoutes from './src/routes/proxyRoutes.js';  // Updated path
+import { errorHandler, AppError } from './src/utils/errorHandler.js';
 import morgan from 'morgan';
 import path from 'path';  // Add path module
 import { fileURLToPath } from 'url';
@@ -38,27 +38,10 @@ class Server {
             preflightContinue: false,
             optionsSuccessStatus: 204
         };
-        
-        // Serve frontend static files in production
-        if (process.env.NODE_ENV === 'production') {
-            // Use absolute path based on __dirname
-            const frontendPath = path.join(__dirname, '../../frontend/build');
-            this.app.use(express.static(frontendPath));
-            
-            // Move API routes before catch-all
-            this.app.use('/api/v1', router);
-            this.app.use('/api/v1/proxy', proxyRoutes);
-            
-            // Catch-all route for SPA
-            this.app.get('*', (req, res, next) => {
-                if (req.path.startsWith('/api/')) return next();
-                res.sendFile(path.join(frontendPath, 'index.html'));  // Ensure 'index.html' is served
-            });
-        } else {
-            // API routes for development
-            this.app.use('/api/v1', router);
-            this.app.use('/api/v1/proxy', proxyRoutes);
-        }
+
+        // API routes for development and production
+        this.app.use('/api/v1', router);
+        this.app.use('/api/v1/proxy', proxyRoutes);
 
         // Initialize server
         this.initializeMiddleware();
