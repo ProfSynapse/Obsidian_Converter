@@ -41,8 +41,8 @@ class Server {
         
         // Serve frontend static files in production
         if (process.env.NODE_ENV === 'production') {
-            // Use relative path from current directory to frontend build
-            const frontendPath = path.join(dirname(__dirname), '../frontend/build');
+            // Use absolute path based on __dirname
+            const frontendPath = path.join(__dirname, '../../frontend/build');
             this.app.use(express.static(frontendPath));
             
             // Move API routes before catch-all

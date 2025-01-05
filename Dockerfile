@@ -41,6 +41,9 @@ RUN npm install --only=production
 COPY --from=builder /app/frontend/build ./frontend/build
 COPY --from=builder /app/backend/dist ./dist
 
+# Ensure frontend build is in the correct location
+RUN ls -la ./frontend/build  # Add this line for debugging
+
 ENV NODE_ENV=production
 ENV PORT=8080
 

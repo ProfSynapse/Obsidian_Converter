@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite dev",
-    "build": "vite build --outDir build",
+    "build": "vite build --outDir build",  // Ensure output directory is 'build'
     "preview": "vite preview"
   },
   "devDependencies": {
