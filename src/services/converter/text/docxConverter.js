@@ -29,6 +29,22 @@ export async function convertDocxToMarkdown(buffer, originalName) {
     if (buffer[0] !== 0x50 || buffer[1] !== 0x4B) {
       throw new Error('Invalid DOCX format: Missing ZIP header');
     }
+
+    // Validate buffer
+    if (!buffer || !Buffer.isBuffer(buffer)) {
+      throw new Error('Invalid input: Buffer expected');
+    }
+
+    // Check minimum file size
+    if (buffer.length < 4) {
+      throw new Error('Invalid DOCX: File too small');
+    }
+
+    // Verify DOCX signature (PKZip header)
+    const signature = buffer.slice(0, 4);
+    if (signature[0] !== 0x50 || signature[1] !== 0x4B || signature[2] !== 0x03 || signature[3] !== 0x04) {
+      throw new Error('Invalid DOCX format: File appears to be corrupted');
+    }
     
     // Store extracted images
     const images = [];
@@ -40,8 +56,14 @@ export async function convertDocxToMarkdown(buffer, originalName) {
     const options = {
       convertImage: mammoth.images.imgElement(async (image) => {
         try {
+          // Additional validation for image data
           const imageBuffer = await image.read();
-          const extension = image.contentType.split('/')[1];
+          if (!imageBuffer || imageBuffer.length === 0) {
+            console.warn('Empty image data encountered');
+            return { src: '' };
+          }
+
+          const extension = image.contentType.split('/')[1] || 'png';
           const imageName = `${baseName}-${uuidv4().slice(0, 8)}.${extension}`;
           
           images.push({
@@ -55,8 +77,8 @@ export async function convertDocxToMarkdown(buffer, originalName) {
             src: `attachments/${baseName}/${imageName}`
           };
         } catch (error) {
-          console.error('Error processing image:', error);
-          return { src: 'error-processing-image' };
+          console.error('Image processing error:', error);
+          return { src: '' };
         }
       }),
       styleMap: [
@@ -80,6 +102,11 @@ export async function convertDocxToMarkdown(buffer, originalName) {
       imageCount: images.length
     });
 
+    // Log any conversion warnings
+    if (result.messages.length > 0) {
+      console.warn('Conversion warnings:', result.messages);
+    }
+
     // Create the frontmatter and content
     const markdown = [
       '---',
@@ -95,11 +122,12 @@ export async function convertDocxToMarkdown(buffer, originalName) {
     return {
       success: true,
       content: markdown,
-      images: images
+      images: images,
+      warnings: result.messages
     };
 
   } catch (error) {
     console.error('Error converting DOCX:', error);
-    throw error; // Let the factory handle the error
+    throw new Error(`DOCX conversion failed: ${error.message}`);
   }
 }

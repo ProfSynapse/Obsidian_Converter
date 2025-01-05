@@ -262,20 +262,42 @@ async function extractText(pdfPath) {
 }
 
 /**
- * Validates PDF input buffer
- * @param {Buffer} input - The input buffer to validate
- * @returns {boolean} True if input is a valid PDF
+ * Validates PDF input buffer more thoroughly
  */
 export function validatePdfInput(input) {
-  if (!input || !Buffer.isBuffer(input)) return false;
-  
-  // Check PDF magic number
-  const header = input.slice(0, 5).toString();
-  if (header !== '%PDF-') return false;
+  try {
+    if (!input || !Buffer.isBuffer(input)) {
+      throw new Error('Invalid input: Expected a buffer');
+    }
 
-  // Check for EOF marker
-  const trailer = input.slice(-6).toString();
-  return trailer.includes('%%EOF');
+    // Check minimum size
+    if (input.length < 1024) {
+      throw new Error('Invalid PDF: File too small');
+    }
+
+    // Check PDF signature at start (%PDF-)
+    const header = input.slice(0, 5).toString('ascii');
+    if (header !== '%PDF-') {
+      throw new Error('Invalid PDF format: Missing PDF header');
+    }
+
+    // Check for binary content marker after header
+    const binaryMarker = input.slice(5, 8);
+    if (!binaryMarker.includes(0x80)) {
+      console.warn('PDF may be corrupted: Missing binary marker');
+    }
+
+    // Look for EOF marker
+    const trailer = input.slice(-1024).toString('ascii');
+    if (!trailer.includes('%%EOF')) {
+      throw new Error('Invalid PDF format: Missing EOF marker');
+    }
+
+    return true;
+  } catch (error) {
+    console.error('PDF validation failed:', error);
+    throw error;
+  }
 }
 
 /**
@@ -304,17 +326,28 @@ export const pdfConverterConfig = {
  * @returns {Promise<{content: string, images: Array}>} - Converted content and images
  */
 export async function convertPdfToMarkdown(input, originalName, apiKey) {
-  if (!validatePdfInput(input)) {
-    throw new Error('Invalid PDF input');
-  }
-
-  const tempDir = path.join(process.cwd(), 'temp', uuidv4());
-  const tempPdfPath = path.join(tempDir, 'input.pdf');
-  
   try {
-    await fs.mkdir(tempDir, { recursive: true });
-    await fs.writeFile(tempPdfPath, input);
+    // Validate input
+    validatePdfInput(input);
+
+    const tempDir = path.join(process.cwd(), 'temp', uuidv4());
+    const tempPdfPath = path.join(tempDir, 'input.pdf');
     
+    await fs.mkdir(tempDir, { recursive: true });
+
+    // Write buffer with additional error handling
+    try {
+      await fs.writeFile(tempPdfPath, input, { flag: 'wx' });
+    } catch (error) {
+      throw new Error(`Failed to write PDF file: ${error.message}`);
+    }
+
+    // Check if file was written successfully
+    const stats = await fs.stat(tempPdfPath);
+    if (stats.size !== input.length) {
+      throw new Error('PDF file corrupted during write');
+    }
+
     // Extract text using poppler instead of pdf-parse
     const textContent = await extractText(tempPdfPath);
     
@@ -358,19 +391,27 @@ export async function convertPdfToMarkdown(input, originalName, apiKey) {
     ].join('\n');
 
     return {
+      success: true,
       content: markdownContent,
-      images: images
+      images: images,
+      stats: {
+        inputSize: input.length,
+        outputSize: markdownContent.length,
+        imageCount: images.length
+      }
     };
 
   } catch (error) {
-    console.error('Error converting PDF:', error);
-    throw error;
+    console.error('PDF conversion error:', error);
+    throw new Error(`PDF conversion failed: ${error.message}`);
   } finally {
-    // Cleanup (using existing code)
-    try {
-      await fs.rm(tempDir, { recursive: true, force: true });
-    } catch (error) {
-      console.warn('Failed to cleanup temp directory:', error);
+    // Cleanup
+    if (tempDir) {
+      try {
+        await fs.rm(tempDir, { recursive: true, force: true });
+      } catch (error) {
+        console.warn('Failed to cleanup temp directory:', error);
+      }
     }
   }
 }
