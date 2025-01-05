@@ -121,74 +121,53 @@ class TextConverterFactory {
    * @param {string} [apiKey] - API key for services that require authentication
    * @returns {Promise<{ content: string, images: Array }>} - Converted content and images
    */
-  async convertToMarkdown(type, input, options = {}) {
-    try {
-      console.log('Converting to Markdown:', {
-        type,
-        inputType: typeof input,
-        hasInput: !!input,
-        isBuffer: Buffer.isBuffer(input),
-        options
-      });
+  async convertToMarkdown(type, content, options = {}) {
+    console.log('TextConverterFactory received:', {
+      type,
+      contentType: content instanceof Buffer ? 'Buffer' : typeof content,
+      contentLength: content?.length,
+      options
+    });
 
-      if (!input) {
-        throw new Error('No input provided');
+    // Normalize type to lowercase
+    const fileType = type.toLowerCase();
+
+    // Validate buffer for binary files
+    if (['docx', 'pdf', 'pptx'].includes(fileType)) {
+      if (!Buffer.isBuffer(content)) {
+        throw new Error(`Invalid content for ${fileType}: Expected Buffer`);
       }
-
-      if (!type) {
-        throw new Error('No file type specified');
-      }
-
-      const normalizedType = type.toLowerCase();
-      const converter = this.converters[normalizedType];
-
-      if (!converter) {
-        switch (normalizedType) {
-          case 'video':
-          case 'mp4':
-          case 'webm':
-          case 'avi':
-            return await convertVideoToMarkdown(input, options);
-          case 'audio':
-          case 'mp3':
-          case 'wav':
-          case 'm4a':
-          case 'mpeg':
-          case 'mpga':
-            return await convertAudioToMarkdown(input, options);
-          default:
-            throw new Error(`Unsupported file type: ${type}`);
-        }
-      }
-
-      // Validate input type
-      this.validateInput(normalizedType, input);
-
-      // Call converter with proper parameters
-      return await converter(input, options.name || 'Untitled', options.apiKey);
-
-    } catch (error) {
-      console.error('Conversion error:', {
-        type,
-        error: error.message,
-        stack: error.stack
-      });
-
-      return {
-        success: false,
-        content: [
-          `# Conversion Error: ${type}`,
-          '',
-          '```',
-          `Error: ${error.message}`,
-          '```',
-          '',
-          `**Time:** ${new Date().toISOString()}`,
-          `**Type:** ${type}`
-        ].join('\n'),
-        images: [],
-        error: error.message
+      
+      // Check file signatures
+      const signatures = {
+        docx: [0x50, 0x4B, 0x03, 0x04], // PK\x03\x04
+        pdf: [0x25, 0x50, 0x44, 0x46],  // %PDF
+        pptx: [0x50, 0x4B, 0x03, 0x04]  // PK\x03\x04 (same as docx)
       };
+
+      const fileSignature = signatures[fileType];
+      const contentSignature = content.slice(0, 4);
+      
+      console.log('File signature check:', {
+        expected: fileSignature?.map(b => b.toString(16)).join(''),
+        received: contentSignature.toString('hex'),
+        matches: fileSignature?.every((byte, i) => contentSignature[i] === byte)
+      });
+
+      if (!fileSignature?.every((byte, i) => contentSignature[i] === byte)) {
+        throw new Error(`Invalid ${fileType.toUpperCase()} file signature`);
+      }
+    }
+
+    // Route to correct converter
+    switch (fileType) {
+      case 'docx':
+        return await convertDocxToMarkdown(content, options.name);
+      case 'pdf':
+        return await convertPdfToMarkdown(content, options.name);
+      // ...existing cases...
+      default:
+        throw new Error(`Unsupported file type: ${fileType}`);
     }
   }
 

@@ -8,15 +8,27 @@ import path from 'path';
 const storage = multer.memoryStorage();
 
 const fileFilter = (req, file, cb) => {
-    // Log incoming file details
-    console.log('Processing uploaded file:', {
-        originalname: file.originalname,
+    // Validate content type
+    const allowedTypes = [
+        'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+        'application/pdf',
+        'application/msword'
+    ];
+
+    if (!allowedTypes.includes(file.mimetype) && 
+        !file.originalname.match(/\.(docx|pdf|doc)$/i)) {
+        return cb(new Error('Invalid file type'), false);
+    }
+
+    // Set original content type for later use
+    file.detectedType = file.mimetype;
+
+    console.log('Receiving file:', {
+        filename: file.originalname,
         mimetype: file.mimetype,
         fieldname: file.fieldname
     });
 
-    // Store original content type
-    file.originalContentType = file.mimetype;
     cb(null, true);
 };
 

@@ -141,27 +141,31 @@ export class ConversionController {
             throw new AppError('No file provided', 400);
         }
 
-        // Get the original content type that was stored by multer
-        const contentType = req.file.originalContentType || req.file.mimetype;
-        
+        // Ensure we have a valid buffer
+        if (!Buffer.isBuffer(req.file.buffer)) {
+            throw new AppError('Invalid file data received', 400);
+        }
+
+        // Create a fresh buffer copy to prevent any modifications
+        const fileBuffer = Buffer.from(req.file.buffer);
+
+        // Log buffer state for debugging
+        console.log('Processing file:', {
+            filename: req.file.originalname,
+            mimetype: req.file.mimetype,
+            size: fileBuffer.length,
+            signature: fileBuffer.slice(0, 4).toString('hex')
+        });
+
         const conversionData = {
             type: this.#determineFileType(
                 path.extname(req.file.originalname).slice(1),
-                contentType
+                req.file.mimetype
             ),
-            content: req.file.buffer,
+            content: fileBuffer,
             name: req.file.originalname,
-            options: JSON.parse(req.body.options || '{}'),
-            mimeType: contentType
+            options: JSON.parse(req.body.options || '{}')
         };
-
-        console.log('Processing file conversion:', {
-            fileName: conversionData.name,
-            fileType: conversionData.type,
-            mimeType: conversionData.mimeType,
-            bufferLength: conversionData.content.length,
-            firstBytes: conversionData.content.slice(0, 4).toString('hex')
-        });
 
         const result = await this.conversionService.convert(conversionData);
         this.#sendZipResponse(res, result);
