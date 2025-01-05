@@ -25,12 +25,13 @@ class Server {
     constructor() {
         this.app = express();
         this.server = null; // Initialize server property
-        this.port = parseInt(process.env.PORT || '3000', 10);
-        this.env = process.env.NODE_ENV || 'development';
+        // Let Railway control the port
+        this.port = process.env.PORT ? parseInt(process.env.PORT, 10) : 3000;
+        this.env = process.env.RAILWAY_ENVIRONMENT || process.env.NODE_ENV || 'development';
         this.corsOptions = {
             origin: process.env.CORS_ORIGIN ? 
                 process.env.CORS_ORIGIN.split(',').map(origin => origin.trim()) : 
-                ['http://localhost:5173', 'https://your-frontend-domain.com'], // Add your frontend URL
+                ['http://localhost:3000'], // Add your frontend URL
             methods: ['GET', 'POST', 'OPTIONS'],
             allowedHeaders: ['Content-Type', 'Authorization', 'x-api-key'],
             exposedHeaders: ['Content-Disposition'],

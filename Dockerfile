@@ -43,7 +43,7 @@ RUN npm install --include=dev
 COPY . .
 
 ENV NODE_ENV=production
-# Remove the PORT definition here since Railway will inject it
+# Let Railway control these environment variables
 ENV PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true
 ENV PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium
 
