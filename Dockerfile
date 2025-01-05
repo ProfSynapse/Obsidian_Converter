@@ -1,7 +1,11 @@
 FROM node:18-slim as base
 WORKDIR /app
 
-RUN apt-get update && apt-get install -y poppler-utils
+# Install required system packages including ffmpeg
+RUN apt-get update && apt-get install -y \
+    poppler-utils \
+    ffmpeg \
+    && rm -rf /var/lib/apt/lists/*
 
 # Stage 1: Dependencies and Build
 FROM base AS builder
