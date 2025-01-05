@@ -16,8 +16,8 @@ COPY package*.json ./
 COPY frontend/package*.json frontend/
 COPY backend/package*.json backend/
 
-# Install root dependencies first
-RUN npm install
+# Install root dependencies including devDependencies
+RUN npm install --include=dev
 
 # Copy source code
 COPY . .
