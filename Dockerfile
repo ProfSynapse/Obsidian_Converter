@@ -36,7 +36,8 @@ RUN npm run build
 FROM base
 WORKDIR /app
 
-COPY --from=frontend-builder /app/frontend/dist ./frontend/dist
+# Update path to match SvelteKit's build output
+COPY --from=frontend-builder /app/frontend/build ./frontend/build
 COPY --from=backend-builder /app/backend/dist ./backend/dist
 
 WORKDIR /app/backend

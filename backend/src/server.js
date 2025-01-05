@@ -34,7 +34,7 @@ class Server {
         
         // Serve frontend static files in production
         if (process.env.NODE_ENV === 'production') {
-            const frontendPath = path.join(__dirname, '../../frontend/dist');
+            const frontendPath = path.join(__dirname, '../../frontend/build');
             this.app.use(express.static(frontendPath));
             
             // Move API routes before catch-all
@@ -42,7 +42,7 @@ class Server {
             this.app.use('/api/v1/proxy', proxyRoutes);
             
             // Catch-all route for SPA
-            this.app.get('*', (req, res) => {
+            this.app.get('*', (req, res, next) => {
                 if (req.path.startsWith('/api/')) return next();
                 res.sendFile(path.join(frontendPath, 'index.html'));
             });
