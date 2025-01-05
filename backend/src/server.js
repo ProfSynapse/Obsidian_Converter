@@ -52,7 +52,7 @@ class Server {
             // Catch-all route for SPA
             this.app.get('*', (req, res, next) => {
                 if (req.path.startsWith('/api/')) return next();
-                res.sendFile(path.join(frontendPath, 'index.html'));
+                res.sendFile(path.join(frontendPath, 'index.html'));  // Ensure 'index.html' is served
             });
         } else {
             // API routes for development
