@@ -1,50 +1,48 @@
 FROM node:18-slim as base
 WORKDIR /app
 
-# Install system dependencies
 RUN apt-get update && apt-get install -y poppler-utils
 
 # Stage 1: Frontend build
 FROM base AS frontend-builder
-WORKDIR /app/frontend
-# Copy root package files first
+WORKDIR /app
+# Copy all package manifests for the monorepo
 COPY package*.json ./
-COPY frontend/package*.json ./
-# Install dependencies at root level for workspaces
+COPY frontend/package*.json ./frontend/
+COPY backend/package*.json ./backend/
+# Install all dependencies for the entire workspace
 RUN npm install
-# Copy frontend source
-COPY frontend/ ./
-# Build frontend with explicit path to vite
-RUN npm exec vite build
 
-# Stage 2: Backend build  
+# Copy frontend source, then build
+WORKDIR /app/frontend
+COPY frontend/ ./
+RUN npm run build
+
+# Stage 2: Backend build
 FROM base AS backend-builder
-WORKDIR /app/backend
-# Copy package files
+WORKDIR /app
+# Copy all package manifests for the monorepo
 COPY package*.json ./
-COPY backend/package*.json ./
-# Install dependencies
+COPY frontend/package*.json ./frontend/
+COPY backend/package*.json ./backend/
+# Install all dependencies for the entire workspace
 RUN npm install
-# Copy backend source
+# Copy backend source, then build
+WORKDIR /app/backend
 COPY backend/ ./
-# Build backend
 RUN npm run build
 
 # Stage 3: Production
 FROM base
 WORKDIR /app
 
-# Copy built assets correctly
 COPY --from=frontend-builder /app/frontend/dist ./frontend/dist
 COPY --from=backend-builder /app/backend/dist ./backend/dist
 
-# Install only production dependencies
 WORKDIR /app/backend
 RUN npm ci --omit=dev
 
-# Set environment variables
 ENV NODE_ENV=production
 ENV PORT=8080
 
-# Start command
 CMD ["node", "dist/server.js"]
