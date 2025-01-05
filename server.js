@@ -57,48 +57,14 @@ class Server {
      * Initialize all middleware
      */
     initializeMiddleware() {
-        // Apply CORS with proper preflight handling
+        // Basic security and CORS
         this.app.use(cors(this.corsOptions));
-        
-        // Handle OPTIONS preflight requests
-        this.app.options('*', cors(this.corsOptions));
-
-        // Add CORS error handling
-        this.app.use((err, req, res, next) => {
-            if (err.message.includes('Not allowed by CORS')) {
-                console.error('CORS Error:', {
-                    origin: req.headers.origin,
-                    method: req.method,
-                    path: req.path
-                });
-                return res.status(403).json({
-                    status: 'error',
-                    message: 'CORS policy violation'
-                });
-            }
-            next(err);
-        });
-
-        // Remove existing raw and JSON body parsers
-        // Only use express.json() for non-multipart requests
-        this.app.use((req, res, next) => {
-            if (!req.headers['content-type']?.includes('multipart/form-data')) {
-                express.json({
-                    limit: '50mb'
-                })(req, res, next);
-            } else {
-                next();
-            }
-        });
-
-        // Security headers configuration
         this.app.use(helmet({
             crossOriginResourcePolicy: { policy: "cross-origin" },
             contentSecurityPolicy: {
                 directives: {
                     defaultSrc: ["'self'"],
-                    connectSrc: ["'self'", 'https://frontend-production-2748.up.railway.app'],
-                    frameSrc: ["'self'"],
+                    connectSrc: ["'self'", ...config.CORS.ORIGIN],
                     imgSrc: ["'self'", "data:", "blob:"],
                     styleSrc: ["'self'", "'unsafe-inline'"],
                     scriptSrc: ["'self'"]
@@ -111,187 +77,24 @@ class Server {
             this.app.use(morgan('dev'));
         }
 
-        // Handle multipart and raw data before JSON parsing
+        // Simple body parsing strategy
         this.app.use((req, res, next) => {
-            console.log('🔍 Request interceptor:', {
-                method: req.method,
-                path: req.path,
-                contentType: req.headers['content-type']
-            });
-
-            // Skip JSON parsing for multipart and binary data
-            if (req.headers['content-type']?.includes('multipart/form-data') ||
-                req.headers['content-type']?.includes('application/octet-stream')) {
-                return next();
-            }
-
-            // Only parse JSON for appropriate requests
-            if (req.headers['content-type']?.includes('application/json')) {
+            if (!req.headers['content-type']?.includes('multipart/form-data')) {
                 express.json({
-                    limit: '50mb',
-                    verify: (req, res, buf) => {
-                        req.rawBody = buf;
-                    }
+                    limit: config.conversion.maxFileSize || '50mb'
                 })(req, res, next);
             } else {
                 next();
             }
         });
 
-        // Conditionally parse JSON only for application/json
-        this.app.use((req, res, next) => {
-            if (req.is('application/json')) {
-                return express.json({ limit: '50mb' })(req, res, next);
-            }
-            next();
-        });
-
-        // Conditionally parse urlencoded only for form submissions
-        this.app.use((req, res, next) => {
-            if (req.is('application/x-www-form-urlencoded')) {
-                return express.urlencoded({
-                    extended: true,
-                    limit: '50mb'
-                })(req, res, next);
-            }
-            next();
-        });
-
-        // Consolidate raw body handling into a single middleware
-        this.app.use(express.raw({
-            type: [
-                'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-                'application/pdf',
-                'application/msword',
-                'application/octet-stream',
-                'application/x-www-form-urlencoded',
-                'multipart/form-data',
-                'text/*',
-                'application/*',
-                'audio/*',
-                'video/*'
-            ],
-            limit: config.conversion.maxFileSize || '50mb',
-            verify: (req, res, buf) => {
-                // Store original buffer
-                req.rawBody = Buffer.from(buf);
-            }
-        }));
-
-        // Handle binary data properly
-        this.app.use(express.raw({
-            type: [
-                'application/octet-stream',
-                'application/pdf',
-                'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-                'application/msword'
-            ],
-            limit: '50mb',
-            verify: (req, res, buf) => {
-                // Store original binary data
-                req.rawBody = buf;
-            }
-        }));
-
-        // Add buffer validation and logging middleware
-        this.app.use((req, res, next) => {
-            const contentType = req.headers['content-type'];
-            if (contentType?.includes('application/')) {
-                // Log buffer details for debugging
-                console.log('Received file buffer:', {
-                    contentType,
-                    bufferLength: req.rawBody?.length,
-                    firstBytes: req.rawBody?.slice(0, 4).toString('hex')
-                });
-
-                if (!req.rawBody || !Buffer.isBuffer(req.rawBody)) {
-                    return res.status(400).json({
-                        status: 'error',
-                        message: 'Invalid file buffer received'
-                    });
-                }
-            }
-            next();
-        });
-
-        // Add content-type validation
-        this.app.use((req, res, next) => {
-            if (req.is('multipart/form-data')) {
-                return next();
-            }
-            
-            if (req.headers['content-type']?.includes('application/')) {
-                if (!req.rawBody) {
-                    return res.status(400).json({
-                        status: 'error',
-                        message: 'Missing binary content'
-                    });
-                }
-            }
-            next();
-        });
-
-        // Add request timestamp
+        // Request timestamp and logging
         this.app.use((req, res, next) => {
             req.requestTime = new Date().toISOString();
-            // Log incoming requests for debugging
             console.log(`${req.method} ${req.path}`, {
                 contentType: req.headers['content-type'],
-                bodyType: typeof req.body
+                timestamp: req.requestTime
             });
-            next();
-        });
-
-        // Add error handling for parsing errors
-        this.app.use((err, req, res, next) => {
-            if (err instanceof SyntaxError && err.status === 400 && 'body' in err) {
-                console.error('Request Parse Error:', err);
-                return res.status(400).json({
-                    status: 400,
-                    error: {
-                        message: 'Invalid request format',
-                        code: 'PARSE_ERROR',
-                        details: err.message
-                    }
-                });
-            }
-            next(err);
-        });
-
-        // Add timeout and limit configurations
-        this.app.use((req, res, next) => {
-            // Increase timeout for upload requests
-            if (req.headers['content-type']?.includes('multipart/form-data')) {
-                req.setTimeout(300000); // 5 minutes
-                res.setTimeout(300000); // 5 minutes
-            }
-            next();
-        });
-
-        // Update multipart handling
-        this.app.use((req, res, next) => {
-            if (req.headers['content-type']?.includes('multipart/form-data')) {
-                const boundary = req.headers['content-type'].split('boundary=')[1];
-                console.log('🔍 Processing multipart request:', {
-                    method: req.method,
-                    path: req.path,
-                    contentType: req.headers['content-type'],
-                    contentLength: req.headers['content-length'],
-                    boundary
-                });
-            }
-            next();
-        });
-
-        // Update multipart handling
-        this.app.use((req, res, next) => {
-            if (req.headers['content-type']?.includes('multipart/form-data')) {
-                console.log('🔍 Processing multipart request:', {
-                    method: req.method,
-                    path: req.path,
-                    contentType: req.headers['content-type']
-                });
-            }
             next();
         });
     }

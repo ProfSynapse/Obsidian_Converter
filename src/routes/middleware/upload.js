@@ -2,24 +2,16 @@
 
 import multer from 'multer';
 import { AppError } from '../../utils/errorHandler.js';
-import { config } from '../../config/default.js';  // Change CONFIG to config
+import { config } from '../../config/default.js';
 
-// Define allowed MIME types and their extensions
+// Define allowed MIME types
 const ALLOWED_TYPES = {
-    // Documents
-    'application/pdf': ['pdf'],
-    'application/vnd.openxmlformats-officedocument.wordprocessingml.document': ['docx'],
-    'application/msword': ['doc'],
-    'application/vnd.openxmlformats-officedocument.presentationml.presentation': ['pptx'],
-    'application/vnd.ms-powerpoint': ['ppt'],
-    // Data files
-    'text/csv': ['csv'],
-    'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': ['xlsx'],
-    // Media files
-    'audio/mpeg': ['mp3'],
-    'audio/wav': ['wav'],
-    'video/mp4': ['mp4'],
-    'video/webm': ['webm']
+    'application/pdf': 'pdf',
+    'application/vnd.openxmlformats-officedocument.wordprocessingml.document': 'docx',
+    'application/msword': 'doc',
+    'application/vnd.openxmlformats-officedocument.presentationml.presentation': 'pptx',
+    'text/csv': 'csv',
+    'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': 'xlsx'
 };
 
 const storage = multer.memoryStorage();
@@ -27,60 +19,46 @@ const storage = multer.memoryStorage();
 const upload = multer({
     storage,
     limits: {
-        fileSize: config.conversion.maxFileSize || 50 * 1024 * 1024, // Update CONFIG to config
+        fileSize: config.conversion.maxFileSize || 50 * 1024 * 1024,
         files: 1
     },
     fileFilter: (req, file, cb) => {
-        console.log('📝 Processing file:', {
-            originalname: file.originalname,
+        // Log incoming file
+        console.log('📝 Processing upload:', {
+            filename: file.originalname,
             mimetype: file.mimetype
         });
 
-        // Get file extension from original name
-        const ext = file.originalname.split('.').pop().toLowerCase();
-        
-        // Check if MIME type is allowed and extension matches
-        const allowedExtensions = ALLOWED_TYPES[file.mimetype];
-        
-        if (!allowedExtensions) {
-            console.warn('❌ Rejected file:', {
-                mimetype: file.mimetype,
-                filename: file.originalname
-            });
+        // Check MIME type
+        if (!ALLOWED_TYPES[file.mimetype]) {
             return cb(new AppError(`Unsupported file type: ${file.mimetype}`, 415));
         }
 
-        if (!allowedExtensions.includes(ext)) {
-            console.warn('❌ Extension mismatch:', {
-                extension: ext,
-                allowedExtensions,
-                mimetype: file.mimetype
-            });
-            return cb(new AppError(`Invalid file extension: ${ext}`, 415));
+        // Validate extension matches MIME type
+        const ext = file.originalname.split('.').pop().toLowerCase();
+        if (ext !== ALLOWED_TYPES[file.mimetype]) {
+            return cb(new AppError(`File extension does not match type: ${ext}`, 415));
         }
 
-        console.log('✅ File accepted:', {
-            filename: file.originalname,
-            type: file.mimetype
-        });
-        
         cb(null, true);
     }
 });
 
 export const uploadMiddleware = (req, res, next) => {
-    const uploadHandler = upload.single('document'); // Match 'document' field name with client
+    const handler = upload.single('document');
 
-    uploadHandler(req, res, (err) => {
+    handler(req, res, (err) => {
         if (err instanceof multer.MulterError) {
-            // Handle Multer-specific errors
-            if (err.code === 'LIMIT_FILE_SIZE') {
-                return next(new AppError('File size exceeds limit (50MB)', 413));
-            }
-            return next(new AppError(`Upload error: ${err.message}`, 400));
-        } else if (err) {
-            // Handle other errors
-            return next(new AppError(err.message || 'File upload failed', err.status || 400));
+            return next(new AppError(
+                err.code === 'LIMIT_FILE_SIZE' 
+                    ? 'File size exceeds 50MB limit'
+                    : `Upload error: ${err.message}`,
+                413
+            ));
+        }
+        
+        if (err) {
+            return next(new AppError(err.message, 400));
         }
 
         if (!req.file) {
@@ -88,11 +66,10 @@ export const uploadMiddleware = (req, res, next) => {
         }
 
         // Log successful upload
-        console.log('📤 File upload successful:', {
+        console.log('✅ Upload successful:', {
             filename: req.file.originalname,
             size: req.file.size,
-            mimetype: req.file.mimetype,
-            buffer: req.file.buffer ? `${req.file.buffer.length} bytes` : 'No buffer'
+            mimetype: req.file.mimetype
         });
 
         next();
