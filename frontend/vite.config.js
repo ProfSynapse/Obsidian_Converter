@@ -30,7 +30,7 @@ export default defineConfig({
 		}
 	},
 	optimizeDeps: {
-		exclude: ['@sveltejs/kit']
+		include: ['@sveltejs/kit']
 	},
 	ssr: {
 		noExternal: ['@sveltejs/kit']

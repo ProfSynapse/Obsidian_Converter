@@ -6,21 +6,11 @@
   "scripts": {
     "dev": "vite dev",
     "build": "vite build",
-    "preview": "vite preview",
-    "check": "svelte-kit sync && svelte-check --jsconfig ./jsconfig.json",
-    "check:watch": "svelte-kit sync && svelte-check --jsconfig ./jsconfig.json --watch"
+    "preview": "vite preview"
   },
   "devDependencies": {
-    "@rollup/plugin-commonjs": "^24.0.0",
-    "@rollup/plugin-node-resolve": "^15.0.0",
-    "@sveltejs/adapter-auto": "^3.0.0",
-    "@sveltejs/adapter-node": "^2.0.0",
-    "@sveltejs/kit": "^2.0.0",
-    "@sveltejs/vite-plugin-svelte": "^3.0.0",
-    "rollup": "^3.20.0",
     "svelte": "^4.0.0",
     "svelte-check": "^3.4.3",
-    "vite": "^5.0.3",
     "typescript": "^5.0.0"
   }
 }

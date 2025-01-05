@@ -3,47 +3,33 @@ WORKDIR /app
 
 RUN apt-get update && apt-get install -y poppler-utils
 
-# Stage 1: Frontend build
-FROM base AS frontend-builder
+# Stage 1: Dependencies and Build
+FROM base AS builder
 WORKDIR /app
-# Copy package files first for better caching
+
+# Copy package files
 COPY package*.json ./
-COPY frontend/package*.json ./frontend/
-COPY backend/package*.json ./backend/
-# Install dependencies at root level
+COPY frontend/package*.json frontend/
+COPY backend/package*.json backend/
+
+# Install root dependencies
 RUN npm install
-# Install frontend dependencies
-WORKDIR /app/frontend
-RUN npm install
-# Copy frontend source and build
-COPY frontend/ ./
+
+# Copy source code
+COPY . .
+
+# Build both projects
 RUN npm run build
 
-# Stage 2: Backend build  
-FROM base AS backend-builder
-WORKDIR /app
-# Copy package files first for better caching
-COPY package*.json ./
-COPY frontend/package*.json ./frontend/
-COPY backend/package*.json ./backend/
-# Install ALL dependencies
-RUN npm run install:all
-# Copy backend source
-WORKDIR /app/backend
-COPY backend/ ./
-RUN npm run build
-
-# Stage 3: Production
+# Stage 2: Production
 FROM base
 WORKDIR /app
 
-# Copy built assets
-COPY --from=frontend-builder /app/frontend/build ./frontend/build
-COPY --from=backend-builder /app/backend/dist ./backend/dist
+COPY --from=builder /app/frontend/build ./frontend/build
+COPY --from=builder /app/backend/dist ./backend/dist
 COPY package*.json ./
-COPY backend/package*.json ./backend/
+COPY backend/package*.json backend/
 
-# Install production dependencies
 WORKDIR /app/backend
 RUN npm install --only=production
 
