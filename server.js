@@ -29,7 +29,7 @@ class Server {
         this.port = process.env.PORT ? parseInt(process.env.PORT, 10) : 3000;
         this.env = process.env.RAILWAY_ENVIRONMENT || process.env.NODE_ENV || 'development';
         
-        // Simplified CORS configuration
+        // Updated CORS configuration
         const allowedOrigins = [
             'https://frontend-production-2748.up.railway.app',
             'http://localhost:5173',
@@ -37,11 +37,18 @@ class Server {
         ];
 
         this.corsOptions = {
-            origin: allowedOrigins,
+            origin: (origin, callback) => {
+                if (!origin || allowedOrigins.includes(origin)) {
+                    callback(null, true);
+                } else {
+                    callback(new Error('Not allowed by CORS'));
+                }
+            },
             methods: ['GET', 'POST', 'OPTIONS'],
             allowedHeaders: ['Content-Type', 'Authorization', 'x-api-key'],
             exposedHeaders: ['Content-Disposition'],
             credentials: true,
+            preflightContinue: false,
             optionsSuccessStatus: 204
         };
 
@@ -55,8 +62,23 @@ class Server {
      * Initialize all middleware
      */
     initializeMiddleware() {
-        // Apply CORS
+        // Apply CORS first
         this.app.use(cors(this.corsOptions));
+
+        // Handle preflight requests
+        this.app.options('*', cors(this.corsOptions));
+
+        // Remove existing raw and JSON body parsers
+        // Only use express.json() for non-multipart requests
+        this.app.use((req, res, next) => {
+            if (!req.headers['content-type']?.includes('multipart/form-data')) {
+                express.json({
+                    limit: '50mb'
+                })(req, res, next);
+            } else {
+                next();
+            }
+        });
 
         // Security headers configuration
         this.app.use(helmet({
