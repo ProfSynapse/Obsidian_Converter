@@ -25,7 +25,7 @@ class Server {
     constructor() {
         this.app = express();
         this.server = null; // Initialize server property
-        this.port = process.env.PORT || 3000;
+        this.port = parseInt(process.env.PORT || '3000', 10);
         this.env = process.env.NODE_ENV || 'development';
         this.corsOptions = {
             origin: process.env.CORS_ORIGIN ? 
