@@ -2,7 +2,7 @@
 
 import multer from 'multer';
 import { AppError } from '../../utils/errorHandler.js';
-import { CONFIG } from '../../config/default.js';
+import { config } from '../../config/default.js';  // Change CONFIG to config
 
 // Define allowed MIME types and their extensions
 const ALLOWED_TYPES = {
@@ -27,7 +27,7 @@ const storage = multer.memoryStorage();
 const upload = multer({
     storage,
     limits: {
-        fileSize: CONFIG.API.MAX_FILE_SIZE || 50 * 1024 * 1024, // 50MB default
+        fileSize: config.conversion.maxFileSize || 50 * 1024 * 1024, // Update CONFIG to config
         files: 1
     },
     fileFilter: (req, file, cb) => {

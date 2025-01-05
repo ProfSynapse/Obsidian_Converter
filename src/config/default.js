@@ -45,3 +45,6 @@ export const config = {
     EXPOSED_HEADERS: ['Content-Disposition']
   }
 };
+
+// Optionally, add a default export if needed
+export default config;
