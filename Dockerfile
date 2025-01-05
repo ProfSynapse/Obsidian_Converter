@@ -1,7 +1,7 @@
 FROM node:18-slim as base
 WORKDIR /app
 
-# Install required system packages including ffmpeg
+# Install required system packages including ffmpeg and poppler-utils
 RUN apt-get update && apt-get install -y \
     poppler-utils \
     ffmpeg \

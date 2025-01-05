@@ -6,14 +6,12 @@ import path from 'path';
 import { OpenAI } from 'openai';
 import ffmpeg from 'fluent-ffmpeg';
 import ffmpegStatic from 'ffmpeg-static';
-import ffprobeStatic from '@ffprobe-installer/ffprobe';
 import { Readable } from 'stream';
 import os from 'os';
 import { v4 as uuidv4 } from 'uuid';
 
-// Set both ffmpeg and ffprobe paths
+// Set ffmpeg path only
 ffmpeg.setFfmpegPath(ffmpegStatic);
-ffmpeg.setFfprobePath(ffprobeStatic.path);
 
 class Transcriber {
   constructor() {
@@ -105,8 +103,7 @@ class Transcriber {
       console.log('Extracting audio with ffmpeg:', {
         inputPath,
         outputPath,
-        ffmpegPath: ffmpegStatic,
-        ffprobePath: ffprobeStatic.path
+        ffmpegPath: ffmpegStatic
       });
 
       // Extract audio
