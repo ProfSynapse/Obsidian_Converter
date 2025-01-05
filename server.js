@@ -225,6 +225,31 @@ class Server {
             next(err);
         });
 
+        // Add timeout and limit configurations
+        this.app.use((req, res, next) => {
+            // Increase timeout for upload requests
+            if (req.headers['content-type']?.includes('multipart/form-data')) {
+                req.setTimeout(300000); // 5 minutes
+                res.setTimeout(300000); // 5 minutes
+            }
+            next();
+        });
+
+        // Update multipart handling
+        this.app.use((req, res, next) => {
+            if (req.headers['content-type']?.includes('multipart/form-data')) {
+                const boundary = req.headers['content-type'].split('boundary=')[1];
+                console.log('🔍 Processing multipart request:', {
+                    method: req.method,
+                    path: req.path,
+                    contentType: req.headers['content-type'],
+                    contentLength: req.headers['content-length'],
+                    boundary
+                });
+            }
+            next();
+        });
+
         // Update multipart handling
         this.app.use((req, res, next) => {
             if (req.headers['content-type']?.includes('multipart/form-data')) {
