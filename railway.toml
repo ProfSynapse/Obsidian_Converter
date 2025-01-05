@@ -3,7 +3,7 @@ builder = "DOCKERFILE"
 dockerfilePath = "Dockerfile"
 
 [deploy]
-startCommand = "node backend/dist/server.js"
+startCommand = "node dist/server.js"
 restartPolicyType = "on_failure"
 
 # Use Railway's service URLs

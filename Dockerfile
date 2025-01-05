@@ -25,12 +25,12 @@ RUN npm run build
 FROM base
 WORKDIR /app
 
+# Copy built assets with correct paths
 COPY --from=builder /app/frontend/build ./frontend/build
-COPY --from=builder /app/backend/dist ./backend/dist
+COPY --from=builder /app/backend/dist ./dist
 COPY package*.json ./
-COPY backend/package*.json backend/
 
-WORKDIR /app/backend
+# Install production dependencies
 RUN npm install --only=production
 
 ENV NODE_ENV=production
