@@ -22,7 +22,7 @@ RUN npm install
 # Copy source code
 COPY . .
 
-# Build both projects
+# Build frontend and backend
 RUN npm run build
 
 # Stage 2: Production
