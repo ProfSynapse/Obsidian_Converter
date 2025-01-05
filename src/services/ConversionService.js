@@ -10,6 +10,15 @@ export class ConversionService {
   }
 
   async convert(data) {
+    console.log('🔄 Starting conversion:', {
+        type: data.type,
+        name: data.name,
+        contentType: typeof data.content,
+        isBuffer: Buffer.isBuffer(data.content),
+        contentLength: data.content?.length,
+        mimeType: data.mimeType
+    });
+
     try {
       const { type, content, name, apiKey, options, mimeType } = data;
       
@@ -54,6 +63,15 @@ export class ConversionService {
         firstBytes: buffer.slice(0, 4).toString('hex')
       });
 
+      if (Buffer.isBuffer(buffer)) {
+        console.log('📊 Buffer details:', {
+            length: buffer.length,
+            signature: buffer.slice(0, 4).toString('hex'),
+            isOriginalBuffer: buffer === data.content,
+            type: data.type
+        });
+      }
+
       // Add PPTX MIME type handling
       if (data.mimeType === 'application/vnd.openxmlformats-officedocument.presentationml.presentation') {
         data.type = 'pptx';
@@ -92,7 +110,12 @@ export class ConversionService {
         filename: this.generateFilename()
       };
     } catch (error) {
-      console.error('Conversion error:', error);
+      console.error('❌ Conversion error:', {
+        error: error.message,
+        type: data.type,
+        name: data.name,
+        stack: error.stack
+      });
       throw error;
     }
   }

@@ -122,12 +122,34 @@ class TextConverterFactory {
    * @returns {Promise<{ content: string, images: Array }>} - Converted content and images
    */
   async convertToMarkdown(type, content, options = {}) {
-    console.log('TextConverterFactory received:', {
+    console.log('🏭 Factory converting:', {
       type,
-      contentType: content instanceof Buffer ? 'Buffer' : typeof content,
+      contentType: typeof content,
+      isBuffer: Buffer.isBuffer(content),
+      options: Object.keys(options),
       contentLength: content?.length,
-      options
+      bufferSignature: Buffer.isBuffer(content) ? content.slice(0, 4).toString('hex') : null
     });
+
+    // Validate buffer for binary files
+    if (['docx', 'pdf', 'pptx'].includes(type)) {
+      if (!Buffer.isBuffer(content)) {
+        console.error('❌ Invalid content type:', {
+          expected: 'Buffer',
+          received: typeof content,
+          type: type
+        });
+        throw new Error(`Invalid content for ${type}: Expected Buffer`);
+      }
+
+      // Log buffer validation
+      console.log('🔍 Validating buffer:', {
+        type,
+        length: content.length,
+        signature: content.slice(0, 4).toString('hex'),
+        isValid: this.validateFileSignature(type, content)
+      });
+    }
 
     // Normalize type to lowercase
     const fileType = type.toLowerCase();

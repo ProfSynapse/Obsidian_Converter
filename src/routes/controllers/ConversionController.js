@@ -137,6 +137,17 @@ export class ConversionController {
 
   handleFileConversion = async (req, res, next) => {
     try {
+        console.log('📝 File conversion request:', {
+            headers: req.headers,
+            fileInfo: req.file ? {
+                originalname: req.file.originalname,
+                mimetype: req.file.mimetype,
+                size: req.file.buffer?.length,
+                signature: req.file.buffer?.slice(0, 4).toString('hex')
+            } : null,
+            body: typeof req.body === 'object' ? Object.keys(req.body) : typeof req.body
+        });
+
         if (!req.file) {
             throw new AppError('No file provided', 400);
         }
@@ -167,9 +178,30 @@ export class ConversionController {
             options: JSON.parse(req.body.options || '{}')
         };
 
+        // Log conversion data
+        console.log('📤 Preparing conversion:', {
+            type: conversionData.type,
+            filename: conversionData.name,
+            bufferLength: conversionData.content.length,
+            signature: conversionData.content.slice(0, 4).toString('hex')
+        });
+
         const result = await this.conversionService.convert(conversionData);
+        
+        console.log('✅ Conversion complete:', {
+            success: !!result,
+            hasContent: !!result?.content,
+            contentLength: result?.content?.length,
+            imageCount: result?.images?.length
+        });
+
         this.#sendZipResponse(res, result);
     } catch (error) {
+        console.error('❌ Conversion failed:', {
+            error: error.message,
+            stack: error.stack,
+            type: 'file_conversion'
+        });
         next(new AppError(error.message, 500));
     }
   };
