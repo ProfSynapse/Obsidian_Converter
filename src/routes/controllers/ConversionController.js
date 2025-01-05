@@ -142,7 +142,15 @@ export class ConversionController {
         throw new AppError('No file provided', 400);
       }
 
-      const options = JSON.parse(req.body.options || '{}');
+      let options = {};
+      if (req.body.options) {
+        try {
+          options = JSON.parse(req.body.options);
+        } catch (err) {
+          return next(new AppError("Invalid JSON format in 'options'", 400));
+        }
+      }
+
       const fileName = req.file?.originalname || req.query.filename || 'untitled.docx';
       
       // Create conversion data with proper buffer handling
