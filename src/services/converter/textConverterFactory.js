@@ -145,38 +145,6 @@ class TextConverterFactory {
   }
 
   /**
-   * Validates file signature against known patterns
-   * @private
-   */
-  validateFileSignature(type, buffer) {
-    if (!Buffer.isBuffer(buffer)) {
-      console.error('Invalid buffer type:', typeof buffer);
-      return false;
-    }
-
-    const signatures = {
-      docx: [0x50, 0x4B, 0x03, 0x04], // PK\x03\x04
-      pdf: [0x25, 0x50, 0x44, 0x46],  // %PDF
-      pptx: [0x50, 0x4B, 0x03, 0x04]  // PK\x03\x04 (same as docx)
-    };
-
-    const sig = signatures[type.toLowerCase()];
-    if (!sig) return true; // No signature check for unknown types
-
-    const fileSignature = buffer.slice(0, sig.length);
-    const isValid = fileSignature.equals(Buffer.from(sig));
-
-    console.log('File signature validation:', {
-      type,
-      expected: sig.map(b => b.toString(16)).join(''),
-      received: fileSignature.toString('hex'),
-      isValid
-    });
-
-    return isValid;
-  }
-
-  /**
    * Converts input content to Markdown format
    * @param {string} type - The type of content
    * @param {Buffer|string|Object} input - The content to convert
@@ -204,17 +172,12 @@ class TextConverterFactory {
       }
 
       // Log buffer validation
-      const isValidSignature = this.validateFileSignature(type, content);
-      console.log('🔍 Buffer validation:', {
+      console.log('🔍 Validating buffer:', {
         type,
         length: content.length,
         signature: content.slice(0, 4).toString('hex'),
-        isValid: isValidSignature
+        isValid: this.validateFileSignature(type, content)
       });
-
-      if (!isValidSignature) {
-        throw new Error(`Invalid ${type.toUpperCase()} file signature`);
-      }
     }
 
     // Normalize type to lowercase
