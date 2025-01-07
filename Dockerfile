@@ -1,50 +1,50 @@
-# Use node:18-slim
-FROM node:18-slim AS base
+FROM node:18-slim as base
 WORKDIR /app
 
-# Install required system dependencies including complete Poppler tools
+# Install required system packages including ffmpeg and poppler-utils
 RUN apt-get update && apt-get install -y \
     poppler-utils \
-    poppler-data \
     ffmpeg \
-    chromium \
-    fonts-liberation \
-    libasound2 \
-    libatk-bridge2.0-0 \
-    libatk1.0-0 \
-    libatspi2.0-0 \
-    libcairo2 \
-    libcups2 \
-    libdbus-1-3 \
-    libdrm2 \
-    libgbm1 \
-    libglib2.0-0 \
-    libnspr4 \
-    libnss3 \
-    libpango-1.0-0 \
-    libx11-6 \
-    libxcb1 \
-    libxcomposite1 \
-    libxdamage1 \
-    libxext6 \
-    libxfixes3 \
-    libxrandr2 \
-    xdg-utils \
     && rm -rf /var/lib/apt/lists/*
 
-# Verify poppler-utils installation
-RUN pdftoppm -v && pdfinfo -v
+# Stage 1: Dependencies and Build
+FROM base AS builder
+WORKDIR /app
 
-# Install dependencies
+# Copy all package files first
 COPY package*.json ./
+COPY frontend/package*.json frontend/
+COPY backend/package*.json backend/
+
+# Install root dependencies including devDependencies
 RUN npm install --include=dev
 
-# Copy server code
+# Copy source code
 COPY . .
 
-ENV NODE_ENV=production
-# Let Railway control these environment variables
-ENV PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true
-ENV PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium
+# Build frontend and backend
+RUN npm run build
 
-CMD ["node", "server.js"]
+# Stage 2: Production
+FROM base
+WORKDIR /app
+
+# Copy package files
+COPY package*.json ./
+COPY backend/package*.json backend/
+
+# Install production dependencies using regular npm install
+RUN npm install --only=production --workspace=backend
+RUN npm install --only=production
+
+# Copy built assets
+COPY --from=builder /app/frontend/build ./frontend/build
+COPY --from=builder /app/backend/dist ./dist
+
+# Ensure frontend build is in the correct location
+RUN ls -la ./frontend/build  # Add this line for debugging
+
+ENV NODE_ENV=production
+ENV PORT=8080
+
+CMD ["node", "dist/server.js"]

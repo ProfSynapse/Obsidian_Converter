@@ -3,5 +3,17 @@ builder = "DOCKERFILE"
 dockerfilePath = "Dockerfile"
 
 [deploy]
-startCommand = "node server.js"
-restartPolicyType = "ON_FAILURE"
+startCommand = "node dist/server.js"
+restartPolicyType = "on_failure"
+
+# Use Railway's service URLs
+[[build.env]]
+name = "VITE_API_BASE_URL"
+value = "${RAILWAY_STATIC_URL}/api/v1"
+
+[[build.env]]
+name = "CORS_ORIGIN"
+value = "${RAILWAY_STATIC_URL}"
+
+[[ports]]
+port = "8080"
