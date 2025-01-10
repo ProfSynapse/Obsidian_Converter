@@ -26,18 +26,22 @@ export class ConversionService {
         throw new Error('Missing required conversion parameters');
       }
 
-      // Ensure we have a valid buffer for binary files
-      let buffer;
-      if (['docx', 'pdf', 'doc'].includes(type.toLowerCase())) {
+      // Handle different content types based on the conversion type
+      let processedContent;
+      if (['url', 'parenturl', 'youtube'].includes(type.toLowerCase())) {
+        // For web-based conversions, pass the content directly
+        processedContent = content;
+      } else if (['docx', 'pdf', 'doc'].includes(type.toLowerCase())) {
+        // For binary files, ensure we have a valid buffer
         if (!Buffer.isBuffer(content)) {
           if (content instanceof Uint8Array) {
-            buffer = Buffer.from(content);
+            processedContent = Buffer.from(content);
           } else {
             throw new Error(`Invalid content type for ${type}: Expected Buffer or Uint8Array`);
           }
         } else {
           // Create a copy to prevent modifications
-          buffer = Buffer.from(content);
+          processedContent = Buffer.from(content);
         }
 
         // Validate file signatures
@@ -48,29 +52,26 @@ export class ConversionService {
         };
 
         const fileSignature = signatures[type.toLowerCase()];
-        if (fileSignature && !buffer.slice(0, 4).equals(Buffer.from(fileSignature))) {
+        if (fileSignature && !processedContent.slice(0, 4).equals(Buffer.from(fileSignature))) {
           throw new Error(`Invalid ${type.toUpperCase()} file signature`);
         }
       } else {
-        buffer = content;
+        processedContent = content;
       }
 
-      // Log buffer state for debugging
+      // Log content state for debugging
       console.log('Converting content:', {
         type,
         name,
-        bufferLength: buffer.length,
-        firstBytes: buffer.slice(0, 4).toString('hex')
+        contentType: typeof processedContent,
+        isBuffer: Buffer.isBuffer(processedContent),
+        length: processedContent?.length,
+        preview: Buffer.isBuffer(processedContent) 
+          ? processedContent.slice(0, 4).toString('hex')
+          : typeof processedContent === 'string' 
+            ? processedContent.substring(0, 50) 
+            : 'N/A'
       });
-
-      if (Buffer.isBuffer(buffer)) {
-        console.log('📊 Buffer details:', {
-            length: buffer.length,
-            signature: buffer.slice(0, 4).toString('hex'),
-            isOriginalBuffer: buffer === data.content,
-            type: data.type
-        });
-      }
 
       // Add PPTX MIME type handling
       if (data.mimeType === 'application/vnd.openxmlformats-officedocument.presentationml.presentation') {
@@ -87,7 +88,7 @@ export class ConversionService {
 
       const result = await this.converter.convertToMarkdown(
         type,
-        buffer,
+        processedContent,
         {
           name,
           apiKey,

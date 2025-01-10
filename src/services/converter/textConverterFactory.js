@@ -160,7 +160,7 @@ class TextConverterFactory {
       options: Object.keys(options)
     });
 
-    // Validate buffer for binary files
+    // Validate input based on type
     if (['docx', 'pdf', 'pptx'].includes(type)) {
       if (!Buffer.isBuffer(content)) {
         console.error('❌ Invalid content type:', {
@@ -178,6 +178,24 @@ class TextConverterFactory {
         signature: content.slice(0, 4).toString('hex'),
         isValid: this.validateFileSignature(type, content)
       });
+    } else if (type === 'url') {
+      if (typeof content !== 'string') {
+        console.error('❌ Invalid content type for URL:', {
+          expected: 'string',
+          received: typeof content
+        });
+        throw new Error('Invalid content for URL: Expected string');
+      }
+      
+      // Basic URL validation
+      try {
+        new URL(content.startsWith('http') ? content : `https://${content}`);
+      } catch (error) {
+        console.error('❌ Invalid URL format:', content);
+        throw new Error('Invalid URL format');
+      }
+      
+      console.log('🔍 URL validation passed:', content);
     }
 
     // Normalize type to lowercase
@@ -216,7 +234,18 @@ class TextConverterFactory {
         return await convertDocxToMarkdown(content, options.name);
       case 'pdf':
         return await convertPdfToMarkdown(content, options.name);
-      // ...existing cases...
+      case 'pptx':
+        return await convertPptxToMarkdown(content, options.name);
+      case 'csv':
+        return await convertCsvToMarkdown(content, options.name);
+      case 'xlsx':
+        return await convertXlsxToMarkdown(content, options.name);
+      case 'url':
+        return await convertUrlToMarkdown(content, options);
+      case 'parenturl':
+        return await convertParentUrlToMarkdown(content, options);
+      case 'youtube':
+        return await convertYoutubeToMarkdown(content, options);
       default:
         throw new Error(`Unsupported file type: ${fileType}`);
     }
