@@ -137,7 +137,8 @@ export class ConversionController {
 
     handleFileConversion = async (req, res, next) => {
         try {
-            // Enhanced request logging
+            // Enhanced request logging with file signature info
+            const fileSignature = req.file?.buffer?.slice(0, 4).toString('hex');
             console.log('📝 File conversion request:', {
                 headers: {
                     'content-type': req.headers['content-type'],
@@ -146,14 +147,17 @@ export class ConversionController {
                 },
                 body: {
                     hasOptions: !!req.body?.options,
-                    optionsType: typeof req.body?.options
+                    optionsType: typeof req.body?.options,
+                    parsedOptions: req.body?.options ? JSON.parse(req.body.options) : {}
                 },
                 file: req.file ? {
                     fieldname: req.file.fieldname,
                     originalname: req.file.originalname,
                     mimetype: req.file.mimetype,
                     size: req.file.buffer?.length,
-                    encoding: req.file.encoding
+                    encoding: req.file.encoding,
+                    signature: fileSignature,
+                    extension: path.extname(req.file.originalname).slice(1).toLowerCase()
                 } : null,
                 isMultipart: req.headers['content-type']?.includes('multipart/form-data')
             });
@@ -185,32 +189,58 @@ export class ConversionController {
                 throw new AppError('Invalid options format. Expected valid JSON.', 400);
             }
 
-            // Create a fresh buffer copy to prevent any modifications
+            // Create a fresh buffer copy and validate file type
             const fileBuffer = Buffer.from(req.file.buffer);
+            const fileExtension = path.extname(req.file.originalname).slice(1).toLowerCase();
+            const fileType = this.#determineFileType(fileExtension, req.file.mimetype);
 
-            // Enhanced file processing logging
+            if (!fileType) {
+                throw new AppError(`Unsupported file type: ${fileExtension}`, 400);
+            }
+
+            // Enhanced file processing logging with signature validation
+            const signatures = {
+                docx: [0x50, 0x4B, 0x03, 0x04], // PK\x03\x04
+                pdf: [0x25, 0x50, 0x44, 0x46],  // %PDF
+                pptx: [0x50, 0x4B, 0x03, 0x04]  // PK\x03\x04 (same as docx)
+            };
+
+            const expectedSignature = signatures[fileExtension];
+            const actualSignature = fileBuffer.slice(0, 4);
+            const isValidSignature = expectedSignature ? 
+                expectedSignature.every((byte, i) => actualSignature[i] === byte) : 
+                true;
+
             console.log('🔄 Processing file:', {
                 filename: req.file.originalname,
                 mimetype: req.file.mimetype,
                 size: fileBuffer.length,
-                signature: fileBuffer.slice(0, 4).toString('hex'),
+                extension: fileExtension,
+                type: fileType,
+                signature: {
+                    actual: actualSignature.toString('hex'),
+                    expected: expectedSignature ? Buffer.from(expectedSignature).toString('hex') : 'N/A',
+                    isValid: isValidSignature
+                },
                 hasOptions: !!options,
                 optionsKeys: Object.keys(options)
             });
 
-            // Determine file type with validation
-            const fileExtension = path.extname(req.file.originalname).slice(1);
-            const fileType = this.#determineFileType(fileExtension, req.file.mimetype);
-            
-            if (!fileType) {
-                throw new AppError(`Unsupported file type: ${fileExtension}`, 400);
+            // Additional validation for known file types
+            if (expectedSignature && !isValidSignature) {
+                throw new AppError(`Invalid file format: File signature does not match expected ${fileExtension.toUpperCase()} format`, 400);
             }
+            
 
             const conversionData = {
                 type: fileType,
                 content: fileBuffer,
                 name: req.file.originalname,
-                options: options,
+                options: {
+                    ...options,
+                    originalMimeType: req.file.mimetype,
+                    fileSignature: actualSignature.toString('hex')
+                },
                 mimeType: req.file.mimetype
             };
 
@@ -224,14 +254,28 @@ export class ConversionController {
                 optionsIncluded: Object.keys(conversionData.options)
             });
 
-        const result = await this.conversionService.convert(conversionData);
-        
-        console.log('✅ Conversion complete:', {
-            success: !!result,
-            hasContent: !!result?.content,
-            contentLength: result?.content?.length,
-            imageCount: result?.images?.length
-        });
+        // Attempt conversion with enhanced error handling
+        let result;
+        try {
+            result = await this.conversionService.convert(conversionData);
+            
+            console.log('✅ Conversion complete:', {
+                success: !!result,
+                hasContent: !!result?.content,
+                contentLength: result?.content?.length,
+                imageCount: result?.images?.length,
+                outputType: result?.type,
+                warnings: result?.warnings?.length || 0
+            });
+        } catch (conversionError) {
+            console.error('❌ Conversion failed:', {
+                error: conversionError.message,
+                type: fileType,
+                filename: req.file.originalname,
+                stack: conversionError.stack
+            });
+            throw new AppError(`Conversion failed: ${conversionError.message}`, 500);
+        }
 
         this.#sendZipResponse(res, result);
     } catch (error) {

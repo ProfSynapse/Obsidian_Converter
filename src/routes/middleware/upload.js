@@ -5,19 +5,53 @@ import multer from 'multer';
 import { AppError } from '../../utils/errorHandler.js';
 import { config } from '../../config/default.js';
 
-// Define allowed MIME types with friendly names for error messages
+// Define allowed MIME types with friendly names and validation rules
 const ALLOWED_TYPES = {
-    'application/pdf': 'PDF',
-    'application/vnd.openxmlformats-officedocument.wordprocessingml.document': 'DOCX',
-    'application/msword': 'DOC',
-    'application/vnd.openxmlformats-officedocument.presentationml.presentation': 'PPTX',
-    'text/csv': 'CSV',
-    'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': 'XLSX',
-    'application/yaml': 'YAML',
-    'audio/mpeg': 'MP3',
-    'audio/wav': 'WAV',
-    'video/mp4': 'MP4',
-    'video/quicktime': 'MOV'
+    // Document types with specific validation
+    'application/vnd.openxmlformats-officedocument.wordprocessingml.document': {
+        name: 'DOCX',
+        validateSignature: (buffer) => {
+            // DOCX files should start with PK\x03\x04 (ZIP format)
+            return buffer.length >= 4 && 
+                   buffer[0] === 0x50 && // P
+                   buffer[1] === 0x4B && // K
+                   buffer[2] === 0x03 && // \x03
+                   buffer[3] === 0x04;   // \x04
+        }
+    },
+    'application/pdf': {
+        name: 'PDF',
+        validateSignature: (buffer) => {
+            // PDF files should start with %PDF
+            return buffer.length >= 4 &&
+                   buffer[0] === 0x25 && // %
+                   buffer[1] === 0x50 && // P
+                   buffer[2] === 0x44 && // D
+                   buffer[3] === 0x46;   // F
+        }
+    },
+    // Other document types
+    'application/msword': { name: 'DOC' },
+    'application/vnd.openxmlformats-officedocument.presentationml.presentation': { 
+        name: 'PPTX',
+        validateSignature: (buffer) => {
+            // PPTX files use same signature as DOCX (ZIP format)
+            return buffer.length >= 4 && 
+                   buffer[0] === 0x50 && // P
+                   buffer[1] === 0x4B && // K
+                   buffer[2] === 0x03 && // \x03
+                   buffer[3] === 0x04;   // \x04
+        }
+    },
+    // Data formats
+    'text/csv': { name: 'CSV' },
+    'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': { name: 'XLSX' },
+    'application/yaml': { name: 'YAML' },
+    // Media formats
+    'audio/mpeg': { name: 'MP3' },
+    'audio/wav': { name: 'WAV' },
+    'video/mp4': { name: 'MP4' },
+    'video/quicktime': { name: 'MOV' }
 };
 
 // Configure multer storage
@@ -37,10 +71,19 @@ const fileFilter = (req, file, cb) => {
     }
 
     if (!ALLOWED_TYPES[file.mimetype]) {
-        const allowedTypesList = Object.values(ALLOWED_TYPES).join(', ');
+        const allowedTypesList = Object.values(ALLOWED_TYPES)
+            .map(type => type.name)
+            .join(', ');
         cb(new AppError(`Invalid file type. Allowed types are: ${allowedTypesList}`, 400), false);
         return;
     }
+
+    // Log file validation
+    console.log('📋 File type validation:', {
+        filename: file.originalname,
+        mimetype: file.mimetype,
+        allowedType: ALLOWED_TYPES[file.mimetype].name
+    });
 
     cb(null, true);
 };
@@ -128,18 +171,35 @@ export const uploadMiddleware = async (req, res, next) => {
             throw new AppError('No file uploaded. Please ensure you are sending a file with the field name "file"', 400);
         }
 
-        // Validate content type matches extension
+        // Enhanced file validation
         const fileExtension = req.file.originalname.split('.').pop().toLowerCase();
-        const expectedMimeType = Object.entries(ALLOWED_TYPES).find(([, ext]) => 
-            ext.toLowerCase() === fileExtension
-        )?.[0];
+        const mimeTypeEntry = Object.entries(ALLOWED_TYPES).find(([mime, type]) => 
+            type.name.toLowerCase() === fileExtension.toLowerCase()
+        );
 
-        if (expectedMimeType && req.file.mimetype !== expectedMimeType) {
-            console.warn('⚠️ File extension mismatch:', {
+        console.log('🔍 Validating file format:', {
+            filename: req.file.originalname,
+            extension: fileExtension,
+            providedMime: req.file.mimetype,
+            expectedMime: mimeTypeEntry?.[0],
+            fileSize: req.file.size
+        });
+
+        if (mimeTypeEntry && req.file.mimetype !== mimeTypeEntry[0]) {
+            console.warn('⚠️ File extension/MIME type mismatch:', {
                 filename: req.file.originalname,
                 providedMime: req.file.mimetype,
-                expectedMime: expectedMimeType
+                expectedMime: mimeTypeEntry[0]
             });
+        }
+
+        // Validate file signatures for supported types
+        const fileType = ALLOWED_TYPES[req.file.mimetype];
+        if (fileType.validateSignature && req.file.buffer) {
+            console.log('🔐 Validating file signature');
+            if (!fileType.validateSignature(req.file.buffer)) {
+                throw new AppError(`Invalid ${fileType.name} file format: File signature validation failed`, 400);
+            }
         }
 
         // Log successful upload

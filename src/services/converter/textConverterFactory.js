@@ -119,6 +119,63 @@ class TextConverterFactory {
    * @param {string} type - The file type
    * @returns {boolean} - True if buffer is valid, false otherwise
    */
+  /**
+   * Validates file signature for supported file types
+   * @param {string} type - The file type
+   * @param {Buffer} buffer - The buffer to validate
+   * @returns {boolean} - True if signature is valid
+   */
+  validateFileSignature(type, buffer) {
+    if (!Buffer.isBuffer(buffer)) {
+      console.error('❌ Invalid buffer type:', typeof buffer);
+      return false;
+    }
+
+    // File signatures mapping
+    const signatures = {
+      docx: [0x50, 0x4B, 0x03, 0x04], // PK\x03\x04 (ZIP format)
+      pdf: [0x25, 0x50, 0x44, 0x46],  // %PDF
+      pptx: [0x50, 0x4B, 0x03, 0x04]  // PK\x03\x04 (ZIP format)
+    };
+
+    const fileType = type.toLowerCase();
+    const expectedSignature = signatures[fileType];
+
+    // If no signature defined for this type, consider it valid
+    if (!expectedSignature) {
+      console.log('ℹ️ No signature check required for:', fileType);
+      return true;
+    }
+
+    // Ensure buffer is large enough
+    if (buffer.length < expectedSignature.length) {
+      console.error('❌ Buffer too small for signature check:', {
+        type: fileType,
+        bufferLength: buffer.length,
+        requiredLength: expectedSignature.length
+      });
+      return false;
+    }
+
+    const actualSignature = buffer.slice(0, expectedSignature.length);
+    const isValid = actualSignature.equals(Buffer.from(expectedSignature));
+
+    console.log('🔐 File signature validation:', {
+      type: fileType,
+      expected: Buffer.from(expectedSignature).toString('hex'),
+      actual: actualSignature.toString('hex'),
+      isValid: isValid
+    });
+
+    return isValid;
+  }
+
+  /**
+   * Validates buffer content
+   * @param {Buffer} buffer - The buffer to validate
+   * @param {string} type - The file type
+   * @returns {boolean} - True if buffer is valid
+   */
   validateBuffer(buffer, type) {
     console.log('🔍 Validating buffer:', {
       type,
@@ -126,22 +183,7 @@ class TextConverterFactory {
       head: buffer?.slice(0, 4).toString('hex')
     });
 
-    if (!Buffer.isBuffer(buffer)) {
-      console.error('❌ Invalid buffer type:', typeof buffer);
-      return false;
-    }
-
-    const signatures = {
-      docx: [0x50, 0x4B, 0x03, 0x04],
-      pdf: [0x25, 0x50, 0x44, 0x46]
-    };
-
-    const sig = signatures[type.toLowerCase()];
-    if (!sig) return true;
-
-    const isValid = buffer.slice(0, sig.length).equals(Buffer.from(sig));
-    console.log(`📝 Signature check (${type}):`, isValid);
-    return isValid;
+    return this.validateFileSignature(type, buffer);
   }
 
   /**
@@ -228,26 +270,43 @@ class TextConverterFactory {
       }
     }
 
-    // Route to correct converter
-    switch (fileType) {
-      case 'docx':
-        return await convertDocxToMarkdown(content, options.name);
-      case 'pdf':
-        return await convertPdfToMarkdown(content, options.name);
-      case 'pptx':
-        return await convertPptxToMarkdown(content, options.name);
-      case 'csv':
-        return await convertCsvToMarkdown(content, options.name);
-      case 'xlsx':
-        return await convertXlsxToMarkdown(content, options.name);
-      case 'url':
-        return await convertUrlToMarkdown(content, options);
-      case 'parenturl':
-        return await convertParentUrlToMarkdown(content, options);
-      case 'youtube':
-        return await convertYoutubeToMarkdown(content, options);
-      default:
-        throw new Error(`Unsupported file type: ${fileType}`);
+    // Route to correct converter with enhanced error handling
+    try {
+      switch (fileType) {
+        case 'docx':
+          console.log('📄 Converting DOCX document');
+          return await convertDocxToMarkdown(content, options.name);
+        case 'pdf':
+          console.log('📄 Converting PDF document');
+          return await convertPdfToMarkdown(content, options.name);
+        case 'pptx':
+          console.log('📄 Converting PPTX presentation');
+          return await convertPptxToMarkdown(content, options.name);
+        case 'csv':
+          console.log('📊 Converting CSV data');
+          return await convertCsvToMarkdown(content, options.name);
+        case 'xlsx':
+          console.log('📊 Converting XLSX spreadsheet');
+          return await convertXlsxToMarkdown(content, options.name);
+        case 'url':
+          console.log('🌐 Converting URL content');
+          return await convertUrlToMarkdown(content, options);
+        case 'parenturl':
+          console.log('🌐 Converting parent URL content');
+          return await convertParentUrlToMarkdown(content, options);
+        case 'youtube':
+          console.log('🎥 Converting YouTube content');
+          return await convertYoutubeToMarkdown(content, options);
+        default:
+          console.error('❌ Unsupported file type:', fileType);
+          throw new Error(`Unsupported file type: ${fileType}`);
+      }
+    } catch (error) {
+      console.error(`❌ Conversion error for ${fileType}:`, {
+        error: error.message,
+        stack: error.stack
+      });
+      throw error;
     }
   }
 

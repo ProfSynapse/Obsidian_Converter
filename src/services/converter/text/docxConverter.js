@@ -12,40 +12,61 @@ import { v4 as uuidv4 } from 'uuid';
  */
 export async function convertDocxToMarkdown(buffer, originalName) {
   try {
-    // Ensure we have a valid buffer
+    // Enhanced buffer validation with detailed logging
+    console.log('🔍 Validating input buffer:', {
+      type: typeof buffer,
+      isBuffer: Buffer.isBuffer(buffer),
+      isUint8Array: buffer instanceof Uint8Array,
+      length: buffer?.length
+    });
+
     if (!Buffer.isBuffer(buffer)) {
       if (buffer instanceof Uint8Array) {
+        console.log('📝 Converting Uint8Array to Buffer');
         buffer = Buffer.from(buffer);
       } else {
-        throw new Error('Invalid input: Expected buffer or Uint8Array');
+        console.error('❌ Invalid buffer type:', typeof buffer);
+        throw new Error(`Invalid input: Expected buffer or Uint8Array, got ${typeof buffer}`);
       }
     }
 
     // Create a copy of the buffer to prevent modifications
     const workingBuffer = Buffer.from(buffer);
 
-    console.log('Starting DOCX conversion:', {
+    console.log('🚀 Starting DOCX conversion:', {
       originalName,
       bufferLength: workingBuffer.length,
       bufferType: typeof workingBuffer,
       isBuffer: Buffer.isBuffer(workingBuffer),
-      firstBytes: workingBuffer.slice(0, 4).toString('hex')
+      firstBytes: workingBuffer.slice(0, 4).toString('hex'),
+      signature: workingBuffer.slice(0, 4).equals(Buffer.from([0x50, 0x4B, 0x03, 0x04])) ? 'Valid DOCX' : 'Invalid DOCX'
     });
 
-    // Validate DOCX structure
-    if (workingBuffer.length < 4 || 
-        workingBuffer[0] !== 0x50 || // P
-        workingBuffer[1] !== 0x4B || // K
-        workingBuffer[2] !== 0x03 || // \x03
-        workingBuffer[3] !== 0x04) { // \x04
-      throw new Error('Invalid DOCX format: Not a valid ZIP/DOCX file');
+    // Enhanced DOCX structure validation
+    if (workingBuffer.length < 4) {
+      console.error('❌ Buffer too small:', workingBuffer.length, 'bytes');
+      throw new Error(`Invalid DOCX format: Buffer too small (${workingBuffer.length} bytes)`);
     }
 
-    // Log buffer state
-    console.log('Processing DOCX buffer:', {
-      length: workingBuffer.length,
+    const signature = workingBuffer.slice(0, 4);
+    const expectedSignature = Buffer.from([0x50, 0x4B, 0x03, 0x04]);
+    
+    console.log('🔐 Validating DOCX signature:', {
+      found: signature.toString('hex'),
+      expected: expectedSignature.toString('hex'),
+      isValid: signature.equals(expectedSignature)
+    });
+
+    if (!signature.equals(expectedSignature)) {
+      throw new Error('Invalid DOCX format: Incorrect file signature');
+    }
+
+    // Enhanced buffer state logging
+    console.log('📦 Processing DOCX buffer:', {
+      totalLength: workingBuffer.length,
       header: workingBuffer.slice(0, 4).toString('hex'),
-      isValid: workingBuffer.slice(0, 4).equals(Buffer.from([0x50, 0x4B, 0x03, 0x04]))
+      isValidSignature: workingBuffer.slice(0, 4).equals(Buffer.from([0x50, 0x4B, 0x03, 0x04])),
+      previewContent: workingBuffer.slice(4, 20).toString('hex')
     });
 
     // Store extracted images
@@ -58,10 +79,22 @@ export async function convertDocxToMarkdown(buffer, originalName) {
     const options = {
       convertImage: mammoth.images.imgElement(async (image) => {
         try {
-          // Additional validation for image data
+          // Enhanced image validation
           const imageBuffer = await image.read();
+          console.log('🖼️ Processing image:', {
+            contentType: image.contentType,
+            size: imageBuffer?.length || 0,
+            hasData: !!imageBuffer && imageBuffer.length > 0
+          });
+
           if (!imageBuffer || imageBuffer.length === 0) {
-            console.warn('Empty image data encountered');
+            console.warn('⚠️ Empty image data encountered');
+            return { src: '' };
+          }
+
+          // Validate image content type
+          if (!image.contentType || !image.contentType.startsWith('image/')) {
+            console.warn('⚠️ Invalid image content type:', image.contentType);
             return { src: '' };
           }
 
@@ -89,19 +122,36 @@ export async function convertDocxToMarkdown(buffer, originalName) {
       ]
     };
 
-    console.log('Converting DOCX with options:', options);
+    console.log('⚙️ Converting DOCX with options:', {
+      hasImageHandler: !!options.convertImage,
+      styleMapRules: options.styleMap.length,
+      bufferSize: workingBuffer.length
+    });
 
     // Convert to markdown with enhanced error handling
-    const result = await mammoth.convertToMarkdown(workingBuffer, options);
+    let result;
+    try {
+      result = await mammoth.convertToMarkdown(workingBuffer, options);
+    } catch (conversionError) {
+      console.error('❌ Mammoth conversion error:', {
+        error: conversionError.message,
+        stack: conversionError.stack,
+        bufferState: workingBuffer.length > 0 ? 'Has Content' : 'Empty'
+      });
+      throw new Error(`DOCX conversion failed: ${conversionError.message}`);
+    }
 
     if (!result || !result.value) {
+      console.error('❌ No content produced from conversion');
       throw new Error('Conversion produced no content');
     }
 
-    console.log('Conversion successful:', {
+    console.log('✅ Conversion successful:', {
       contentLength: result.value.length,
       hasWarnings: result.messages.length > 0,
-      imageCount: images.length
+      warningCount: result.messages.length,
+      imageCount: images.length,
+      contentPreview: result.value.substring(0, 100)
     });
 
     // Log any conversion warnings

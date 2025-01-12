@@ -26,51 +26,97 @@ export class ConversionService {
         throw new Error('Missing required conversion parameters');
       }
 
-      // Handle different content types based on the conversion type
-      let processedContent;
-      if (['url', 'parenturl', 'youtube'].includes(type.toLowerCase())) {
-        // For web-based conversions, pass the content directly
-        processedContent = content;
-      } else if (['docx', 'pdf', 'doc'].includes(type.toLowerCase())) {
-        // For binary files, ensure we have a valid buffer
-        if (!Buffer.isBuffer(content)) {
-          if (content instanceof Uint8Array) {
-            processedContent = Buffer.from(content);
-          } else {
-            throw new Error(`Invalid content type for ${type}: Expected Buffer or Uint8Array`);
-          }
-        } else {
-          // Create a copy to prevent modifications
+    // Enhanced content type handling with detailed validation
+    let processedContent;
+    const normalizedType = type.toLowerCase();
+
+    console.log('🔄 Processing content:', {
+      type: normalizedType,
+      contentType: typeof content,
+      isBuffer: Buffer.isBuffer(content),
+      isUint8Array: content instanceof Uint8Array,
+      size: content?.length
+    });
+
+    if (['url', 'parenturl', 'youtube'].includes(normalizedType)) {
+      // Web-based conversions
+      console.log('🌐 Processing web content');
+      processedContent = content;
+    } else if (['docx', 'pdf', 'doc', 'pptx'].includes(normalizedType)) {
+      // Binary file handling with enhanced validation
+      console.log('📄 Processing document file');
+      
+      if (!Buffer.isBuffer(content)) {
+        if (content instanceof Uint8Array) {
+          console.log('🔄 Converting Uint8Array to Buffer');
           processedContent = Buffer.from(content);
-        }
-
-        // Validate file signatures
-        const signatures = {
-          docx: [0x50, 0x4B, 0x03, 0x04], // PK\x03\x04
-          pdf: [0x25, 0x50, 0x44, 0x46],  // %PDF
-          doc: [0xD0, 0xCF, 0x11, 0xE0]   // DOC
-        };
-
-        const fileSignature = signatures[type.toLowerCase()];
-        if (fileSignature && !processedContent.slice(0, 4).equals(Buffer.from(fileSignature))) {
-          throw new Error(`Invalid ${type.toUpperCase()} file signature`);
+        } else {
+          console.error('❌ Invalid content type:', typeof content);
+          throw new Error(`Invalid content type for ${type}: Expected Buffer or Uint8Array`);
         }
       } else {
-        processedContent = content;
+        console.log('📦 Creating buffer copy');
+        processedContent = Buffer.from(content);
       }
 
-      // Log content state for debugging
-      console.log('Converting content:', {
-        type,
+      // Enhanced signature validation
+      const signatures = {
+        docx: {
+          bytes: [0x50, 0x4B, 0x03, 0x04], // PK\x03\x04
+          description: 'DOCX/ZIP signature'
+        },
+        pdf: {
+          bytes: [0x25, 0x50, 0x44, 0x46],  // %PDF
+          description: 'PDF signature'
+        },
+        doc: {
+          bytes: [0xD0, 0xCF, 0x11, 0xE0],  // DOC
+          description: 'DOC signature'
+        },
+        pptx: {
+          bytes: [0x50, 0x4B, 0x03, 0x04], // PK\x03\x04
+          description: 'PPTX/ZIP signature'
+        }
+      };
+
+      const fileSignature = signatures[normalizedType];
+      if (fileSignature) {
+        console.log('🔐 Validating file signature:', {
+          type: normalizedType,
+          expectedSignature: Buffer.from(fileSignature.bytes).toString('hex'),
+          actualSignature: processedContent.slice(0, 4).toString('hex'),
+          description: fileSignature.description
+        });
+
+        if (!processedContent.slice(0, 4).equals(Buffer.from(fileSignature.bytes))) {
+          throw new Error(`Invalid ${type.toUpperCase()} file signature: Expected ${fileSignature.description}`);
+        }
+      }
+    } else {
+      console.log('📄 Processing generic content');
+      processedContent = content;
+    }
+
+      // Enhanced content state logging
+      console.log('📝 Converting content:', {
+        type: normalizedType,
         name,
         contentType: typeof processedContent,
         isBuffer: Buffer.isBuffer(processedContent),
         length: processedContent?.length,
         preview: Buffer.isBuffer(processedContent) 
-          ? processedContent.slice(0, 4).toString('hex')
+          ? {
+              hex: processedContent.slice(0, 8).toString('hex'),
+              signature: processedContent.slice(0, 4).toString('hex'),
+              isValidSignature: signatures[normalizedType]?.bytes.every((byte, i) => processedContent[i] === byte)
+            }
           : typeof processedContent === 'string' 
             ? processedContent.substring(0, 50) 
-            : 'N/A'
+            : 'N/A',
+        options: {
+          ...options,
+          apiKey: options.apiKey ? '***' : undefined // Hide API key in logs
+        }
       });
 
       // Add PPTX MIME type handling
