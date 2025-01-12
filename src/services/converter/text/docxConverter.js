@@ -11,6 +11,8 @@ import { v4 as uuidv4 } from 'uuid';
  * @returns {Promise<{content: string, images: Array}>} Markdown content and images
  */
 export async function convertDocxToMarkdown(buffer, originalName) {
+  const startTime = Date.now();
+  
   try {
     // Enhanced buffer validation with detailed logging
     console.log('🔍 Validating input buffer:', {
@@ -128,22 +130,145 @@ export async function convertDocxToMarkdown(buffer, originalName) {
       bufferSize: workingBuffer.length
     });
 
-    // Convert to markdown with enhanced error handling
+    // Convert to markdown with enhanced error handling, timeout, and memory management
     let result;
     try {
-      result = await mammoth.convertToMarkdown(workingBuffer, options);
-    } catch (conversionError) {
-      console.error('❌ Mammoth conversion error:', {
-        error: conversionError.message,
-        stack: conversionError.stack,
-        bufferState: workingBuffer.length > 0 ? 'Has Content' : 'Empty'
+      // Log initial memory state
+      const initialMemory = process.memoryUsage();
+      console.log('📊 Initial memory state:', {
+        heapUsed: Math.round(initialMemory.heapUsed / 1024 / 1024) + 'MB',
+        heapTotal: Math.round(initialMemory.heapTotal / 1024 / 1024) + 'MB',
+        external: Math.round(initialMemory.external / 1024 / 1024) + 'MB'
       });
-      throw new Error(`DOCX conversion failed: ${conversionError.message}`);
+
+      // Wrap mammoth conversion in a timeout promise with memory checks
+      const conversionPromise = new Promise((resolve, reject) => {
+        // Check memory usage before starting
+        const beforeMemory = process.memoryUsage();
+        if (beforeMemory.heapUsed > 0.8 * beforeMemory.heapTotal) {
+          global.gc && global.gc(); // Run garbage collection if available
+        }
+
+        mammoth.convertToMarkdown(workingBuffer, options)
+          .then(result => {
+            // Check memory usage after conversion
+            const afterMemory = process.memoryUsage();
+            console.log('📊 Memory usage after conversion:', {
+              heapUsed: Math.round(afterMemory.heapUsed / 1024 / 1024) + 'MB',
+              heapTotal: Math.round(afterMemory.heapTotal / 1024 / 1024) + 'MB',
+              change: Math.round((afterMemory.heapUsed - beforeMemory.heapUsed) / 1024 / 1024) + 'MB'
+            });
+            resolve(result);
+          })
+          .catch(err => {
+            console.error('❌ Mammoth internal error:', {
+              error: err.message,
+              stack: err.stack,
+              type: err.name,
+              memory: process.memoryUsage()
+            });
+            reject(err);
+          });
+      });
+
+      const timeoutPromise = new Promise((_, reject) => {
+        setTimeout(() => {
+          const memoryState = process.memoryUsage();
+          reject(new Error(`Conversion timed out after 30 seconds. Memory usage: ${Math.round(memoryState.heapUsed / 1024 / 1024)}MB`));
+        }, 30000);
+      });
+
+      console.log('⏳ Starting mammoth conversion...');
+      result = await Promise.race([conversionPromise, timeoutPromise]);
+      
+      // Force garbage collection after conversion if available
+      if (global.gc) {
+        console.log('🧹 Running garbage collection');
+        global.gc();
+      }
+
+      const endMemory = process.memoryUsage();
+      console.log('✅ Conversion completed:', {
+        time: Date.now() - startTime + 'ms',
+        finalMemory: Math.round(endMemory.heapUsed / 1024 / 1024) + 'MB'
+      });
+
+      // Additional validation of the conversion result
+      if (!result) {
+        console.error('❌ Null conversion result');
+        throw new Error('Conversion returned no result');
+      }
+
+      if (typeof result.value !== 'string') {
+        console.error('❌ Invalid conversion result:', {
+          resultType: typeof result,
+          valueType: typeof result?.value,
+          hasMessages: Array.isArray(result?.messages),
+          resultKeys: Object.keys(result || {}),
+          valuePreview: result?.value ? JSON.stringify(result.value).substring(0, 100) : 'N/A'
+        });
+        throw new Error('Invalid conversion result format');
+      }
+
+      // Check for empty or whitespace-only content
+      if (!result.value.trim()) {
+        console.error('❌ Empty conversion result');
+        throw new Error('Conversion produced empty content');
+      }
+
+    } catch (conversionError) {
+      const errorDetails = {
+        message: conversionError.message,
+        name: conversionError.name,
+        stack: conversionError.stack,
+        bufferState: {
+          length: workingBuffer.length,
+          hasContent: workingBuffer.length > 0,
+          signature: workingBuffer.slice(0, 4).toString('hex'),
+          preview: workingBuffer.slice(0, 20).toString('hex')
+        },
+        timing: {
+          elapsed: Date.now() - startTime,
+          timestamp: new Date().toISOString()
+        }
+      };
+
+      console.error('❌ Mammoth conversion error:', errorDetails);
+
+      // Check for specific error conditions
+      if (conversionError.message.includes('timed out')) {
+        throw new Error(`DOCX conversion timed out after ${(Date.now() - startTime) / 1000}s - file may be too large or complex`);
+      }
+
+      if (conversionError.message.includes('Invalid format')) {
+        throw new Error(`Invalid DOCX format - file may be corrupted. Signature: ${errorDetails.bufferState.signature}`);
+      }
+
+      if (conversionError.message.includes('memory')) {
+        throw new Error('Memory limit exceeded during conversion - file may be too large');
+      }
+
+      // Provide detailed error message
+      throw new Error(`DOCX conversion failed: ${conversionError.message}. Buffer length: ${workingBuffer.length}, Signature: ${errorDetails.bufferState.signature}, Time elapsed: ${errorDetails.timing.elapsed}ms`);
     }
 
     if (!result || !result.value) {
-      console.error('❌ No content produced from conversion');
-      throw new Error('Conversion produced no content');
+      console.error('❌ No content produced from conversion:', {
+        resultExists: !!result,
+        resultType: typeof result,
+        valueExists: !!result?.value,
+        valueType: typeof result?.value,
+        messageCount: result?.messages?.length
+      });
+      throw new Error('Conversion produced no content. The DOCX file may be empty or corrupted.');
+    }
+
+    // Validate minimum content length
+    if (result.value.length < 10) {
+      console.warn('⚠️ Suspiciously short conversion result:', {
+        length: result.value.length,
+        content: result.value
+      });
     }
 
     console.log('✅ Conversion successful:', {
@@ -151,21 +276,36 @@ export async function convertDocxToMarkdown(buffer, originalName) {
       hasWarnings: result.messages.length > 0,
       warningCount: result.messages.length,
       imageCount: images.length,
-      contentPreview: result.value.substring(0, 100)
+      contentPreview: result.value.substring(0, 100),
+      memoryUsage: process.memoryUsage(),
+      conversionTime: Date.now() - startTime
     });
 
-    // Log any conversion warnings
+    // Enhanced warning logging
     if (result.messages.length > 0) {
-      console.warn('Conversion warnings:', result.messages);
+      console.warn('⚠️ Conversion warnings:', {
+        count: result.messages.length,
+        warnings: result.messages.map(msg => ({
+          type: msg.type,
+          message: msg.message,
+          paragraph: msg.paragraph?.substring(0, 50)
+        }))
+      });
     }
 
-    // Create the frontmatter and content
+    // Create enhanced frontmatter and content
     const markdown = [
       '---',
       `title: ${baseName}`,
       `attachmentFolder: attachments/${baseName}`,
       'created: ' + new Date().toISOString(),
+      `originalName: ${originalName}`,
+      `conversionTime: ${Date.now() - startTime}ms`,
+      `imageCount: ${images.length}`,
+      `warningCount: ${result.messages.length}`,
       '---',
+      '',
+      '<!-- DOCX Conversion Result -->',
       '',
       result.value
     ].join('\n');

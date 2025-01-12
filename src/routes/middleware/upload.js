@@ -54,50 +54,138 @@ const ALLOWED_TYPES = {
     'video/quicktime': { name: 'MOV' }
 };
 
-// Configure multer storage
-const storage = multer.memoryStorage();
+// Configure multer storage with memory management
+const storage = multer.memoryStorage({
+    // Add buffer management
+    fileFilter: (req, file, cb) => {
+        // Check current memory usage
+        const memUsage = process.memoryUsage();
+        console.log('💾 Memory usage before file upload:', {
+            heapUsed: Math.round(memUsage.heapUsed / 1024 / 1024) + 'MB',
+            heapTotal: Math.round(memUsage.heapTotal / 1024 / 1024) + 'MB'
+        });
 
-// Enhanced file filter with detailed validation
-const fileFilter = (req, file, cb) => {
+        // Run garbage collection if available and memory usage is high
+        if (global.gc && memUsage.heapUsed > 0.8 * memUsage.heapTotal) {
+            console.log('🧹 Running garbage collection before file upload');
+            global.gc();
+        }
+
+        cb(null, true);
+    }
+});
+
+// Enhanced file filter with detailed validation and memory checks
+const fileFilter = async (req, file, cb) => {
     console.log('🔍 Validating file:', {
         fieldname: file.fieldname,
         filename: file.originalname,
         mimetype: file.mimetype
     });
 
-    if (!file.mimetype) {
-        cb(new AppError('File type cannot be determined', 400), false);
-        return;
+    try {
+        // Log memory usage
+        const memUsage = process.memoryUsage();
+        console.log('🔍 Validating file upload:', {
+            fieldname: file.fieldname,
+            filename: file.originalname,
+            mimetype: file.mimetype,
+            memory: {
+                heapUsed: Math.round(memUsage.heapUsed / 1024 / 1024) + 'MB',
+                heapTotal: Math.round(memUsage.heapTotal / 1024 / 1024) + 'MB'
+            }
+        });
+
+        if (!file.mimetype) {
+            throw new AppError('File type cannot be determined', 400);
+        }
+
+        if (!ALLOWED_TYPES[file.mimetype]) {
+            const allowedTypesList = Object.values(ALLOWED_TYPES)
+                .map(type => type.name)
+                .join(', ');
+            throw new AppError(`Invalid file type. Allowed types are: ${allowedTypesList}`, 400);
+        }
+
+        // Check file size early
+        const contentLength = parseInt(req.headers['content-length'] || '0');
+        const maxSize = config.conversion.maxFileSize || 50 * 1024 * 1024;
+        if (contentLength > maxSize) {
+            throw new AppError(`File too large. Maximum size is ${maxSize / (1024 * 1024)}MB`, 400);
+        }
+
+        // Log file validation
+        console.log('📋 File type validation:', {
+            filename: file.originalname,
+            mimetype: file.mimetype,
+            allowedType: ALLOWED_TYPES[file.mimetype].name,
+            size: contentLength,
+            maxSize
+        });
+
+        cb(null, true);
+    } catch (error) {
+        cb(error, false);
     }
-
-    if (!ALLOWED_TYPES[file.mimetype]) {
-        const allowedTypesList = Object.values(ALLOWED_TYPES)
-            .map(type => type.name)
-            .join(', ');
-        cb(new AppError(`Invalid file type. Allowed types are: ${allowedTypesList}`, 400), false);
-        return;
-    }
-
-    // Log file validation
-    console.log('📋 File type validation:', {
-        filename: file.originalname,
-        mimetype: file.mimetype,
-        allowedType: ALLOWED_TYPES[file.mimetype].name
-    });
-
-    cb(null, true);
 };
 
-// Create unified upload handler with detailed logging
+// Create unified upload handler with enhanced memory management
 const upload = multer({
     storage,
     limits: {
         fileSize: config.conversion.maxFileSize || 50 * 1024 * 1024, // 50MB default
-        files: 1
+        files: 1,
+        fieldSize: 10 * 1024 * 1024 // 10MB field size limit
     },
     fileFilter,
     preservePath: true
-}).single('file'); // Use consistent field name
+}).single('file');
+
+// Wrap multer upload in a memory-managed promise
+const handleUpload = (req, res) => new Promise((resolve, reject) => {
+    const startTime = Date.now();
+    const initialMemory = process.memoryUsage();
+
+    upload(req, res, async (err) => {
+        const uploadTime = Date.now() - startTime;
+        const currentMemory = process.memoryUsage();
+        
+        console.log('📊 Upload processing stats:', {
+            duration: uploadTime + 'ms',
+            memoryUsed: Math.round((currentMemory.heapUsed - initialMemory.heapUsed) / 1024 / 1024) + 'MB',
+            currentHeap: Math.round(currentMemory.heapUsed / 1024 / 1024) + 'MB'
+        });
+
+        if (err) {
+            if (err instanceof multer.MulterError) {
+                switch (err.code) {
+                    case 'LIMIT_FILE_SIZE':
+                        reject(new AppError(`File too large. Maximum size is ${config.conversion.maxFileSize / (1024 * 1024)}MB`, 400));
+                        break;
+                    case 'LIMIT_FILE_COUNT':
+                        reject(new AppError('Too many files. Only one file allowed per request', 400));
+                        break;
+                    case 'LIMIT_UNEXPECTED_FILE':
+                        reject(new AppError('Unexpected field name. Please use "file" as the field name', 400));
+                        break;
+                    default:
+                        reject(new AppError(`Upload error: ${err.message}`, 400));
+                }
+            } else {
+                reject(err);
+            }
+            return;
+        }
+
+        // Run garbage collection after upload if available
+        if (global.gc && currentMemory.heapUsed > 0.8 * currentMemory.heapTotal) {
+            console.log('🧹 Running post-upload garbage collection');
+            global.gc();
+        }
+
+        resolve();
+    });
+});
 
 // Debug function to inspect request
 const debugRequest = (req) => ({
@@ -126,38 +214,8 @@ export const uploadMiddleware = async (req, res, next) => {
     }
 
     try {
-        // Handle the upload with enhanced error handling and logging
-        await new Promise((resolve, reject) => {
-            upload(req, res, (err) => {
-                // Log multer processing state
-                console.log('🔄 Multer processing complete:', {
-                    error: err?.message,
-                    requestState: debugRequest(req)
-                });
-
-                if (err) {
-                    if (err instanceof multer.MulterError) {
-                        switch (err.code) {
-                            case 'LIMIT_FILE_SIZE':
-                                reject(new AppError(`File too large. Maximum size is ${config.conversion.maxFileSize / (1024 * 1024)}MB`, 400));
-                                break;
-                            case 'LIMIT_FILE_COUNT':
-                                reject(new AppError('Too many files. Only one file allowed per request', 400));
-                                break;
-                            case 'LIMIT_UNEXPECTED_FILE':
-                                reject(new AppError('Unexpected field name. Please use "file" as the field name', 400));
-                                break;
-                            default:
-                                reject(new AppError(`Upload error: ${err.message}`, 400));
-                        }
-                    } else {
-                        reject(err);
-                    }
-                } else {
-                    resolve();
-                }
-            });
-        });
+        // Handle the upload with memory management
+        await handleUpload(req, res);
 
         // Validate file presence with clear error message
         if (!req.file) {

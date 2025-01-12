@@ -10,14 +10,27 @@ export class ConversionService {
   }
 
   async convert(data) {
+    const startTime = Date.now();
+    const initialMemory = process.memoryUsage();
+    
     console.log('🔄 Starting conversion:', {
         type: data.type,
         name: data.name,
         contentType: typeof data.content,
         isBuffer: Buffer.isBuffer(data.content),
         contentLength: data.content?.length,
-        mimeType: data.mimeType
+        mimeType: data.mimeType,
+        initialMemory: {
+          heapUsed: Math.round(initialMemory.heapUsed / 1024 / 1024) + 'MB',
+          heapTotal: Math.round(initialMemory.heapTotal / 1024 / 1024) + 'MB'
+        }
     });
+
+    // Run garbage collection if available and memory usage is high
+    if (global.gc && initialMemory.heapUsed > 0.8 * initialMemory.heapTotal) {
+      console.log('🧹 Running initial garbage collection');
+      global.gc();
+    }
 
     try {
       const { type, content, name, apiKey, options, mimeType } = data;
@@ -132,30 +145,121 @@ export class ConversionService {
         throw new Error('API key is required for audio/video conversion');
       }
 
-      const result = await this.converter.convertToMarkdown(
+      console.log('🔄 Initiating conversion with converter:', {
         type,
-        processedContent,
-        {
-          name,
-          apiKey,
-          mimeType,
-          ...options
-        }
-      );
+        name,
+        hasApiKey: !!apiKey,
+        mimeType,
+        optionsProvided: Object.keys(options || {})
+      });
 
-      if (!result) {
-        throw new Error('Conversion failed - no result returned');
+      let result;
+      try {
+        result = await this.converter.convertToMarkdown(
+          type,
+          processedContent,
+          {
+            name,
+            apiKey,
+            mimeType,
+            ...options
+          }
+        );
+      } catch (conversionError) {
+        console.error('❌ Conversion error:', {
+          error: conversionError.message,
+          type,
+          name,
+          stack: conversionError.stack
+        });
+        
+        // Check for specific error conditions
+        if (conversionError.message.includes('timed out')) {
+          throw new Error(`Conversion timed out for ${name} - file may be too large or complex`);
+        }
+        
+        if (conversionError.message.includes('memory')) {
+          throw new Error(`Memory limit exceeded while converting ${name}`);
+        }
+        
+        throw conversionError;
       }
 
-      return {
-        buffer: await createBatchZip([{
+      if (!result) {
+        console.error('❌ No result from converter:', {
+          type,
+          name,
+          mimeType
+        });
+        throw new Error(`Conversion failed for ${name} - no result returned`);
+      }
+
+      if (!result.content) {
+        console.error('❌ No content in conversion result:', {
+          type,
+          name,
+          resultKeys: Object.keys(result)
+        });
+        throw new Error(`Conversion failed for ${name} - no content produced`);
+      }
+
+      try {
+        // Check memory before ZIP creation
+        const preZipMemory = process.memoryUsage();
+        if (global.gc && preZipMemory.heapUsed > 0.8 * preZipMemory.heapTotal) {
+          console.log('🧹 Running pre-ZIP garbage collection');
+          global.gc();
+        }
+
+        console.log('📦 Creating ZIP archive:', {
+          type: fileType,
+          category,
+          name,
+          contentLength: result.content.length,
+          hasImages: result.images?.length > 0,
+          imageCount: result.images?.length || 0,
+          memory: {
+            heapUsed: Math.round(preZipMemory.heapUsed / 1024 / 1024) + 'MB',
+            heapTotal: Math.round(preZipMemory.heapTotal / 1024 / 1024) + 'MB'
+          }
+        });
+
+        const zipBuffer = await createBatchZip([{
           ...result,
           type: fileType,
           category,
           name
-        }]),
-        filename: this.generateFilename()
-      };
+        }]);
+
+        // Clean up after ZIP creation
+        if (global.gc) {
+          console.log('🧹 Running post-ZIP garbage collection');
+          global.gc();
+        }
+
+        const endMemory = process.memoryUsage();
+        console.log('✅ Conversion completed:', {
+          type: fileType,
+          name,
+          duration: Date.now() - startTime + 'ms',
+          finalMemory: Math.round(endMemory.heapUsed / 1024 / 1024) + 'MB',
+          memoryChange: Math.round((endMemory.heapUsed - initialMemory.heapUsed) / 1024 / 1024) + 'MB'
+        });
+
+        return {
+          buffer: zipBuffer,
+          filename: this.generateFilename()
+        };
+      } catch (zipError) {
+        console.error('❌ ZIP creation failed:', {
+          error: zipError.message,
+          type: fileType,
+          name,
+          memory: process.memoryUsage(),
+          duration: Date.now() - startTime + 'ms'
+        });
+        throw new Error(`Failed to create ZIP archive for ${name}: ${zipError.message}`);
+      }
     } catch (error) {
       console.error('❌ Conversion error:', {
         error: error.message,
