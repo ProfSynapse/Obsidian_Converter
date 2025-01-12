@@ -39,6 +39,26 @@ export class ConversionService {
         throw new Error('Missing required conversion parameters');
       }
 
+    // File signatures for supported formats
+    const FILE_SIGNATURES = {
+      docx: {
+        bytes: [0x50, 0x4B, 0x03, 0x04], // PK\x03\x04
+        description: 'DOCX/ZIP signature'
+      },
+      pdf: {
+        bytes: [0x25, 0x50, 0x44, 0x46],  // %PDF
+        description: 'PDF signature'
+      },
+      doc: {
+        bytes: [0xD0, 0xCF, 0x11, 0xE0],  // DOC
+        description: 'DOC signature'
+      },
+      pptx: {
+        bytes: [0x50, 0x4B, 0x03, 0x04], // PK\x03\x04
+        description: 'PPTX/ZIP signature'
+      }
+    };
+
     // Enhanced content type handling with detailed validation
     let processedContent;
     const normalizedType = type.toLowerCase();
@@ -72,27 +92,8 @@ export class ConversionService {
         processedContent = Buffer.from(content);
       }
 
-      // Enhanced signature validation
-      const signatures = {
-        docx: {
-          bytes: [0x50, 0x4B, 0x03, 0x04], // PK\x03\x04
-          description: 'DOCX/ZIP signature'
-        },
-        pdf: {
-          bytes: [0x25, 0x50, 0x44, 0x46],  // %PDF
-          description: 'PDF signature'
-        },
-        doc: {
-          bytes: [0xD0, 0xCF, 0x11, 0xE0],  // DOC
-          description: 'DOC signature'
-        },
-        pptx: {
-          bytes: [0x50, 0x4B, 0x03, 0x04], // PK\x03\x04
-          description: 'PPTX/ZIP signature'
-        }
-      };
-
-      const fileSignature = signatures[normalizedType];
+      // Validate file signature
+      const fileSignature = FILE_SIGNATURES[normalizedType];
       if (fileSignature) {
         console.log('🔐 Validating file signature:', {
           type: normalizedType,
@@ -110,7 +111,23 @@ export class ConversionService {
       processedContent = content;
     }
 
-      // Enhanced content state logging
+    // Enhanced content state logging with signature validation
+    const logSignatureValidation = () => {
+      if (!Buffer.isBuffer(processedContent)) return null;
+      
+      const signature = processedContent.slice(0, 4).toString('hex');
+      const expectedSignature = FILE_SIGNATURES[normalizedType]?.bytes;
+      
+      return {
+        hex: processedContent.slice(0, 8).toString('hex'),
+        signature,
+        isValidSignature: expectedSignature ? 
+          expectedSignature.every((byte, i) => processedContent[i] === byte) : 
+          true,
+        description: FILE_SIGNATURES[normalizedType]?.description || 'Unknown format'
+      };
+    };
+
       console.log('📝 Converting content:', {
         type: normalizedType,
         name,
@@ -118,11 +135,7 @@ export class ConversionService {
         isBuffer: Buffer.isBuffer(processedContent),
         length: processedContent?.length,
         preview: Buffer.isBuffer(processedContent) 
-          ? {
-              hex: processedContent.slice(0, 8).toString('hex'),
-              signature: processedContent.slice(0, 4).toString('hex'),
-              isValidSignature: signatures[normalizedType]?.bytes.every((byte, i) => processedContent[i] === byte)
-            }
+          ? logSignatureValidation()
           : typeof processedContent === 'string' 
             ? processedContent.substring(0, 50) 
             : 'N/A',

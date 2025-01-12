@@ -11,6 +11,26 @@ import { convertYoutubeToMarkdown } from './web/youtubeConverter.js';
 import { convertAudioToMarkdown } from './multimedia/audioconverter.js';
 import { convertVideoToMarkdown } from './multimedia/videoConverter.js';
 
+// File signatures for supported formats
+const FILE_SIGNATURES = {
+  docx: {
+    bytes: [0x50, 0x4B, 0x03, 0x04], // PK\x03\x04 (ZIP format)
+    description: 'DOCX/ZIP signature'
+  },
+  pdf: {
+    bytes: [0x25, 0x50, 0x44, 0x46],  // %PDF
+    description: 'PDF signature'
+  },
+  doc: {
+    bytes: [0xD0, 0xCF, 0x11, 0xE0],  // DOC
+    description: 'DOC signature'
+  },
+  pptx: {
+    bytes: [0x50, 0x4B, 0x03, 0x04], // PK\x03\x04 (ZIP format)
+    description: 'PPTX/ZIP signature'
+  }
+};
+
 /**
  * Factory class for managing different types of Markdown converters
  */
@@ -114,12 +134,6 @@ class TextConverterFactory {
   }
 
   /**
-   * Validates buffer content against expected file signatures
-   * @param {Buffer} buffer - The buffer to validate
-   * @param {string} type - The file type
-   * @returns {boolean} - True if buffer is valid, false otherwise
-   */
-  /**
    * Validates file signature for supported file types
    * @param {string} type - The file type
    * @param {Buffer} buffer - The buffer to validate
@@ -131,40 +145,35 @@ class TextConverterFactory {
       return false;
     }
 
-    // File signatures mapping
-    const signatures = {
-      docx: [0x50, 0x4B, 0x03, 0x04], // PK\x03\x04 (ZIP format)
-      pdf: [0x25, 0x50, 0x44, 0x46],  // %PDF
-      pptx: [0x50, 0x4B, 0x03, 0x04]  // PK\x03\x04 (ZIP format)
-    };
-
     const fileType = type.toLowerCase();
-    const expectedSignature = signatures[fileType];
+    const signature = FILE_SIGNATURES[fileType];
 
     // If no signature defined for this type, consider it valid
-    if (!expectedSignature) {
+    if (!signature) {
       console.log('ℹ️ No signature check required for:', fileType);
       return true;
     }
 
     // Ensure buffer is large enough
-    if (buffer.length < expectedSignature.length) {
+    if (buffer.length < signature.bytes.length) {
       console.error('❌ Buffer too small for signature check:', {
         type: fileType,
         bufferLength: buffer.length,
-        requiredLength: expectedSignature.length
+        requiredLength: signature.bytes.length,
+        description: signature.description
       });
       return false;
     }
 
-    const actualSignature = buffer.slice(0, expectedSignature.length);
-    const isValid = actualSignature.equals(Buffer.from(expectedSignature));
+    const actualSignature = buffer.slice(0, signature.bytes.length);
+    const isValid = actualSignature.equals(Buffer.from(signature.bytes));
 
     console.log('🔐 File signature validation:', {
       type: fileType,
-      expected: Buffer.from(expectedSignature).toString('hex'),
+      expected: Buffer.from(signature.bytes).toString('hex'),
       actual: actualSignature.toString('hex'),
-      isValid: isValid
+      isValid: isValid,
+      description: signature.description
     });
 
     return isValid;
@@ -249,23 +258,8 @@ class TextConverterFactory {
         throw new Error(`Invalid content for ${fileType}: Expected Buffer`);
       }
       
-      // Check file signatures
-      const signatures = {
-        docx: [0x50, 0x4B, 0x03, 0x04], // PK\x03\x04
-        pdf: [0x25, 0x50, 0x44, 0x46],  // %PDF
-        pptx: [0x50, 0x4B, 0x03, 0x04]  // PK\x03\x04 (same as docx)
-      };
-
-      const fileSignature = signatures[fileType];
-      const contentSignature = content.slice(0, 4);
-      
-      console.log('File signature check:', {
-        expected: fileSignature?.map(b => b.toString(16)).join(''),
-        received: contentSignature.toString('hex'),
-        matches: fileSignature?.every((byte, i) => contentSignature[i] === byte)
-      });
-
-      if (!fileSignature?.every((byte, i) => contentSignature[i] === byte)) {
+      // Validate file signature
+      if (!this.validateFileSignature(fileType, content)) {
         throw new Error(`Invalid ${fileType.toUpperCase()} file signature`);
       }
     }
