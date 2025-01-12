@@ -5,13 +5,10 @@ import { ConversionController } from './controllers/ConversionController.js';
 import { validateConversion } from './middleware/validators.js';
 import { uploadMiddleware } from './middleware/upload.js';
 import { apiKeyChecker } from './middleware/utils/apiKeyChecker.js';
-import multer from 'multer';
-
 const router = express.Router();
 const controller = new ConversionController();
-const upload = multer({ storage: multer.memoryStorage() });
 
-// Debug middleware to log requests
+// Debug middleware to log requests with enhanced details
 router.use((req, res, next) => {
     console.log(`📝 ${req.method} ${req.path}`);
     next();
@@ -21,12 +18,32 @@ router.use((req, res, next) => {
 router.post('/document/file',
     (req, res, next) => {
         console.log('📥 File upload request:', {
-            contentType: req.headers['content-type'],
-            contentLength: req.headers['content-length']
+            method: req.method,
+            path: req.path,
+            headers: {
+                'content-type': req.headers['content-type'],
+                'content-length': req.headers['content-length'],
+                'accept': req.headers['accept']
+            },
+            body: req.body,
+            isMultipart: req.headers['content-type']?.includes('multipart/form-data'),
+            boundary: req.headers['content-type']?.split('boundary=')[1]
         });
         next();
     },
     uploadMiddleware,
+    (req, res, next) => {
+        // Log successful file upload before validation
+        if (req.file) {
+            console.log('📁 File received:', {
+                fieldname: req.file.fieldname,
+                originalname: req.file.originalname,
+                mimetype: req.file.mimetype,
+                size: req.file.size
+            });
+        }
+        next();
+    },
     validateConversion,
     controller.handleFileConversion
 );

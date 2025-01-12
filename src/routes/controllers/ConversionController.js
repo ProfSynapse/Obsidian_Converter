@@ -135,55 +135,94 @@ export class ConversionController {
     }
   };
 
-  handleFileConversion = async (req, res, next) => {
-    try {
-        console.log('📝 File conversion request:', {
-            headers: req.headers,
-            fileInfo: req.file ? {
-                fieldname: req.file.fieldname,
-                originalname: req.file.originalname,
+    handleFileConversion = async (req, res, next) => {
+        try {
+            // Enhanced request logging
+            console.log('📝 File conversion request:', {
+                headers: {
+                    'content-type': req.headers['content-type'],
+                    'content-length': req.headers['content-length'],
+                    'authorization': req.headers['authorization'] ? 'present' : 'missing'
+                },
+                body: {
+                    hasOptions: !!req.body?.options,
+                    optionsType: typeof req.body?.options
+                },
+                file: req.file ? {
+                    fieldname: req.file.fieldname,
+                    originalname: req.file.originalname,
+                    mimetype: req.file.mimetype,
+                    size: req.file.buffer?.length,
+                    encoding: req.file.encoding
+                } : null,
+                isMultipart: req.headers['content-type']?.includes('multipart/form-data')
+            });
+
+            // Validate request format
+            if (!req.headers['content-type']?.includes('multipart/form-data')) {
+                throw new AppError('Request must be multipart/form-data', 400);
+            }
+
+            // Validate file presence
+            if (!req.file) {
+                throw new AppError('No file provided in the request. Ensure you are sending a file with field name "file"', 400);
+            }
+
+            // Validate file data
+            if (!Buffer.isBuffer(req.file.buffer)) {
+                throw new AppError('Invalid file data received. Expected a valid file buffer.', 400);
+            }
+
+            if (req.file.buffer.length === 0) {
+                throw new AppError('Empty file received. Please provide a non-empty file.', 400);
+            }
+
+            // Parse options with validation
+            let options;
+            try {
+                options = req.body.options ? JSON.parse(req.body.options) : {};
+            } catch (error) {
+                throw new AppError('Invalid options format. Expected valid JSON.', 400);
+            }
+
+            // Create a fresh buffer copy to prevent any modifications
+            const fileBuffer = Buffer.from(req.file.buffer);
+
+            // Enhanced file processing logging
+            console.log('🔄 Processing file:', {
+                filename: req.file.originalname,
                 mimetype: req.file.mimetype,
-                size: req.file.buffer?.length
-            } : null
-        });
+                size: fileBuffer.length,
+                signature: fileBuffer.slice(0, 4).toString('hex'),
+                hasOptions: !!options,
+                optionsKeys: Object.keys(options)
+            });
 
-        if (!req.file) {
-            throw new AppError('No file provided', 400);
-        }
+            // Determine file type with validation
+            const fileExtension = path.extname(req.file.originalname).slice(1);
+            const fileType = this.#determineFileType(fileExtension, req.file.mimetype);
+            
+            if (!fileType) {
+                throw new AppError(`Unsupported file type: ${fileExtension}`, 400);
+            }
 
-        // Ensure we have a valid buffer
-        if (!Buffer.isBuffer(req.file.buffer)) {
-            throw new AppError('Invalid file data received', 400);
-        }
+            const conversionData = {
+                type: fileType,
+                content: fileBuffer,
+                name: req.file.originalname,
+                options: options,
+                mimeType: req.file.mimetype
+            };
 
-        // Create a fresh buffer copy to prevent any modifications
-        const fileBuffer = Buffer.from(req.file.buffer);
-
-        // Log buffer state for debugging
-        console.log('Processing file:', {
-            filename: req.file.originalname,
-            mimetype: req.file.mimetype,
-            size: fileBuffer.length,
-            signature: fileBuffer.slice(0, 4).toString('hex')
-        });
-
-        const conversionData = {
-            type: this.#determineFileType(
-                path.extname(req.file.originalname).slice(1),
-                req.file.mimetype
-            ),
-            content: fileBuffer,
-            name: req.file.originalname,
-            options: JSON.parse(req.body.options || '{}')
-        };
-
-        // Log conversion data
-        console.log('📤 Preparing conversion:', {
-            type: conversionData.type,
-            filename: conversionData.name,
-            bufferLength: conversionData.content.length,
-            signature: conversionData.content.slice(0, 4).toString('hex')
-        });
+            // Enhanced conversion preparation logging
+            console.log('📤 Preparing conversion:', {
+                type: conversionData.type,
+                filename: conversionData.name,
+                bufferLength: conversionData.content.length,
+                signature: conversionData.content.slice(0, 4).toString('hex'),
+                mimeType: conversionData.mimeType,
+                optionsIncluded: Object.keys(conversionData.options)
+            });
 
         const result = await this.conversionService.convert(conversionData);
         
