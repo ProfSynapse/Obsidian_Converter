@@ -76,6 +76,64 @@ function getCategory(type) {
 }
 
 /**
+ * Generates a summary of converted items
+ * @param {Array<Object>} items - Array of conversion results
+ * @returns {string} - Markdown formatted summary
+ */
+function generateSummary(items) {
+  const summary = ['# Conversion Summary\n'];
+  const categories = new Map();
+  let totalSuccess = 0;
+  let totalErrors = 0;
+
+  // Group items by category and count successes/errors
+  items.forEach(item => {
+    if (!item) return;
+    
+    const category = item.category || 'unknown';
+    if (!categories.has(category)) {
+      categories.set(category, { items: [], success: 0, errors: 0 });
+    }
+    
+    const categoryData = categories.get(category);
+    categoryData.items.push(item);
+    
+    if (item.success === false || item.error) {
+      categoryData.errors++;
+      totalErrors++;
+    } else {
+      categoryData.success++;
+      totalSuccess++;
+    }
+  });
+
+  // Add overall statistics
+  summary.push(`## Overview\n`);
+  summary.push(`- Total Items: ${items.length}`);
+  summary.push(`- Successfully Converted: ${totalSuccess}`);
+  summary.push(`- Errors: ${totalErrors}\n`);
+
+  // Add category-specific information
+  categories.forEach((data, category) => {
+    summary.push(`## ${category.charAt(0).toUpperCase() + category.slice(1)}\n`);
+    summary.push(`- Total: ${data.items.length}`);
+    summary.push(`- Successful: ${data.success}`);
+    summary.push(`- Failed: ${data.errors}\n`);
+    
+    // List all items in category
+    summary.push('### Items\n');
+    data.items.forEach(item => {
+      const status = item.success === false || item.error ? '❌' : '✅';
+      const errorInfo = item.error ? ` - Error: ${item.error}` : '';
+      summary.push(`- ${status} ${item.name}${errorInfo}`);
+    });
+    summary.push('');
+  });
+
+  return summary.join('\n');
+}
+
+/**
  * Creates a structured ZIP file from multiple converted items with memory optimization
  * @param {Array<Object>} items - Array of conversion results
  * @returns {Promise<Buffer>} - The ZIP file buffer
