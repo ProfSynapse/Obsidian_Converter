@@ -72,13 +72,17 @@ async function getPopplerPath() {
  * @param {string} command - The command to execute
  * @returns {Promise<string>} Command output
  */
-async function executePopplerCommand(command) {
+async function executePopplerCommand(originalCommand) {
+  let command = originalCommand;
+  
   try {
     if (process.platform === 'win32') {
       const popplerPath = await getPopplerPath();
       // Add poppler path to command
       if (command.startsWith('pdfimages')) {
         command = command.replace('pdfimages', `"${path.join(popplerPath, 'pdfimages.exe')}"`);
+      } else if (command.startsWith('pdftotext')) {
+        command = command.replace('pdftotext', `"${path.join(popplerPath, 'pdftotext.exe')}"`);
       }
     }
 
@@ -103,12 +107,16 @@ async function executePopplerCommand(command) {
  * @returns {Promise<Array>} Array of image objects
  */
 async function extractImages(pdfPath, originalName) {
-  const tempDir = path.join(process.cwd(), 'temp', uuidv4());
-  const imageRoot = path.join(tempDir, 'image');
+  // Declare tempDir at the top level so it's available in finally block
+  let tempDir;
+  let imageRoot;
   const images = [];
   const imageHashes = new Map();
 
   try {
+    tempDir = path.join(process.cwd(), 'temp', uuidv4());
+    imageRoot = path.join(tempDir, 'image');
+    
     await fs.mkdir(tempDir, { recursive: true });
 
     try {
@@ -177,12 +185,21 @@ async function extractImages(pdfPath, originalName) {
  * @returns {Promise<Array>} Array of image objects
  */
 async function extractImagesWithFallback(pdfPath, originalName) {
+  // Declare variables at the top level
+  let pdfDoc;
+  const images = [];
+  const imageHashes = new Map();
+
   try {
     const { PDFDocument } = await import('pdf-lib');
+    console.log('📚 Loading PDF document for fallback extraction');
     const pdfBytes = await fs.readFile(pdfPath);
-    const pdfDoc = await PDFDocument.load(pdfBytes);
-    const images = [];
-    const imageHashes = new Map();
+    pdfDoc = await PDFDocument.load(pdfBytes);
+    
+    console.log('📄 Processing PDF pages:', {
+      pageCount: pdfDoc.getPageCount(),
+      fileSize: pdfBytes.length
+    });
 
     for (let i = 0; i < pdfDoc.getPageCount(); i++) {
       const page = pdfDoc.getPage(i);
@@ -253,8 +270,8 @@ async function extractText(pdfPath) {
   try {
     // Use pdftotext command from poppler
     const command = `pdftotext "${pdfPath}" -`;
-    const { stdout } = await execAsync(command);
-    return stdout.trim();
+    const output = await executePopplerCommand(command);
+    return output.trim();
   } catch (error) {
     console.error('Text extraction error:', error);
     return ''; // Return empty string if text extraction fails
@@ -326,11 +343,14 @@ export const pdfConverterConfig = {
  * @returns {Promise<{content: string, images: Array}>} - Converted content and images
  */
 export async function convertPdfToMarkdown(input, originalName, apiKey) {
+  // Declare tempDir at the top level of the function so it's available in finally block
+  let tempDir;
+  
   try {
     // Validate input
     validatePdfInput(input);
 
-    const tempDir = path.join(process.cwd(), 'temp', uuidv4());
+    tempDir = path.join(process.cwd(), 'temp', uuidv4());
     const tempPdfPath = path.join(tempDir, 'input.pdf');
     
     await fs.mkdir(tempDir, { recursive: true });
