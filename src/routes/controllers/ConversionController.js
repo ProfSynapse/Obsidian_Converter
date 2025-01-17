@@ -37,43 +37,84 @@ export class ConversionController {
     }
   };
 
-  handleBatchConversion = async (req, res, next) => {
+    handleBatchConversion = async (req, res, next) => {
     try {
-        const files = req.files || [];
+        const files = req.files || {};
         const items = JSON.parse(req.body.items || '[]');
         
+        // Get files from both single and batch fields
+        const allFiles = [
+            ...(files.file || []),
+            ...(files.files || [])
+        ];
+        
+        console.log('🎯 Processing batch conversion:', {
+            totalFiles: allFiles.length,
+            itemsCount: items.length,
+            fileNames: allFiles.map(f => f.originalname)
+        });
+        
         // Process file uploads with proper content handling
-        const fileItems = files.map(file => ({
-            id: crypto.randomUUID(),
-            type: this.#determineFileType(path.extname(file.originalname).slice(1), file.mimetype),
-            content: file.buffer, // Ensure buffer is passed
-            name: file.originalname,
-            mimeType: file.mimetype,
-            options: {
-                includeImages: true,
-                includeMeta: true,
-                convertLinks: true
-            }
-        }));
+        const fileItems = allFiles.map(file => {
+            const fileType = this.#determineFileType(path.extname(file.originalname).slice(1), file.mimetype);
+            console.log('🎲 Processing file item:', {
+                filename: file.originalname,
+                determinedType: fileType,
+                mimeType: file.mimetype,
+                size: file.buffer.length
+            });
+            
+            return {
+                id: crypto.randomUUID(),
+                type: fileType,
+                content: file.buffer,
+                name: file.originalname,
+                mimeType: file.mimetype,
+                options: {
+                    includeImages: true,
+                    includeMeta: true,
+                    convertLinks: true,
+                    originalMimeType: file.mimetype
+                }
+            };
+        });
 
         // Process URL items with proper content
-        const urlItems = items.map(item => ({
-            ...item,
-            content: item.url,
-            type: item.type.toLowerCase(),
-            options: {
-                includeImages: true,
-                includeMeta: true,
-                convertLinks: true,
-                ...item.options
-            }
-        }));
+        const urlItems = items.map(item => {
+            console.log('🌐 Processing URL item:', {
+                url: item.url,
+                type: item.type,
+                hasOptions: !!item.options
+            });
+            
+            return {
+                id: crypto.randomUUID(),
+                ...item,
+                content: item.url,
+                type: item.type.toLowerCase(),
+                options: {
+                    includeImages: true,
+                    includeMeta: true,
+                    convertLinks: true,
+                    ...item.options
+                }
+            };
+        });
 
         // Combine all items
         const allItems = [...fileItems, ...urlItems];
 
-        console.log(`Processing batch conversion of ${allItems.length} items:`, 
-            allItems.map(i => ({ name: i.name, type: i.type })));
+        console.log('🎯 Processing batch conversion:', {
+            totalItems: allItems.length,
+            fileItems: fileItems.length,
+            urlItems: urlItems.length,
+            items: allItems.map(i => ({ 
+                name: i.name, 
+                type: i.type,
+                hasContent: !!i.content,
+                contentType: typeof i.content
+            }))
+        });
 
         const result = await this.conversionService.convertBatch(allItems);
         this.#sendZipResponse(res, result);

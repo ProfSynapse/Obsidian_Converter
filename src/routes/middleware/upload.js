@@ -134,12 +134,15 @@ const upload = multer({
     storage,
     limits: {
         fileSize: config.conversion.maxFileSize || 50 * 1024 * 1024, // 50MB default
-        files: 1,
+        files: 10, // Allow up to 10 files for batch processing
         fieldSize: 10 * 1024 * 1024 // 10MB field size limit
     },
     fileFilter,
     preservePath: true
-}).single('file');
+}).fields([
+    { name: 'file', maxCount: 1 },    // For single file uploads
+    { name: 'files', maxCount: 10 }   // For batch processing
+]);
 
 // Wrap multer upload in a memory-managed promise
 const handleUpload = (req, res) => new Promise((resolve, reject) => {
@@ -218,7 +221,11 @@ export const uploadMiddleware = async (req, res, next) => {
         await handleUpload(req, res);
 
         // Validate file presence with clear error message
-        if (!req.file) {
+        const files = req.files || {};
+        const singleFile = files.file?.[0];
+        const batchFiles = files.files;
+
+        if (!singleFile && (!batchFiles || batchFiles.length === 0)) {
             console.error('❌ File upload failed:', {
                 headers: req.headers,
                 body: req.body,
@@ -226,47 +233,55 @@ export const uploadMiddleware = async (req, res, next) => {
                 fieldNames: req.files ? Object.keys(req.files) : [],
                 isMultipart: req.headers['content-type']?.includes('multipart/form-data')
             });
-            throw new AppError('No file uploaded. Please ensure you are sending a file with the field name "file"', 400);
+            throw new AppError('No files uploaded. Please ensure you are sending file(s) with the field name "file" for single uploads or "files" for batch processing', 400);
         }
 
-        // Enhanced file validation
-        const fileExtension = req.file.originalname.split('.').pop().toLowerCase();
-        const mimeTypeEntry = Object.entries(ALLOWED_TYPES).find(([mime, type]) => 
-            type.name.toLowerCase() === fileExtension.toLowerCase()
-        );
+        // Process single file upload
+        if (singleFile) {
+            req.file = singleFile; // Maintain backwards compatibility
+        }
 
-        console.log('🔍 Validating file format:', {
-            filename: req.file.originalname,
-            extension: fileExtension,
-            providedMime: req.file.mimetype,
-            expectedMime: mimeTypeEntry?.[0],
-            fileSize: req.file.size
-        });
+        // Enhanced file validation for all uploaded files
+        const filesToValidate = singleFile ? [singleFile] : batchFiles;
+        for (const file of filesToValidate) {
+            const fileExtension = file.originalname.split('.').pop().toLowerCase();
+            const mimeTypeEntry = Object.entries(ALLOWED_TYPES).find(([mime, type]) => 
+                type.name.toLowerCase() === fileExtension.toLowerCase()
+            );
 
-        if (mimeTypeEntry && req.file.mimetype !== mimeTypeEntry[0]) {
-            console.warn('⚠️ File extension/MIME type mismatch:', {
-                filename: req.file.originalname,
-                providedMime: req.file.mimetype,
-                expectedMime: mimeTypeEntry[0]
+            console.log('🔍 Validating file format:', {
+                filename: file.originalname,
+                extension: fileExtension,
+                providedMime: file.mimetype,
+                expectedMime: mimeTypeEntry?.[0],
+                fileSize: file.size
+            });
+
+            if (mimeTypeEntry && file.mimetype !== mimeTypeEntry[0]) {
+                console.warn('⚠️ File extension/MIME type mismatch:', {
+                    filename: file.originalname,
+                    providedMime: file.mimetype,
+                    expectedMime: mimeTypeEntry[0]
+                });
+            }
+
+            // Validate file signatures for supported types
+            const fileType = ALLOWED_TYPES[file.mimetype];
+            if (fileType?.validateSignature && file.buffer) {
+                console.log('🔐 Validating file signature');
+                if (!fileType.validateSignature(file.buffer)) {
+                    throw new AppError(`Invalid ${fileType.name} file format: File signature validation failed`, 400);
+                }
+            }
+
+            // Log successful upload
+            console.log('✅ Upload successful:', {
+                fieldname: file.fieldname,
+                filename: file.originalname,
+                mimetype: file.mimetype,
+                size: file.size
             });
         }
-
-        // Validate file signatures for supported types
-        const fileType = ALLOWED_TYPES[req.file.mimetype];
-        if (fileType.validateSignature && req.file.buffer) {
-            console.log('🔐 Validating file signature');
-            if (!fileType.validateSignature(req.file.buffer)) {
-                throw new AppError(`Invalid ${fileType.name} file format: File signature validation failed`, 400);
-            }
-        }
-
-        // Log successful upload
-        console.log('✅ Upload successful:', {
-            fieldname: req.file.fieldname,
-            filename: req.file.originalname,
-            mimetype: req.file.mimetype,
-            size: req.file.size
-        });
 
         next();
     } catch (error) {

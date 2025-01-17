@@ -136,14 +136,35 @@ const validators = {
                 // Handle string JSON input
                 try {
                     const items = typeof value === 'string' ? JSON.parse(value) : value;
-                    if (!Array.isArray(items)) {
-                        throw new Error('Items must be an array');
+                    
+                    // Validate items array if present
+                    if (value !== undefined && value !== '') {
+                        if (!Array.isArray(items)) {
+                            throw new Error('Items must be an array');
+                        }
                     }
-                    if (items.length === 0 && (!req.files || req.files.length === 0)) {
+
+                    // Get total files from both single and batch fields
+                    const files = req.files || {};
+                    const totalFiles = [
+                        ...(files.file || []),
+                        ...(files.files || [])
+                    ].length;
+
+                    // Check if we have any items to process
+                    if ((items?.length || 0) === 0 && totalFiles === 0) {
                         throw new Error('No items provided for conversion');
                     }
+
+                    console.log('🔍 Validating batch request:', {
+                        itemsCount: items?.length || 0,
+                        filesCount: totalFiles,
+                        hasFiles: totalFiles > 0,
+                        hasItems: items?.length > 0
+                    });
+
                     // Store parsed items for later use
-                    req.parsedItems = items;
+                    req.parsedItems = items || [];
                     return true;
                 } catch (error) {
                     throw new Error(`Invalid items format: ${error.message}`);
@@ -152,16 +173,40 @@ const validators = {
         body('items.*.type')
             .optional()
             .isString()
-            .isIn(['file', 'url', 'parenturl', 'youtube', 'pptx'])
-            .withMessage('Invalid item type'),
-        body('items.*.content')
+            .isIn(['file', 'url', 'parenturl', 'youtube', 'pptx', 'pdf', 'docx', 'csv', 'xlsx'])
+            .withMessage('Invalid item type. Supported types: file, url, parenturl, youtube, pptx, pdf, docx, csv, xlsx'),
+        body('items.*.url')
             .optional()
-            .notEmpty()
-            .withMessage('Each item must have content'),
-        body('items.*.name')
+            .custom((value, { req }) => {
+                const item = req.body.items[req._validationData.index];
+                if (['url', 'parenturl', 'youtube'].includes(item.type)) {
+                    if (!value) {
+                        throw new Error(`URL is required for type: ${item.type}`);
+                    }
+                    try {
+                        new URL(normalizeUrl(value));
+                    } catch (error) {
+                        throw new Error('Invalid URL format');
+                    }
+                }
+                return true;
+            }),
+        body('items.*.options')
             .optional()
-            .notEmpty()
-            .withMessage('Each item must have a name')
+            .custom((value) => {
+                if (value) {
+                    try {
+                        if (typeof value === 'string') {
+                            JSON.parse(value);
+                        } else if (typeof value !== 'object') {
+                            throw new Error('Options must be an object or JSON string');
+                        }
+                    } catch (error) {
+                        throw new Error('Invalid options format');
+                    }
+                }
+                return true;
+            })
     ],
 
     // Export the result checker
