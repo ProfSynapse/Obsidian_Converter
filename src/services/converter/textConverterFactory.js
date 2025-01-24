@@ -53,6 +53,10 @@ class TextConverterFactory {
       url: convertUrlToMarkdown,
       parenturl: convertParentUrlToMarkdown,
       youtube: convertYoutubeToMarkdown,
+
+      // Multimedia converters  
+      audio: convertAudioToMarkdown,
+      video: convertVideoToMarkdown
     };
 
     // Map of expected input types for validation
@@ -63,6 +67,8 @@ class TextConverterFactory {
       url: ['string'],
       parenturl: ['string', 'object'],
       youtube: ['string'],
+      audio: ['buffer'],
+      video: ['buffer']
     };
 
     console.log('Registered converters:', Object.keys(this.converters));
@@ -293,6 +299,15 @@ class TextConverterFactory {
           return await convertYoutubeToMarkdown(content, options);
         default:
           console.error('❌ Unsupported file type:', fileType);
+          // Handle multimedia types
+          if (fileType === 'audio') {
+            console.log('🎵 Converting audio content');
+            return await convertAudioToMarkdown(content, options.name, options.apiKey);
+          }
+          if (fileType === 'video') {
+            console.log('🎥 Converting video content');
+            return await convertVideoToMarkdown(content, options.name, options.apiKey);
+          }
           throw new Error(`Unsupported file type: ${fileType}`);
       }
     } catch (error) {
