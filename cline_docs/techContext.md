@@ -3,7 +3,7 @@
 ## Technologies Used
 1. **Core Framework & Runtime**
    - Node.js (>=14.0.0)
-   - Express.js for API server
+   - Express.js
 
 2. **File Processing Libraries**
    - @bundled-es-modules/pdfjs-dist: PDF processing
