@@ -226,8 +226,26 @@ class UrlConverter {
       this.turndownService = new TurndownService({
         headingStyle: 'atx',
         codeBlockStyle: 'fenced',
+        bulletListMarker: '-',
         emDelimiter: '_',
-        strongDelimiter: '**'
+        strongDelimiter: '**',
+        hr: '---',
+        preformattedCode: true
+      });
+
+      // Configure turndown rules for better formatting
+      this.turndownService.addRule('codeBlocks', {
+        filter: ['pre'],
+        replacement: (content, node) => {
+          const language = node.getAttribute('class')?.replace('language-', '') || '';
+          return `\n\`\`\`${language}\n${content}\n\`\`\`\n`;
+        }
+      });
+
+      // Preserve tables
+      this.turndownService.addRule('tables', {
+        filter: ['table'],
+        replacement: (content) => content + '\n\n'
       });
       this.browserManager = new BrowserManager(config.puppeteer);
     }
@@ -294,7 +312,7 @@ class UrlConverter {
     }
 
   /**
-   * Extracts content from webpage
+   * Extracts and cleans content from webpage
    */
   async extractContent(url, options) {
     const { includeImages, includeMeta } = options;
@@ -305,15 +323,24 @@ class UrlConverter {
     const $ = cheerio.load(html);
 
     // Clean up unwanted elements
-    $('script, style, iframe, noscript').remove();
+    $('script, style, iframe, noscript, nav, footer, header, .navigation, .footer, .header, .ad, .advertisement, .social-share, .comments').remove();
+
+    // Clean empty elements
+    $('p:empty, div:empty, span:empty').remove();
+
+    // Clean up classes and styles
+    $('*').removeAttr('class').removeAttr('style');
 
     // Extract metadata if needed
     const metadata = includeMeta ? await extractMetadata(url) : null;
     console.log(`Extracted metadata:`, metadata);
 
     // Extract images if needed
-    const images = includeImages ? await this.extractImages($) : [];
+    const images = includeImages ? await this.extractImages($, url) : [];
     console.log(`Extracted ${images.length} images.`);
+
+    // Add spacing between elements for better readability
+    $('h1, h2, h3, h4, h5, h6, p, ul, ol, blockquote, pre, table').after('\n');
 
     return {
       html: $.html(),
@@ -323,11 +350,21 @@ class UrlConverter {
   }
 
   /**
-   * Extracts and processes images
+   * Extracts and processes images, creating Obsidian-compatible image references
    */
-  async extractImages($) {
+  async extractImages($, url) {
     const images = [];
     const seenUrls = new Set();
+    const crypto = await import('crypto');
+    const domain = UrlUtils.getDomain(url);
+
+    // Replace image references in HTML with Obsidian wiki-links
+    const replaceImageReference = (img, imageName) => {
+      const $img = $(img);
+      const alt = $img.attr('alt') || '';
+      $img.replaceWith(`![[${imageName}]]`);
+      return alt;
+    };
 
     const downloadImage = async (url) => {
       try {
@@ -340,6 +377,43 @@ class UrlConverter {
       }
     };
 
+    const processImage = async (img) => {
+      const src = $(img).attr('src');
+      if (!src || seenUrls.has(src)) return null;
+      if (!src.startsWith('http')) {
+        console.warn(`Skipping non-http image source: ${src}`);
+        return null;
+      }
+
+      seenUrls.add(src);
+
+      const imageData = await downloadImage(src);
+      if (!imageData) return null;
+
+      const ext = src.split('.').pop().toLowerCase();
+      if (!this.config.conversion.imageTypes.includes(ext)) {
+        console.warn(`Unsupported image type: ${ext}`);
+        return null;
+      }
+
+      // Create hash for unique filename
+      const hash = crypto.createHash('md5').update(src).digest('hex').slice(0, 8);
+      const imageName = `image-${hash}.${ext}`;
+      const alt = replaceImageReference(img, imageName);
+
+      return {
+        url: src,
+        data: imageData,
+        name: `web/${domain}/assets/${imageName}`,
+        type: `image/${ext}`,
+        metadata: {
+          originalUrl: src,
+          alt: alt || undefined,
+          dateAdded: new Date().toISOString()
+        }
+      };
+    };
+
     const imageElements = $('img').toArray();
     console.log(`Found ${imageElements.length} <img> elements.`);
 
@@ -349,35 +423,11 @@ class UrlConverter {
         break;
       }
 
-      const src = $(img).attr('src');
-      if (!src || seenUrls.has(src)) {
-        continue;
+      const processedImage = await processImage(img);
+      if (processedImage) {
+        images.push(processedImage);
+        console.log(`Processed image: ${processedImage.name}`);
       }
-      if (!src.startsWith('http')) {
-        console.warn(`Skipping non-http image source: ${src}`);
-        continue;
-      }
-
-      seenUrls.add(src);
-
-      const imageData = await downloadImage(src);
-      if (!imageData) {
-        continue;
-      }
-
-      const ext = src.split('.').pop().toLowerCase();
-      if (!this.config.conversion.imageTypes.includes(ext)) {
-        console.warn(`Unsupported image type: ${ext}`);
-        continue;
-      }
-
-      images.push({
-        url: src,
-        data: imageData,
-        name: `image-${images.length + 1}.${ext}`,
-        type: `image/${ext}`
-      });
-      console.log(`Downloaded and added image: image-${images.length}.${ext}`);
     }
 
     return images;

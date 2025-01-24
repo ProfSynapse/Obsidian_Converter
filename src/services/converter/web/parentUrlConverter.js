@@ -71,11 +71,6 @@ class WebsiteCrawler {
     }
   }
 
-  /**
-   * Crawls a website starting from a parent URL
-   * @param {string} startUrl - Starting URL
-   * @returns {Promise<Set<string>>} Set of discovered URLs
-   */
   async crawl(startUrl) {
     try {
       const queue = [{ url: startUrl, depth: 0 }];
@@ -89,7 +84,6 @@ class WebsiteCrawler {
         (queue.length > 0 || activeTasks.length > 0) &&
         this.discoveredUrls.size < CONFIG.crawler.maxPages
       ) {
-        // Fill up active tasks from queue
         while (queue.length > 0 && activeTasks.length < CONFIG.crawler.concurrentLimit) {
           const { url, depth } = queue.shift();
           if (visitedUrls.has(url) || depth > this.maxDepth) continue;
@@ -100,20 +94,15 @@ class WebsiteCrawler {
         }
 
         if (activeTasks.length > 0) {
-          // Wait for one task to complete
           await Promise.race(activeTasks).catch(error => {
             console.warn('Task error:', error.message);
           });
-
-          // Remove completed tasks
           activeTasks = activeTasks.filter(task => task.isPending?.());
         }
 
-        // Small delay to prevent CPU spinning
         await new Promise(resolve => setTimeout(resolve, 100));
       }
 
-      // Wait for remaining tasks
       if (activeTasks.length > 0) {
         await Promise.allSettled(activeTasks);
       }
@@ -126,14 +115,6 @@ class WebsiteCrawler {
     }
   }
 
-  /**
-   * Processes a single URL and extracts links
-   * @param {string} url - URL to process
-   * @param {string} parentUrl - Parent URL for domain checking
-   * @param {number} depth - Current depth
-   * @param {Array} queue - Queue of URLs
-   * @param {Set} visitedUrls - Set of visited URLs
-   */
   async processUrl(url, parentUrl, depth, queue, visitedUrls) {
     let page;
     try {
@@ -170,16 +151,10 @@ class WebsiteCrawler {
     }
   }
 
-  /**
-   * Extracts all links from the given page
-   * @param {object} page - Puppeteer page instance
-   * @returns {Promise<string[]>} Array of discovered URLs
-   */
   async extractLinks(page) {
     return await page.evaluate(() => {
       const links = new Set();
       
-      // Process regular links
       document.querySelectorAll('a[href]').forEach(a => {
         try {
           const href = new URL(a.href, window.location.origin).href;
@@ -187,7 +162,6 @@ class WebsiteCrawler {
         } catch {}
       });
 
-      // Process canonical links
       const canonical = document.querySelector('link[rel="canonical"]');
       if (canonical && canonical.href) {
         try {
@@ -199,23 +173,15 @@ class WebsiteCrawler {
     });
   }
 
-  /**
-   * Validates if a URL should be processed
-   * @param {string} url - URL to check
-   * @param {string} parentUrl - Parent URL for domain checking
-   * @returns {boolean} Whether URL should be processed
-   */
   isValidUrl(url, parentUrl) {
     try {
       const urlObj = new URL(url);
       const parentObj = new URL(parentUrl);
 
-      // Must be same domain or subdomain
       if (!urlObj.hostname.endsWith(parentObj.hostname)) {
         return false;
       }
 
-      // Check against exclude patterns
       if (CONFIG.crawler.excludePatterns.some(pattern => pattern.test(url))) {
         return false;
       }
@@ -231,11 +197,6 @@ class WebsiteCrawler {
  * URL Processor class to handle conversion of discovered URLs
  */
 class UrlProcessor {
-  /**
-   * Processes a collection of URLs into Markdown
-   * @param {Set<string>} urls - URLs to process
-   * @returns {Promise<Array>} Processing results
-   */
   async processUrls(urls) {
     const limit = pLimit(CONFIG.crawler.concurrentLimit);
     console.log(`\nConverting ${urls.size} pages to Markdown...\n`);
@@ -256,7 +217,8 @@ class UrlProcessor {
             name: `${name}.md`,
             content: result.content,
             images: result.images || [],
-            url
+            url,
+            metadata: result.metadata
           };
         } catch (error) {
           console.log(`❌ Failed to convert: ${url}`);
@@ -268,11 +230,6 @@ class UrlProcessor {
     return await Promise.all(tasks);
   }
 
-  /**
-   * Sanitizes a string for use as a filename
-   * @param {string} input - String to sanitize
-   * @returns {string} Sanitized string
-   */
   sanitizeFilename(input) {
     if (!input) return 'index';
 
@@ -284,12 +241,6 @@ class UrlProcessor {
       .slice(0, 100) || 'index';
   }
 
-  /**
-   * Generates index content for the website
-   * @param {string} parentUrl - Parent URL
-   * @param {Array} pages - Processed pages
-   * @returns {string} Index content in Markdown
-   */
   generateIndex(parentUrl, pages) {
     const successfulPages = pages.filter(p => p.success);
     const failedPages = pages.filter(p => !p.success);
@@ -318,7 +269,7 @@ class UrlProcessor {
       '',
       ...successfulPages.map(page => {
         const name = page.name.replace(/\.md$/, '');
-        return `- [[${name}]] - [Original](${page.url})`;
+        return `- [[pages/${name}|${name}]] - [Original](${page.url})`;
       }),
       '',
       failedPages.length ? [
@@ -332,6 +283,7 @@ class UrlProcessor {
       '- All images are stored in the `assets/` folder',
       '- Internal links are preserved as wiki-links',
       '- Original URLs are preserved in page metadata',
+      '- Images use Obsidian format: ![[image.jpg]]',
       '- Generated with Obsidian Note Converter'
     ].join('\n');
   }
@@ -339,9 +291,6 @@ class UrlProcessor {
 
 /**
  * Converts a parent URL and its children to Markdown
- * @param {string} parentUrl - Parent URL to convert
- * @param {string} originalName - Original name for context
- * @returns {Promise<Object>} Conversion results
  */
 export async function convertParentUrlToMarkdown(parentUrl) {
   const crawler = new WebsiteCrawler();
@@ -358,19 +307,28 @@ export async function convertParentUrlToMarkdown(parentUrl) {
     }
 
     const processedPages = await processor.processUrls(urls);
-    const index = processor.generateIndex(parentUrl, processedPages);
     const hostname = new URL(parentUrl).hostname;
 
-    // Collect all images across all pages
+    // Process and deduplicate images
+    const seenImageUrls = new Set();
     const allImages = processedPages
       .filter(p => p.success)
       .flatMap(p => p.images || [])
-      .filter(img => img && img.data && img.name)
+      .filter(img => {
+        if (!img?.data || !img?.name || seenImageUrls.has(img.url)) {
+          return false;
+        }
+        seenImageUrls.add(img.url);
+        return true;
+      })
       .map(img => ({
-        name: `web/${hostname}/assets/${img.name}`,
+        name: `web/${hostname}/assets/${img.name.split('/').pop()}`,
         data: img.data,
-        type: 'binary'
+        type: 'binary',
+        metadata: img.metadata
       }));
+
+    const index = processor.generateIndex(parentUrl, processedPages);
 
     return {
       url: parentUrl,
@@ -387,7 +345,8 @@ export async function convertParentUrlToMarkdown(parentUrl) {
           .filter(p => p.success)
           .map(({ name, content }) => ({
             name: `web/${hostname}/pages/${name}`,
-            content,
+            // Replace image references to use relative paths
+            content: content.replace(/!\[\[(.*?)\]\]/g, `![[../assets/$1]]`),
             type: 'text'
           }))
       ],
@@ -401,8 +360,6 @@ export async function convertParentUrlToMarkdown(parentUrl) {
 
 /**
  * Validates and normalizes a URL
- * @param {string} url - URL to validate
- * @returns {string} Normalized URL
  */
 function normalizeUrl(url) {
   try {
