@@ -1,6 +1,7 @@
 import { ConversionService } from "../../services/ConversionService.js";
 import { AppError } from '../../utils/errorHandler.js';
 import path from 'path';
+import { randomUUID } from 'crypto';
 
 export class ConversionController {
   constructor() {
@@ -65,7 +66,7 @@ export class ConversionController {
             });
             
             return {
-                id: crypto.randomUUID(),
+                id: randomUUID(),
                 type: fileType,
                 content: file.buffer,
                 name: file.originalname,
@@ -88,7 +89,7 @@ export class ConversionController {
             });
             
             return {
-                id: crypto.randomUUID(),
+                id: randomUUID(),
                 ...item,
                 content: item.url,
                 type: item.type.toLowerCase(),
