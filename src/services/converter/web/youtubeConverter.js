@@ -82,14 +82,32 @@ export async function convertYoutubeToMarkdown(url, apiKey) {
     });
 
     // Fetch transcript
-    console.log('Fetching transcript...');
+    console.log('🎯 Attempting to fetch transcript for video:', videoId);
     let transcript = [];
     try {
       transcript = await YoutubeTranscript.fetchTranscript(videoId);
-      console.log('Transcript fetched, entries:', transcript.length);
+      console.log('✅ Transcript successfully fetched with', transcript.length, 'entries');
+      
+      if (transcript.length === 0) {
+        console.warn('⚠️ Transcript was fetched but contains no entries');
+      }
     } catch (transcriptError) {
-      console.warn('Transcript not available:', transcriptError.message);
-      // Optionally, set transcript to an empty array or provide a default message
+      // Log detailed error information
+      console.warn('❌ Failed to fetch transcript:', {
+        error: transcriptError.message,
+        videoId,
+        url
+      });
+      
+      // Handle specific error cases
+      if (transcriptError.message.includes('Could not retrieve a transcript')) {
+        transcript = [{ offset: 0, text: '**Note:** No transcript is available for this video. This could be because:\n- Captions are disabled\n- Auto-generated captions are not available\n- The video is not publicly accessible' }];
+      } else if (transcriptError.message.includes('Invalid')) {
+        throw new Error(`Invalid YouTube video ID or URL: ${videoId}`);
+      } else {
+        console.error('Unexpected transcript error:', transcriptError);
+        transcript = [{ offset: 0, text: '**Note:** Unable to retrieve transcript due to a technical error. Please try again later.' }];
+      }
     }
 
     console.log('Generating markdown...');

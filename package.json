@@ -24,7 +24,8 @@
     "stripe": "^17.5.0",
     "svelte-spinner": "^2.0.2",
     "turndown": "^7.2.0",
-    "yaml": "^2.2.1"
+    "yaml": "^2.2.1",
+    "youtube-transcript": "^1.2.1"
   },
   "devDependencies": {
     "@babel/cli": "^7.14.8",
@@ -58,8 +59,7 @@
     "puppeteer": "^23.6.0",
     "sass": "^1.79.4",
     "tmp-promise": "^3.0.3",
-    "uuid": "^11.0.4",
-    "youtube-transcript": "^1.2.1"
+    "uuid": "^11.0.4"
   },
   "engines": {
     "node": ">=14.0.0"
