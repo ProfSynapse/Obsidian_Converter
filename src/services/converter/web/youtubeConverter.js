@@ -1,7 +1,7 @@
 // services/converter/web/youtubeConverter.js
 import sanitizeFilename from 'sanitize-filename';
 import puppeteer from 'puppeteer';
-import TranscriptAPI from '../../../utils/patchedTranscriptAPI.js';
+import { YoutubeTranscript } from 'youtube-transcript';
 import { extractVideoId, formatTimestamp, extractYoutubeMetadata } from '../../../routes/middleware/utils/youtubeUtils.js';
 
 /**
@@ -55,41 +55,21 @@ export async function convertYoutubeToMarkdown(url, apiKey) {
     }
     console.log('🎯 Extracted video ID:', videoId);
 
-    // Attempt to fetch transcript
+    // Fetch transcript using the package directly
     console.log('📝 Fetching transcript...');
     let transcript;
     try {
-      // No need to validate separately as the transcript fetch will handle that
-      transcript = await TranscriptAPI.getTranscript(videoId);
+      transcript = await YoutubeTranscript.fetchTranscript(videoId);
       console.log('✅ Transcript fetched successfully with', transcript.length, 'entries');
-    } catch (transcriptError) {
-      console.warn('❌ Failed to fetch transcript:', {
-        error: transcriptError.message,
-        videoId,
-        url
-      });
-      
-      // Handle different error cases
-      if (transcriptError.message.includes('Could not find the video') ||
-          transcriptError.message.includes('Video unavailable')) {
-        throw new Error('Video does not exist or is not accessible');
-      }
-      
-      if (transcriptError.message.includes('Subtitles are disabled') ||
-          transcriptError.message.includes('No transcript available')) {
-        transcript = [{ 
-          start: 0, 
-          text: `**Note:** No transcript is available for this video. This could be because:
-- Captions are disabled for this video
-- Auto-generated captions are not available
-- The video requires authentication
-- The video is a live stream or premiere
 
-Video URL: ${url}` 
-        }];
-      } else {
-        throw new Error(`Failed to fetch transcript: ${transcriptError.message}`);
-      }
+      // Convert the transcript entries to our format
+      transcript = transcript.map(entry => ({
+        text: entry.text,
+        start: entry.offset / 1000, // Convert ms to seconds
+        duration: entry.duration
+      }));
+    } catch (error) {
+      throw new Error(`Failed to fetch transcript: ${error.message}`);
     }
 
     // Only try to get metadata if we successfully got a transcript
