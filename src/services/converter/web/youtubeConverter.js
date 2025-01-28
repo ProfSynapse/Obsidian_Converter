@@ -44,18 +44,67 @@ async function extractTranscriptAndMetadata(page) {
     // Step 2: Expand description
     try {
       debugLog.expand();
-      await page.waitForSelector('tp-yt-paper-button#expand.button.style-scope.ytd-text-inline-expander', { timeout: 10000 });
-      await page.click('tp-yt-paper-button#expand.button.style-scope.ytd-text-inline-expander');
-      await page.waitForTimeout(1000);
+      // Try multiple selector strategies for the expand button
+      const expandButton = await page.evaluate(() => {
+        // Try by ID first
+        const byId = document.querySelector('tp-yt-paper-button#expand');
+        if (byId) return true;
+
+        // Try by role and text content
+        const buttons = Array.from(document.querySelectorAll('tp-yt-paper-button[role="button"]'));
+        const moreButton = buttons.find(btn => btn.textContent.includes('...more'));
+        return !!moreButton;
+      });
+
+      if (expandButton) {
+        // Wait for button to be visible and clickable
+        await page.waitForSelector('tp-yt-paper-button#expand', { 
+          visible: true,
+          timeout: 10000 
+        });
+        // Use a simpler selector for clicking since we confirmed the button exists
+        await page.click('tp-yt-paper-button#expand');
+        // Wait longer for expansion animation and content load
+        await page.waitForTimeout(2000);
+      } else {
+        debugLog.error('Expand button not found, trying alternate approach');
+      }
     } catch (error) {
       debugLog.error('Description expansion failed, trying transcript anyway');
     }
 
     // Step 3: Click transcript button
     debugLog.transcript();
-    await page.waitForSelector('div.yt-spec-touch-feedback-shape__fill', { timeout: 10000 });
-    await page.click('div.yt-spec-touch-feedback-shape__fill');
-    await page.waitForTimeout(1000);
+    try {
+      // Wait for and click the transcript button
+      await page.waitForSelector('ytd-transcript-segment-list-renderer', { 
+        visible: true,
+        timeout: 10000 
+      });
+      
+      // Use evaluate to find and click the transcript button by text content
+      const transcriptFound = await page.evaluate(() => {
+        const buttons = Array.from(document.querySelectorAll('button'));
+        const transcriptButton = buttons.find(btn => 
+          btn.textContent?.toLowerCase().includes('transcript') ||
+          btn.getAttribute('aria-label')?.toLowerCase().includes('transcript')
+        );
+        if (transcriptButton) {
+          transcriptButton.click();
+          return true;
+        }
+        return false;
+      });
+
+      if (!transcriptFound) {
+        throw new Error(YouTubeErrors.TRANSCRIPT_BUTTON);
+      }
+
+      await page.waitForTimeout(2000); // Wait for transcript to appear
+    } catch (error) {
+      debugLog.error('Failed to find or click transcript button');
+      throw new Error(YouTubeErrors.TRANSCRIPT_BUTTON);
+    }
 
     // Step 4: Wait for transcript container and extract content
     await page.waitForSelector('#segments-container', { timeout: 10000 });
@@ -66,9 +115,14 @@ async function extractTranscriptAndMetadata(page) {
       const titleElement = document.querySelector('ytd-watch-metadata yt-formatted-string.style-scope');
       const segments = document.querySelectorAll('#segments-container > ytd-transcript-segment-renderer');
       
-      const transcript = Array.from(segments).map(segment => {
+      const transcript = Array.from(segments).map((segment, index) => {
+        // Use relative selectors within each segment
         const timestampElement = segment.querySelector('div > div > div');
         const textElement = segment.querySelector('div > yt-formatted-string');
+        
+        // Log for debugging
+        console.log(`🕒 Segment ${index + 1} timestamp:`, timestampElement?.textContent);
+        console.log(`📝 Segment ${index + 1} text:`, textElement?.textContent);
         
         const timestamp = timestampElement?.textContent?.trim() || '0:00';
         const [minutes, seconds] = timestamp.split(':').map(Number);
