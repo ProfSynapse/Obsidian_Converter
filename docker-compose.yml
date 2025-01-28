@@ -1,0 +1,19 @@
+version: '3.8'
+
+services:
+  app:
+    build: .
+    ports:
+      - "3000:3000"
+    environment:
+      - PORT=3000
+      - TOR_PROXY_HOST=tor
+      - TOR_SOCKS_PORT=9050
+    depends_on:
+      - tor
+
+  tor:
+    image: dperson/torproxy
+    ports:
+      - "9050:9050"  # SOCKS proxy
+    restart: unless-stopped

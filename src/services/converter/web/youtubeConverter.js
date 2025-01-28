@@ -3,6 +3,7 @@ import sanitizeFilename from 'sanitize-filename';
 import puppeteer from 'puppeteer';
 import { YoutubeTranscript } from 'youtube-transcript';
 import { extractVideoId, formatTimestamp, extractYoutubeMetadata } from '../../../routes/middleware/utils/youtubeUtils.js';
+import { configureTorProxy, withTorRetry } from '../../../utils/proxyAgent.js';
 
 /**
  * Generates markdown content with transcript and title
@@ -55,11 +56,26 @@ export async function convertYoutubeToMarkdown(url, apiKey) {
     }
     console.log('🎯 Extracted video ID:', videoId);
 
-    // Fetch transcript using the package directly
-    console.log('📝 Fetching transcript...');
+    // Configure Tor proxy
+    console.log('🧅 Setting up Tor proxy...');
+    const { agent } = configureTorProxy();
+
+    // Fetch transcript using Tor proxy with retry logic
+    console.log('📝 Fetching transcript through Tor...');
     let transcript;
     try {
-      transcript = await YoutubeTranscript.fetchTranscript(videoId);
+      transcript = await withTorRetry(async () => {
+        const result = await YoutubeTranscript.fetchTranscript(videoId, {
+          requestOptions: { agent }
+        });
+        
+        if (!result || !Array.isArray(result)) {
+          throw new Error('Invalid transcript response');
+        }
+        
+        return result;
+      });
+
       console.log('✅ Transcript fetched successfully with', transcript.length, 'entries');
 
       // Convert the transcript entries to our format
@@ -69,7 +85,7 @@ export async function convertYoutubeToMarkdown(url, apiKey) {
         duration: entry.duration
       }));
     } catch (error) {
-      throw new Error(`Failed to fetch transcript: ${error.message}`);
+      throw new Error(`Failed to fetch transcript through Tor: ${error.message}`);
     }
 
     // Only try to get metadata if we successfully got a transcript
