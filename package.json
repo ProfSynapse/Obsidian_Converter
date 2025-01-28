@@ -22,13 +22,10 @@
     "node-fetch": "^3.3.2",
     "p-limit": "^3.1.0",
     "sanitize-filename": "^1.6.3",
-    "socks-proxy-agent": "^8.0.5",
     "stripe": "^17.5.0",
     "svelte-spinner": "^2.0.2",
     "turndown": "^7.2.0",
-    "yaml": "^2.2.1",
-    "youtube-transcript": "^1.2.1",
-    "youtube-transcript-api": "^1.1.2"
+    "yaml": "^2.2.1"
   },
   "devDependencies": {
     "@babel/cli": "^7.14.8",

@@ -1,9 +1,71 @@
 // services/converter/web/youtubeConverter.js
 import sanitizeFilename from 'sanitize-filename';
 import puppeteer from 'puppeteer';
-import { YoutubeTranscript } from 'youtube-transcript';
-import { extractVideoId, formatTimestamp, extractYoutubeMetadata } from '../../../routes/middleware/utils/youtubeUtils.js';
-import { configureTorProxy, withTorRetry } from '../../../utils/proxyAgent.js';
+import { extractVideoId, formatTimestamp } from '../../../routes/middleware/utils/youtubeUtils.js';
+
+/**
+ * Extracts transcript and metadata from a YouTube page using Puppeteer
+ * @param {puppeteer.Page} page - Puppeteer page instance
+ * @returns {Promise<{transcript: Array, metadata: Object}>}
+ */
+async function extractTranscriptAndMetadata(page) {
+  try {
+    // Handle cookie consent if present
+    try {
+      const cookieButton = await page.$('button[aria-label*="Accept"]');
+      if (cookieButton) {
+        await cookieButton.click();
+        await page.waitForTimeout(1000); // Wait for cookie banner to disappear
+      }
+    } catch (error) {
+      console.log('No cookie banner found or already accepted');
+    }
+
+    // Wait for and click the "Show transcript" button
+    console.log('🔍 Looking for transcript button...');
+    await page.waitForSelector('ytd-video-description-transcript-section-renderer button', { timeout: 5000 });
+    await page.click('ytd-video-description-transcript-section-renderer button');
+
+    // Wait for transcript container to appear
+    console.log('📝 Extracting transcript...');
+    await page.waitForSelector('#segments-container', { timeout: 5000 });
+
+    // Extract transcript entries
+    const { transcript, title } = await page.evaluate(() => {
+      const titleElement = document.querySelector('ytd-watch-metadata yt-formatted-string.style-scope');
+      const transcriptEntries = Array.from(document.querySelectorAll('#segments-container ytd-transcript-segment-renderer'));
+      
+      const transcript = transcriptEntries.map(entry => {
+        const timestampElement = entry.querySelector('#timestamp');
+        const textElement = entry.querySelector('#text');
+        
+        // Parse timestamp to seconds
+        const timestamp = timestampElement?.textContent || '0:00';
+        const [minutes, seconds] = timestamp.split(':').map(Number);
+        const startTime = minutes * 60 + (seconds || 0);
+
+        return {
+          text: textElement?.textContent?.trim() || '',
+          start: startTime,
+          duration: 0 // Duration not available in UI
+        };
+      });
+
+      return {
+        transcript,
+        title: titleElement?.textContent?.trim() || 'Untitled Video'
+      };
+    });
+
+    return {
+      transcript,
+      metadata: { title }
+    };
+  } catch (error) {
+    console.error('Failed to extract transcript:', error);
+    throw new Error(`Failed to extract transcript: ${error.message}`);
+  }
+}
 
 /**
  * Generates markdown content with transcript and title
@@ -45,53 +107,28 @@ tags:
  * @param {string} apiKey - (Optional) API key if required
  * @returns {Promise<Object>} - The conversion result
  */
-export async function convertYoutubeToMarkdown(url, apiKey) {
+/**
+ * YouTube to Markdown Converter
+ * @param {string} url - The YouTube video URL
+ * @returns {Promise<Object>} - The conversion result
+ */
+export async function convertYoutubeToMarkdown(url) {
   let browser;
-  try {
-    console.log('🎬 Starting YouTube conversion for:', url);
+  let retryCount = 0;
+  const maxRetries = 3;
 
-    const videoId = extractVideoId(url);
-    if (!videoId || videoId === 'unknown') {
-      throw new Error('Invalid YouTube URL');
-    }
-    console.log('🎯 Extracted video ID:', videoId);
-
-    // Configure Tor proxy
-    console.log('🧅 Setting up Tor proxy...');
-    const { agent } = configureTorProxy();
-
-    // Fetch transcript using Tor proxy with retry logic
-    console.log('📝 Fetching transcript through Tor...');
-    let transcript;
+  while (retryCount < maxRetries) {
     try {
-      transcript = await withTorRetry(async () => {
-        const result = await YoutubeTranscript.fetchTranscript(videoId, {
-          requestOptions: { agent }
-        });
-        
-        if (!result || !Array.isArray(result)) {
-          throw new Error('Invalid transcript response');
-        }
-        
-        return result;
-      });
+      console.log('🎬 Starting YouTube conversion for:', url);
 
-      console.log('✅ Transcript fetched successfully with', transcript.length, 'entries');
+      const videoId = extractVideoId(url);
+      if (!videoId || videoId === 'unknown') {
+        throw new Error('Invalid YouTube URL');
+      }
+      console.log('🎯 Extracted video ID:', videoId);
 
-      // Convert the transcript entries to our format
-      transcript = transcript.map(entry => ({
-        text: entry.text,
-        start: entry.offset / 1000, // Convert ms to seconds
-        duration: entry.duration
-      }));
-    } catch (error) {
-      throw new Error(`Failed to fetch transcript through Tor: ${error.message}`);
-    }
-
-    // Only try to get metadata if we successfully got a transcript
-    let metadata = { title: 'Untitled Video' };
-    try {
-      console.log('🔍 Launching browser for metadata...');
+      // Launch browser
+      console.log('🔍 Launching browser...');
       browser = await puppeteer.launch({
         headless: true,
         args: [
@@ -105,48 +142,60 @@ export async function convertYoutubeToMarkdown(url, apiKey) {
       });
 
       const page = await browser.newPage();
+      
+      // Navigate to the video page
       console.log('🌐 Navigating to YouTube page...');
       await page.goto(url, {
         waitUntil: 'networkidle2',
-        timeout: 300000,
+        timeout: 30000,
       });
 
-      console.log('📊 Extracting metadata...');
-      metadata = await extractYoutubeMetadata(page);
-      console.log('✅ Metadata extracted:', {
-        title: metadata.title,
-      });
-    } catch (metadataError) {
-      console.warn('⚠️ Failed to fetch metadata:', metadataError.message);
-      // Continue with default metadata if extraction fails
-    }
+      // Extract transcript and metadata
+      const { transcript, metadata } = await extractTranscriptAndMetadata(page);
+      
+      if (!transcript || transcript.length === 0) {
+        throw new Error('No transcript found or transcript is empty');
+      }
 
-    console.log('📝 Generating markdown...');
-    const markdownContent = generateMarkdown(url, videoId, transcript, metadata);
+      console.log('✅ Extracted', transcript.length, 'transcript entries');
 
-    return {
-      success: true,
-      type: 'youtube',
-      category: 'web',
-      name: sanitizeFilename(metadata.title),
-      content: markdownContent,
-      images: [],
-      files: [],
-      originalUrl: url,
-    };
-  } catch (error) {
-    console.error('❌ YouTube conversion failed:', error);
-    return {
-      success: false,
-      type: 'youtube',
-      name: 'youtube_video',
-      error: error.message,
-      images: [],
-    };
-  } finally {
-    if (browser) {
-      console.log('🔒 Closing browser...');
-      await browser.close();
+      // Generate markdown
+      console.log('📝 Generating markdown...');
+      const markdownContent = generateMarkdown(url, videoId, transcript, metadata);
+
+      return {
+        success: true,
+        type: 'youtube',
+        category: 'web',
+        name: sanitizeFilename(metadata.title),
+        content: markdownContent,
+        images: [],
+        files: [],
+        originalUrl: url,
+      };
+    } catch (error) {
+      console.error(`❌ Attempt ${retryCount + 1} failed:`, error.message);
+      
+      if (retryCount < maxRetries - 1) {
+        console.log(`🔄 Retrying... (${retryCount + 2}/${maxRetries})`);
+        retryCount++;
+        // Wait before retry with exponential backoff
+        await new Promise(resolve => setTimeout(resolve, Math.pow(2, retryCount) * 1000));
+        continue;
+      }
+
+      return {
+        success: false,
+        type: 'youtube',
+        name: 'youtube_video',
+        error: error.message,
+        images: [],
+      };
+    } finally {
+      if (browser) {
+        console.log('🔒 Closing browser...');
+        await browser.close();
+      }
     }
   }
 }
