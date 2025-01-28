@@ -1,7 +1,7 @@
 // services/converter/web/youtubeConverter.js
 import sanitizeFilename from 'sanitize-filename';
 import puppeteer from 'puppeteer';
-import { YoutubeTranscript } from 'youtube-transcript'; // Ensure this package is installed
+import TranscriptAPI from 'youtube-transcript-api';
 import { extractVideoId, formatTimestamp, extractYoutubeMetadata } from '../../../routes/middleware/utils/youtubeUtils.js';
 
 /**
@@ -29,10 +29,10 @@ tags:
   const videoEmbed = `<iframe width="560" height="315" src="https://www.youtube.com/embed/${videoId}" frameborder="0" allowfullscreen></iframe>\n\n`;
 
   const transcriptMarkdown = transcript
-    .map(
-      (entry) =>
-        `**[${formatTimestamp(entry.offset)}]** ${entry.text.replace(/\n/g, ' ').trim()}\n`
-    )
+    .map(entry => {
+      const timestamp = entry.start ? formatTimestamp(Math.floor(parseFloat(entry.start))) : '00:00:00';
+      return `**[${timestamp}]** ${entry.text.replace(/\n/g, ' ').trim()}\n`;
+    })
     .join('\n');
 
   return `${frontmatter}${videoEmbed}# Transcript\n\n${transcriptMarkdown}`;
@@ -47,70 +47,79 @@ tags:
 export async function convertYoutubeToMarkdown(url, apiKey) {
   let browser;
   try {
-    console.log('Starting YouTube conversion for:', url);
+    console.log('🎬 Starting YouTube conversion for:', url);
 
     const videoId = extractVideoId(url);
     if (!videoId || videoId === 'unknown') {
       throw new Error('Invalid YouTube URL');
     }
-    console.log('Extracted video ID:', videoId);
+    console.log('🎯 Extracted video ID:', videoId);
 
-    console.log('Launching browser...');
-    browser = await puppeteer.launch({
-      headless: true, // Set to false for debugging
-      args: [
-        '--no-sandbox',
-        '--disable-setuid-sandbox',
-        '--disable-dev-shm-usage',
-        '--disable-accelerated-2d-canvas',
-        '--disable-gpu',
-      ],
-      defaultViewport: { width: 1280, height: 800 },
-    });
+    // First validate if the video exists
+    console.log('🔍 Validating video ID...');
+    const videoExists = await TranscriptAPI.validateID(videoId);
+    if (!videoExists) {
+      throw new Error('Video does not exist or is not accessible');
+    }
+    console.log('✅ Video ID validated successfully');
 
-    const page = await browser.newPage();
-    console.log('Navigating to YouTube page...');
-    await page.goto(url, {
-      waitUntil: 'networkidle2',
-      timeout: 300000,
-    });
-
-    console.log('Extracting metadata...');
-    const metadata = await extractYoutubeMetadata(page);
-    console.log('Metadata extracted:', {
-      title: metadata.title,
-    });
-
-    // Fetch transcript
-    console.log('🎯 Attempting to fetch transcript for video:', videoId);
-    let transcript = [];
+    // Attempt to fetch transcript first
+    console.log('📝 Fetching transcript...');
+    let transcript;
     try {
-      transcript = await YoutubeTranscript.fetchTranscript(videoId);
-      console.log('✅ Transcript successfully fetched with', transcript.length, 'entries');
-      
-      if (transcript.length === 0) {
-        console.warn('⚠️ Transcript was fetched but contains no entries');
-      }
+      transcript = await TranscriptAPI.getTranscript(videoId);
+      console.log('✅ Transcript fetched successfully with', transcript.length, 'entries');
     } catch (transcriptError) {
-      // Log detailed error information
       console.warn('❌ Failed to fetch transcript:', {
         error: transcriptError.message,
         videoId,
         url
       });
       
-      // Handle specific error cases
-      if (transcriptError.message.includes('Could not retrieve a transcript')) {
-        transcript = [{ offset: 0, text: '**Note:** No transcript is available for this video. This could be because:\n- Captions are disabled\n- Auto-generated captions are not available\n- The video is not publicly accessible' }];
-      } else if (transcriptError.message.includes('Invalid')) {
-        throw new Error(`Invalid YouTube video ID or URL: ${videoId}`);
+      if (transcriptError.message.includes('transcripts disabled')) {
+        transcript = [{ 
+          start: '0', 
+          text: '**Note:** No transcript is available for this video. This could be because:\n- Captions are disabled\n- Auto-generated captions are not available\n- The video requires authentication' 
+        }];
       } else {
-        console.error('Unexpected transcript error:', transcriptError);
-        transcript = [{ offset: 0, text: '**Note:** Unable to retrieve transcript due to a technical error. Please try again later.' }];
+        throw transcriptError;
       }
     }
 
-    console.log('Generating markdown...');
+    // Only try to get metadata if we successfully got a transcript
+    let metadata = { title: 'Untitled Video' };
+    try {
+      console.log('🔍 Launching browser for metadata...');
+      browser = await puppeteer.launch({
+        headless: true,
+        args: [
+          '--no-sandbox',
+          '--disable-setuid-sandbox',
+          '--disable-dev-shm-usage',
+          '--disable-accelerated-2d-canvas',
+          '--disable-gpu',
+        ],
+        defaultViewport: { width: 1280, height: 800 },
+      });
+
+      const page = await browser.newPage();
+      console.log('🌐 Navigating to YouTube page...');
+      await page.goto(url, {
+        waitUntil: 'networkidle2',
+        timeout: 300000,
+      });
+
+      console.log('📊 Extracting metadata...');
+      metadata = await extractYoutubeMetadata(page);
+      console.log('✅ Metadata extracted:', {
+        title: metadata.title,
+      });
+    } catch (metadataError) {
+      console.warn('⚠️ Failed to fetch metadata:', metadataError.message);
+      // Continue with default metadata if extraction fails
+    }
+
+    console.log('📝 Generating markdown...');
     const markdownContent = generateMarkdown(url, videoId, transcript, metadata);
 
     return {
@@ -124,7 +133,7 @@ export async function convertYoutubeToMarkdown(url, apiKey) {
       originalUrl: url,
     };
   } catch (error) {
-    console.error('YouTube conversion failed:', error);
+    console.error('❌ YouTube conversion failed:', error);
     return {
       success: false,
       type: 'youtube',
@@ -134,7 +143,7 @@ export async function convertYoutubeToMarkdown(url, apiKey) {
     };
   } finally {
     if (browser) {
-      console.log('Closing browser...');
+      console.log('🔒 Closing browser...');
       await browser.close();
     }
   }

@@ -25,7 +25,8 @@
     "svelte-spinner": "^2.0.2",
     "turndown": "^7.2.0",
     "yaml": "^2.2.1",
-    "youtube-transcript": "^1.2.1"
+    "youtube-transcript": "^1.2.1",
+    "youtube-transcript-api": "^1.1.2"
   },
   "devDependencies": {
     "@babel/cli": "^7.14.8",
