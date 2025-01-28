@@ -55,18 +55,11 @@ export async function convertYoutubeToMarkdown(url, apiKey) {
     }
     console.log('🎯 Extracted video ID:', videoId);
 
-    // First validate if the video exists
-    console.log('🔍 Validating video ID...');
-    const videoExists = await TranscriptAPI.validateID(videoId);
-    if (!videoExists) {
-      throw new Error('Video does not exist or is not accessible');
-    }
-    console.log('✅ Video ID validated successfully');
-
-    // Attempt to fetch transcript first
+    // Attempt to fetch transcript
     console.log('📝 Fetching transcript...');
     let transcript;
     try {
+      // No need to validate separately as the transcript fetch will handle that
       transcript = await TranscriptAPI.getTranscript(videoId);
       console.log('✅ Transcript fetched successfully with', transcript.length, 'entries');
     } catch (transcriptError) {
@@ -76,13 +69,26 @@ export async function convertYoutubeToMarkdown(url, apiKey) {
         url
       });
       
-      if (transcriptError.message.includes('transcripts disabled')) {
+      // Handle different error cases
+      if (transcriptError.message.includes('Could not find the video') ||
+          transcriptError.message.includes('Video unavailable')) {
+        throw new Error('Video does not exist or is not accessible');
+      }
+      
+      if (transcriptError.message.includes('Subtitles are disabled') ||
+          transcriptError.message.includes('No transcript available')) {
         transcript = [{ 
-          start: '0', 
-          text: '**Note:** No transcript is available for this video. This could be because:\n- Captions are disabled\n- Auto-generated captions are not available\n- The video requires authentication' 
+          start: 0, 
+          text: `**Note:** No transcript is available for this video. This could be because:
+- Captions are disabled for this video
+- Auto-generated captions are not available
+- The video requires authentication
+- The video is a live stream or premiere
+
+Video URL: ${url}` 
         }];
       } else {
-        throw transcriptError;
+        throw new Error(`Failed to fetch transcript: ${transcriptError.message}`);
       }
     }
 

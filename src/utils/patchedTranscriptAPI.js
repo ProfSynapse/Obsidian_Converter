@@ -1,42 +1,36 @@
-import axios from "axios";
-import * as cheerio from "cheerio";  // Fixed import statement for cheerio
+import { YoutubeTranscript } from 'youtube-transcript';
 
 /**
- * Patched version of TranscriptAPI that properly imports cheerio
- * This fixes the ESM compatibility issue with the original youtube-transcript-api
+ * Patched version of TranscriptAPI using youtube-transcript package
+ * This version uses a more reliable and maintained package for transcript fetching
  */
 class PatchedTranscriptAPI {
   static async getTranscript(id, config = {}) {
-    const url = new URL('https://youtubetranscript.com');
-    url.searchParams.set('server_vid2', id);
-    
-    const response = await axios.get(url, config);
-    const $ = cheerio.load(response.data, undefined, false);
-    const err = $('error');
-  
-    if (err.length) throw new Error(err.text());
-    return $('transcript text').map((i, elem) => {
-      const $a = $(elem);
-      return {
-        text: $a.text(),
-        start: Number($a.attr('start')),
-        duration: Number($a.attr('dur'))
-      };
-    }).toArray();
+    try {
+      console.log('🎯 Fetching transcript using youtube-transcript package...');
+      const transcript = await YoutubeTranscript.fetchTranscript(id);
+      return transcript.map(entry => ({
+        text: entry.text,
+        start: entry.offset / 1000, // Convert ms to seconds
+        duration: entry.duration
+      }));
+    } catch (error) {
+      console.error('❌ Failed to fetch transcript:', error.message);
+      throw new Error(error.message || 'Failed to fetch transcript');
+    }
   }
 
-  static async validateID(id, config = {}) {
-    const url = new URL('https://video.google.com/timedtext');
-    url.searchParams.set('type', 'track');
-    url.searchParams.set('v', id);
-    url.searchParams.set('id', 0);
-    url.searchParams.set('lang', 'en');
-    
+  static async validateID(id) {
     try {
-      await axios.get(url, config);
+      // Try to fetch transcript - if it succeeds, video exists and has transcripts
+      await YoutubeTranscript.fetchTranscript(id);
       return true;
-    } catch (_) {
-      return false;
+    } catch (error) {
+      console.warn('⚠️ Video validation failed:', error.message);
+      // Return false only if video doesn't exist
+      // If video exists but has no transcript, we'll handle that in getTranscript
+      return !error.message.includes('Could not find the video') && 
+             !error.message.includes('Video unavailable');
     }
   }
 }
