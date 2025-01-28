@@ -3,6 +3,27 @@ import sanitizeFilename from 'sanitize-filename';
 import puppeteer from 'puppeteer';
 import { extractVideoId, formatTimestamp } from '../../../routes/middleware/utils/youtubeUtils.js';
 
+// Error types for better error handling
+const YouTubeErrors = {
+  NO_TRANSCRIPT: 'No transcript available',
+  COOKIE_BANNER: 'Cookie banner interaction failed',
+  EXPAND_BUTTON: 'Failed to expand description',
+  TRANSCRIPT_BUTTON: 'Failed to find transcript button',
+  EXTRACTION: 'Failed to extract transcript'
+};
+
+// Debug logging utility
+const debugLog = {
+  start: () => console.log('🎬 Starting YouTube conversion'),
+  browser: () => console.log('🔍 Launching browser...'),
+  navigation: () => console.log('🌐 Navigating to YouTube page...'),
+  expand: () => console.log('📖 Expanding description...'),
+  transcript: () => console.log('📝 Looking for transcript button...'),
+  extraction: (count) => console.log(`✅ Extracted ${count} transcript entries`),
+  error: (msg) => console.error('❌ Error:', msg),
+  close: () => console.log('🔒 Closing browser...')
+};
+
 /**
  * Extracts transcript and metadata from a YouTube page using Puppeteer
  * @param {puppeteer.Page} page - Puppeteer page instance
@@ -10,44 +31,53 @@ import { extractVideoId, formatTimestamp } from '../../../routes/middleware/util
  */
 async function extractTranscriptAndMetadata(page) {
   try {
-    // Handle cookie consent if present
+    // Step 1: Handle cookie consent if present
     try {
-      const cookieButton = await page.$('button[aria-label*="Accept"]');
-      if (cookieButton) {
-        await cookieButton.click();
-        await page.waitForTimeout(1000); // Wait for cookie banner to disappear
-      }
+      await page.evaluate(() => {
+        document.querySelector('button[aria-label*=cookies]')?.click();
+      });
+      await page.waitForTimeout(1000);
     } catch (error) {
-      console.log('No cookie banner found or already accepted');
+      debugLog.error('Cookie banner handling failed, proceeding anyway');
     }
 
-    // Wait for and click the "Show transcript" button
-    console.log('🔍 Looking for transcript button...');
-    await page.waitForSelector('ytd-video-description-transcript-section-renderer button', { timeout: 5000 });
-    await page.click('ytd-video-description-transcript-section-renderer button');
+    // Step 2: Expand description
+    try {
+      debugLog.expand();
+      await page.waitForSelector('tp-yt-paper-button#expand.button.style-scope.ytd-text-inline-expander', { timeout: 10000 });
+      await page.click('tp-yt-paper-button#expand.button.style-scope.ytd-text-inline-expander');
+      await page.waitForTimeout(1000);
+    } catch (error) {
+      debugLog.error('Description expansion failed, trying transcript anyway');
+    }
 
-    // Wait for transcript container to appear
-    console.log('📝 Extracting transcript...');
-    await page.waitForSelector('#segments-container', { timeout: 5000 });
+    // Step 3: Click transcript button
+    debugLog.transcript();
+    await page.waitForSelector('div.yt-spec-touch-feedback-shape__fill', { timeout: 10000 });
+    await page.click('div.yt-spec-touch-feedback-shape__fill');
+    await page.waitForTimeout(1000);
 
-    // Extract transcript entries
+    // Step 4: Wait for transcript container and extract content
+    await page.waitForSelector('#segments-container', { timeout: 10000 });
+    debugLog.extraction();
+
+    // Extract transcript entries with exact selectors
     const { transcript, title } = await page.evaluate(() => {
       const titleElement = document.querySelector('ytd-watch-metadata yt-formatted-string.style-scope');
-      const transcriptEntries = Array.from(document.querySelectorAll('#segments-container ytd-transcript-segment-renderer'));
+      const segments = document.querySelectorAll('#segments-container > ytd-transcript-segment-renderer');
       
-      const transcript = transcriptEntries.map(entry => {
-        const timestampElement = entry.querySelector('#timestamp');
-        const textElement = entry.querySelector('#text');
+      const transcript = Array.from(segments).map(segment => {
+        const timestampElement = segment.querySelector('div > div > div');
+        const textElement = segment.querySelector('div > yt-formatted-string');
         
-        // Parse timestamp to seconds
-        const timestamp = timestampElement?.textContent || '0:00';
+        const timestamp = timestampElement?.textContent?.trim() || '0:00';
         const [minutes, seconds] = timestamp.split(':').map(Number);
         const startTime = minutes * 60 + (seconds || 0);
 
         return {
           text: textElement?.textContent?.trim() || '',
           start: startTime,
-          duration: 0 // Duration not available in UI
+          duration: 0
         };
       });
 
@@ -57,13 +87,19 @@ async function extractTranscriptAndMetadata(page) {
       };
     });
 
+    // Validate transcript data
+    if (!transcript || transcript.length === 0) {
+      throw new Error(YouTubeErrors.NO_TRANSCRIPT);
+    }
+
+    debugLog.extraction(transcript.length);
     return {
       transcript,
       metadata: { title }
     };
   } catch (error) {
-    console.error('Failed to extract transcript:', error);
-    throw new Error(`Failed to extract transcript: ${error.message}`);
+    debugLog.error(`Transcript extraction failed: ${error.message}`);
+    throw new Error(error.message);
   }
 }
 
@@ -104,12 +140,6 @@ tags:
 /**
  * YouTube to Markdown Converter
  * @param {string} url - The YouTube video URL
- * @param {string} apiKey - (Optional) API key if required
- * @returns {Promise<Object>} - The conversion result
- */
-/**
- * YouTube to Markdown Converter
- * @param {string} url - The YouTube video URL
  * @returns {Promise<Object>} - The conversion result
  */
 export async function convertYoutubeToMarkdown(url) {
@@ -119,7 +149,7 @@ export async function convertYoutubeToMarkdown(url) {
 
   while (retryCount < maxRetries) {
     try {
-      console.log('🎬 Starting YouTube conversion for:', url);
+      debugLog.start();
 
       const videoId = extractVideoId(url);
       if (!videoId || videoId === 'unknown') {
@@ -128,7 +158,7 @@ export async function convertYoutubeToMarkdown(url) {
       console.log('🎯 Extracted video ID:', videoId);
 
       // Launch browser
-      console.log('🔍 Launching browser...');
+      debugLog.browser();
       browser = await puppeteer.launch({
         headless: true,
         args: [
@@ -144,20 +174,14 @@ export async function convertYoutubeToMarkdown(url) {
       const page = await browser.newPage();
       
       // Navigate to the video page
-      console.log('🌐 Navigating to YouTube page...');
+      debugLog.navigation();
       await page.goto(url, {
-        waitUntil: 'networkidle2',
+        waitUntil: 'domcontentloaded',
         timeout: 30000,
       });
 
       // Extract transcript and metadata
       const { transcript, metadata } = await extractTranscriptAndMetadata(page);
-      
-      if (!transcript || transcript.length === 0) {
-        throw new Error('No transcript found or transcript is empty');
-      }
-
-      console.log('✅ Extracted', transcript.length, 'transcript entries');
 
       // Generate markdown
       console.log('📝 Generating markdown...');
@@ -174,13 +198,13 @@ export async function convertYoutubeToMarkdown(url) {
         originalUrl: url,
       };
     } catch (error) {
-      console.error(`❌ Attempt ${retryCount + 1} failed:`, error.message);
+      debugLog.error(`Attempt ${retryCount + 1}/${maxRetries} failed: ${error.message}`);
       
       if (retryCount < maxRetries - 1) {
-        console.log(`🔄 Retrying... (${retryCount + 2}/${maxRetries})`);
+        const waitTime = Math.pow(2, retryCount) * 1000;
+        console.log(`🔄 Retrying in ${waitTime/1000}s...`);
+        await new Promise(resolve => setTimeout(resolve, waitTime));
         retryCount++;
-        // Wait before retry with exponential backoff
-        await new Promise(resolve => setTimeout(resolve, Math.pow(2, retryCount) * 1000));
         continue;
       }
 
@@ -193,7 +217,7 @@ export async function convertYoutubeToMarkdown(url) {
       };
     } finally {
       if (browser) {
-        console.log('🔒 Closing browser...');
+        debugLog.close();
         await browser.close();
       }
     }
