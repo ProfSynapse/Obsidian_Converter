@@ -1,7 +1,7 @@
 // services/converter/web/youtubeConverter.js
 import sanitizeFilename from 'sanitize-filename';
 import puppeteer from 'puppeteer';
-import TranscriptAPI from 'youtube-transcript-api';
+import TranscriptAPI from '../../../utils/patchedTranscriptAPI.js';
 import { extractVideoId, formatTimestamp, extractYoutubeMetadata } from '../../../routes/middleware/utils/youtubeUtils.js';
 
 /**
