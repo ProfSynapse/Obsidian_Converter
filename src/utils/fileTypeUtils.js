@@ -8,11 +8,10 @@ const API_REQUIRED_TYPES = [
 ];
 
 const FILE_CATEGORIES = {
-  documents: ['txt', 'rtf', 'pdf', 'docx', 'odt', 'epub', 'doc'],
+  documents: ['pdf', 'docx', 'pptx'],
   audio: ['mp3', 'wav', 'ogg', 'm4a', 'aac', 'wma'],
   video: ['mp4', 'mov', 'avi', 'mkv', 'webm'],
-  data: ['csv', 'json', 'yaml', 'yml', 'xlsx', 'pptx'],
-  web: ['html', 'htm', 'xml']
+  data: ['csv', 'xlsx'],
 };
 
 export function requiresApiKey(fileType) {
@@ -41,7 +40,7 @@ export function determineCategory(type, fileType) {
   }
   
   // Document types - add pptx explicitly
-  if (['pdf', 'doc', 'docx', 'txt', 'rtf', 'pptx', 'ppt'].includes(fileType)) {
+  if (['pdf', 'docx', 'pptx', 'ppt'].includes(fileType)) {
     return 'text';
   }
   
@@ -51,7 +50,7 @@ export function determineCategory(type, fileType) {
   }
   
   // Web content
-  if (['url', 'html', 'htm', 'parenturl', 'youtube'].includes(type)) {
+  if (['url', 'parenturl'].includes(type)) {
     return 'web';
   }
   

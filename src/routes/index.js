@@ -75,11 +75,6 @@ router.post('/web/parent-url',
     controller.handleParentUrlConversion
 );
 
-router.post('/web/youtube',
-    validateConversion,
-    controller.handleYouTubeConversion
-);
-
 // Batch conversion endpoint
 router.post('/batch',
     uploadMiddleware,

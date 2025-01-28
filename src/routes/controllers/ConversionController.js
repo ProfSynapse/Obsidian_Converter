@@ -161,22 +161,6 @@ export class ConversionController {
     }
   };
 
-  handleYouTubeConversion = async (req, res, next) => {
-    try {
-      const data = {
-        type: 'youtube',
-        content: req.body.url,
-        name: `youtube-${Date.now()}`,
-        options: req.body.options
-      };
-      
-      const result = await this.conversionService.convert(data);
-      this.#sendZipResponse(res, result);
-    } catch (error) {
-      next(new AppError(error.message, 500));
-    }
-  };
-
     handleFileConversion = async (req, res, next) => {
         try {
             // Enhanced request logging with file signature info

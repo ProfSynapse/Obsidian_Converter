@@ -17,7 +17,7 @@ function escapeRegExp(string) {
 
 /**
  * Handles the conversion of a single item.
- * @param {string} type - The type of content (e.g., 'youtube', 'file', etc.)
+ * @param {string} type - The type of content (e.g., 'file', 'url', etc.)
  * @param {string|Buffer|Object} content - The content to convert
  * @param {string} name - The name of the item
  * @param {string} apiKey - The API key for authenticated services
@@ -64,9 +64,9 @@ export async function handleConversion(type, content, name, apiKey) {
 
 const CATEGORIES = {
   multimedia: ['audio', 'video', 'mp3', 'mp4', 'wav', 'ogg', 'webm'],
-  web: ['url', 'parenturl', 'youtube', 'html', 'htm'],
-  text: ['txt', 'rtf', 'pdf', 'docx', 'odt', 'epub', 'pptx'],
-  data: ['csv', 'json', 'yaml', 'yml', 'xlsx']
+  web: ['url', 'parenturl'],
+  text: ['pdf', 'docx', 'pptx'],
+  data: ['csv', 'xlsx']
 };
 
 function getCategory(type) {

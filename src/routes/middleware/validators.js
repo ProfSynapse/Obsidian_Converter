@@ -26,19 +26,6 @@ const validateUrl = (url) => {
 };
 
 /**
- * Validates YouTube URL format
- */
-const validateYoutubeUrl = (url) => {
-    const normalized = normalizeUrl(url);
-    const regex = /^https?:\/\/(?:www\.)?(?:youtube\.com\/watch\?v=|youtu\.be\/|youtube\.com\/embed\/)/;
-    
-    if (!regex.test(normalized)) {
-        throw new Error('Invalid YouTube URL format');
-    }
-    return true;
-};
-
-/**
  * Validation result checker
  */
 const checkResult = (req, res, next) => {
@@ -117,18 +104,6 @@ const validators = {
             .custom(validateUrl)
     ],
 
-    // YouTube URL validation
-    youtube: [
-        body('url')
-            .trim()
-            .notEmpty()
-            .withMessage('YouTube URL is required')
-            .isString()
-            .withMessage('YouTube URL must be a string')
-            .customSanitizer(normalizeUrl)
-            .custom(validateYoutubeUrl)
-    ],
-
     // Batch validation
     batch: [
         body('items')
@@ -173,13 +148,13 @@ const validators = {
         body('items.*.type')
             .optional()
             .isString()
-            .isIn(['file', 'url', 'parenturl', 'youtube', 'pptx', 'pdf', 'docx', 'csv', 'xlsx'])
-            .withMessage('Invalid item type. Supported types: file, url, parenturl, youtube, pptx, pdf, docx, csv, xlsx'),
+            .isIn(['file', 'url', 'parenturl', 'pptx', 'pdf', 'docx', 'csv', 'xlsx'])
+            .withMessage('Invalid item type. Supported types: file, url, parenturl, pptx, pdf, docx, csv, xlsx'),
         body('items.*.url')
             .optional()
             .custom((value, { req }) => {
                 const item = req.body.items[req._validationData.index];
-                if (['url', 'parenturl', 'youtube'].includes(item.type)) {
+                if (['url', 'parenturl'].includes(item.type)) {
                     if (!value) {
                         throw new Error(`URL is required for type: ${item.type}`);
                     }

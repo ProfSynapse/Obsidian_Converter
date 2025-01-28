@@ -71,7 +71,7 @@ export class ConversionService {
       size: content?.length
     });
 
-    if (['url', 'parenturl', 'youtube'].includes(normalizedType)) {
+    if (['url', 'parenturl'].includes(normalizedType)) {
       // Web-based conversions
       console.log('🌐 Processing web content');
       processedContent = content;
@@ -360,8 +360,6 @@ export class ConversionService {
     }
 
     switch (type) {
-      case 'youtube':
-        return this.handleYouTubeConversion(content, name);
       case 'parenturl':
         return this.handleParentUrlConversion(content, name);
       case 'url':
@@ -369,16 +367,6 @@ export class ConversionService {
       default:
         return this.handleFileConversion(converterType, content, name, options);
     }
-  }
-
-  async handleYouTubeConversion(url, name) {
-    const result = await textConverterFactory.convertToMarkdown('youtube', url, name);
-    return {
-      ...result,
-      type: 'youtube',
-      category: 'web',
-      name
-    };
   }
 
   async handleParentUrlConversion(url, name) {
@@ -473,7 +461,6 @@ export class ConversionService {
     }
     if (type === 'url') return 'url';
     if (type === 'parenturl') return 'parenturl';
-    if (type === 'youtube') return 'youtube';
     return fileType;
   }
 

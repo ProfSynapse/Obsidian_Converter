@@ -7,7 +7,7 @@ import { convertCsvToMarkdown } from './data/csvConverter.js';
 import { convertXlsxToMarkdown } from './data/xlsxConverter.js';
 import { convertUrlToMarkdown } from './web/urlConverter.js';
 import { convertParentUrlToMarkdown } from './web/parentUrlConverter.js';
-import { convertYoutubeToMarkdown } from './web/youtubeConverter.js';
+// YouTube functionality temporarily removed
 import { convertAudioToMarkdown } from './multimedia/audioconverter.js';
 import { convertVideoToMarkdown } from './multimedia/videoConverter.js';
 
@@ -52,7 +52,6 @@ class TextConverterFactory {
       // Web converters
       url: convertUrlToMarkdown,
       parenturl: convertParentUrlToMarkdown,
-      youtube: convertYoutubeToMarkdown,
 
       // Multimedia converters  
       audio: convertAudioToMarkdown,
@@ -66,7 +65,6 @@ class TextConverterFactory {
       pptx: ['buffer'],
       url: ['string'],
       parenturl: ['string', 'object'],
-      youtube: ['string'],
       audio: ['buffer'],
       video: ['buffer']
     };
@@ -294,9 +292,6 @@ class TextConverterFactory {
         case 'parenturl':
           console.log('🌐 Converting parent URL content');
           return await convertParentUrlToMarkdown(content, options);
-        case 'youtube':
-          console.log('🎥 Converting YouTube content');
-          return await convertYoutubeToMarkdown(content, options);
         default:
           console.error('❌ Unsupported file type:', fileType);
           // Handle multimedia types
