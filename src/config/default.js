@@ -20,7 +20,8 @@ export const config = {
       "mp3", "wav", "m4a",
       "mp4", "webm", "avi"
     ],
-    maxFileSize: 52428800
+    maxFileSize: 52428800, // 50MB for non-video files
+    maxVideoFileSize: 524288000 // 500MB for video files
   },
   storage: {
     tempDir: '/tmp/obsidian-converter'

@@ -107,11 +107,17 @@ const fileFilter = async (req, file, cb) => {
             throw new AppError(`Invalid file type. Allowed types are: ${allowedTypesList}`, 400);
         }
 
-        // Check file size early
+        // Check file size early with different limits for video files
         const contentLength = parseInt(req.headers['content-length'] || '0');
-        const maxSize = config.conversion.maxFileSize || 50 * 1024 * 1024;
+        const isVideoFile = ['video/mp4', 'video/quicktime', 'video/webm'].includes(file.mimetype);
+        const maxSize = isVideoFile ? 
+            (config.conversion.maxVideoFileSize || 500 * 1024 * 1024) : 
+            (config.conversion.maxFileSize || 50 * 1024 * 1024);
+        
         if (contentLength > maxSize) {
-            throw new AppError(`File too large. Maximum size is ${maxSize / (1024 * 1024)}MB`, 400);
+            const sizeInMB = maxSize / (1024 * 1024);
+            const fileType = isVideoFile ? 'video files' : 'files';
+            throw new AppError(`File too large. Maximum size for ${fileType} is ${sizeInMB}MB`, 400);
         }
 
         // Log file validation
@@ -133,7 +139,7 @@ const fileFilter = async (req, file, cb) => {
 const upload = multer({
     storage,
     limits: {
-        fileSize: config.conversion.maxFileSize || 50 * 1024 * 1024, // 50MB default
+        fileSize: config.conversion.maxVideoFileSize || 500 * 1024 * 1024, // Use larger limit since multer will validate exact type later
         files: 10, // Allow up to 10 files for batch processing
         fieldSize: 10 * 1024 * 1024 // 10MB field size limit
     },
@@ -163,7 +169,12 @@ const handleUpload = (req, res) => new Promise((resolve, reject) => {
             if (err instanceof multer.MulterError) {
                 switch (err.code) {
                     case 'LIMIT_FILE_SIZE':
-                        reject(new AppError(`File too large. Maximum size is ${config.conversion.maxFileSize / (1024 * 1024)}MB`, 400));
+                        const isVideoMime = req.headers['content-type']?.includes('video/');
+                        const maxSize = isVideoMime ? 
+                            (config.conversion.maxVideoFileSize || 500 * 1024 * 1024) : 
+                            (config.conversion.maxFileSize || 50 * 1024 * 1024);
+                        const fileType = isVideoMime ? 'video files' : 'files';
+                        reject(new AppError(`File too large. Maximum size for ${fileType} is ${maxSize / (1024 * 1024)}MB`, 400));
                         break;
                     case 'LIMIT_FILE_COUNT':
                         reject(new AppError('Too many files. Only one file allowed per request', 400));
