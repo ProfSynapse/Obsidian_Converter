@@ -237,32 +237,58 @@ export class ConversionService {
           }
         });
 
-        const zipBuffer = await createBatchZip([{
-          ...result,
-          type: fileType,
-          category,
-          name
-        }]);
+        // Check if we can skip ZIP creation (single file without attachments)
+        const shouldCreateZip = 
+          category === 'web' || // Web scrapes have complex structure
+          (result.images && result.images.length > 0) || // Has attachments
+          type === 'parenturl'; // Parent URL always creates multiple files
 
-        // Clean up after ZIP creation
-        if (global.gc) {
-          console.log('🧹 Running post-ZIP garbage collection');
-          global.gc();
+        if (!shouldCreateZip) {
+          const baseName = path.basename(name, path.extname(name));
+          const endMemory = process.memoryUsage();
+          console.log('✅ Single file conversion completed:', {
+            type: fileType,
+            name,
+            duration: Date.now() - startTime + 'ms',
+            finalMemory: Math.round(endMemory.heapUsed / 1024 / 1024) + 'MB',
+            memoryChange: Math.round((endMemory.heapUsed - initialMemory.heapUsed) / 1024 / 1024) + 'MB'
+          });
+
+          return {
+            buffer: Buffer.from(result.content),
+            filename: `${baseName}.md`,
+            type: 'markdown'
+          };
+        } else {
+          // Create ZIP for complex conversions
+          const zipBuffer = await createBatchZip([{
+            ...result,
+            type: fileType,
+            category,
+            name
+          }]);
+
+          // Clean up after ZIP creation
+          if (global.gc) {
+            console.log('🧹 Running post-ZIP garbage collection');
+            global.gc();
+          }
+
+          const endMemory = process.memoryUsage();
+          console.log('✅ ZIP conversion completed:', {
+            type: fileType,
+            name,
+            duration: Date.now() - startTime + 'ms',
+            finalMemory: Math.round(endMemory.heapUsed / 1024 / 1024) + 'MB',
+            memoryChange: Math.round((endMemory.heapUsed - initialMemory.heapUsed) / 1024 / 1024) + 'MB'
+          });
+
+          return {
+            buffer: zipBuffer,
+            filename: this.generateFilename(),
+            type: 'zip'
+          };
         }
-
-        const endMemory = process.memoryUsage();
-        console.log('✅ Conversion completed:', {
-          type: fileType,
-          name,
-          duration: Date.now() - startTime + 'ms',
-          finalMemory: Math.round(endMemory.heapUsed / 1024 / 1024) + 'MB',
-          memoryChange: Math.round((endMemory.heapUsed - initialMemory.heapUsed) / 1024 / 1024) + 'MB'
-        });
-
-        return {
-          buffer: zipBuffer,
-          filename: this.generateFilename()
-        };
       } catch (zipError) {
         console.error('❌ ZIP creation failed:', {
           error: zipError.message,

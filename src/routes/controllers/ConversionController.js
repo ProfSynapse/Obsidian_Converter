@@ -19,19 +19,37 @@ export class ConversionController {
         options.apiKey = apiKey;
       }
 
-      console.log('Processing conversion:', {
+      // Create a fresh buffer copy and validate file type
+      const fileBuffer = Buffer.from(file.buffer);
+      const fileExtension = path.extname(file.originalname).slice(1).toLowerCase();
+      const fileType = this.#determineFileType(fileExtension, file.mimetype);
+
+      console.log('🔄 Processing conversion:', {
         fileName: file.originalname,
-        fileType: file.mimetype,
-        hasApiKey: !!apiKey
+        fileType: fileType,
+        mimeType: file.mimetype,
+        hasApiKey: !!apiKey,
+        size: fileBuffer.length
       });
 
-      const result = await this.conversionService.convert(file, options);
+      const conversionData = {
+        type: fileType,
+        content: fileBuffer,
+        name: file.originalname,
+        options: {
+          ...options,
+          originalMimeType: file.mimetype
+        },
+        mimeType: file.mimetype
+      };
+
+      const result = await this.conversionService.convert(conversionData);
       
       if (!result.buffer || !result.filename) {
         throw new Error('Invalid conversion result');
       }
 
-      // Send ZIP file response
+      // Send response (handles both markdown and zip)
       this.#sendZipResponse(res, result);
     } catch (error) {
       next(new AppError(error.message, 500));
@@ -460,8 +478,18 @@ export class ConversionController {
   }
 
   #sendZipResponse(res, result) {
+    // Handle different response types based on conversion result
+    const contentType = result.type === 'markdown' ? 'text/markdown' : 'application/zip';
+    
+    console.log('📤 Sending response:', {
+      type: result.type,
+      filename: result.filename,
+      contentType,
+      contentLength: result.buffer.length
+    });
+
     res.set({
-      'Content-Type': 'application/zip',
+      'Content-Type': contentType,
       'Content-Disposition': `attachment; filename="${result.filename}"`,
     });
     res.send(result.buffer);
