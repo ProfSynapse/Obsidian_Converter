@@ -34,12 +34,18 @@ const CONFIG = {
         '--disable-setuid-sandbox',
         '--disable-dev-shm-usage',
         '--disable-accelerated-2d-canvas',
-        '--disable-gpu'
-      ]
+        '--disable-gpu',
+        '--disable-software-rasterizer',
+        '--disable-extensions',
+        '--no-zygote',
+        '--single-process',
+        '--disable-infobars'
+      ],
+      timeout: 60000
     },
     navigation: {
       waitUntil: 'networkidle2',
-      timeout: 300000
+      timeout: 60000
     },
     userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
   }

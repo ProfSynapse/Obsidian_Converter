@@ -5,40 +5,45 @@ import TurndownService from 'turndown';
 import * as cheerio from 'cheerio';
 import { extractMetadata } from '../../../utils/metadataExtractor.js';  // Fix path
 
-/**
- * Configuration for URL conversion and browser settings
- */
-const CONFIG = {
-  puppeteer: {
-    launch: {
-      headless: true,
-      args: [
-        '--no-sandbox',
-        '--disable-setuid-sandbox',
-        '--disable-dev-shm-usage',
-        '--disable-accelerated-2d-canvas',
-        '--disable-gpu',
-        '--disable-notifications',
-        '--disable-extensions',
-        '--disable-infobars'
-      ],
-      defaultViewport: { width: 1920, height: 1080 }
+  /**
+   * Configuration for URL conversion and browser settings
+   */
+  const CONFIG = {
+    puppeteer: {
+      launch: {
+        headless: true,
+        args: [
+          '--no-sandbox',
+          '--disable-setuid-sandbox',
+          '--disable-dev-shm-usage',
+          '--disable-accelerated-2d-canvas',
+          '--disable-gpu',
+          '--disable-software-rasterizer',
+          '--disable-notifications',
+          '--disable-extensions',
+          '--no-zygote',
+          '--single-process',
+          '--disable-infobars'
+        ],
+        defaultViewport: { width: 1920, height: 1080 },
+        timeout: 60000  // Increased timeout
+      },
+      navigation: {
+        waitUntil: ['networkidle2', 'domcontentloaded'],
+        timeout: 60000  // Increased timeout
+      }
     },
-    navigation: {
-      waitUntil: ['networkidle2', 'domcontentloaded'],
-      timeout: 300000
+    conversion: {
+      maxRetries: 3,
+      retryDelay: 1000,
+      timeoutMs: 300000,
+      maxConcurrent: 5,
+      imageSizeLimit: 5 * 1024 * 1024, // 5MB
+      imageTypes: ['jpg', 'jpeg', 'png', 'gif', 'webp', 'svg', 'ico'],
+      maxImages: 50,
+      includeSkippedImages: true // Include information about skipped images in output
     }
-  },
-  conversion: {
-    maxRetries: 3,
-    retryDelay: 1000,
-    timeoutMs: 300000,
-    maxConcurrent: 5,
-    imageSizeLimit: 5 * 1024 * 1024, // 5MB
-    imageTypes: ['jpg', 'jpeg', 'png', 'gif', 'webp'],
-    maxImages: 50
-  }
-};
+  };
 
 /**
  * Custom error types for URL conversion
@@ -271,7 +276,7 @@ class UrlConverter {
         await this.browserManager.navigateToUrl(url);
   
         // Extract content
-        const { html, metadata, images } = await this.extractContent(url, {
+        const { html, metadata, images, skippedImages } = await this.extractContent(url, {
           includeImages,
           includeMeta
         });
@@ -282,12 +287,13 @@ class UrlConverter {
         console.log(`Converted to Markdown, length: ${markdown.length}`);
   
         // Format final content
-        const content = this.formatContent(markdown, metadata);
+        const content = this.formatContent(markdown, metadata, this.config.conversion.includeSkippedImages ? skippedImages : []);
         console.log(`Formatted content, length: ${content.length}`);
   
         return {
           content,
-          images: includeImages ? images : [],
+          images: includeImages ? images.images : [],
+          skippedImages: includeImages && this.config.conversion.includeSkippedImages ? images.skippedImages : [],
           name: UrlUtils.sanitizeFilename(
             originalName || UrlUtils.getDomain(url)
           ),
@@ -342,21 +348,28 @@ class UrlConverter {
     // Add spacing between elements for better readability
     $('h1, h2, h3, h4, h5, h6, p, ul, ol, blockquote, pre, table').after('\n');
 
+    let processedImages = { images: [], skippedImages: [] };
+    if (includeImages) {
+      processedImages = await this.extractImages($, url);
+    }
+
     return {
       html: $.html(),
       metadata,
-      images
+      images: processedImages.images,
+      skippedImages: processedImages.skippedImages
     };
   }
 
   /**
    * Extracts and processes images, creating Obsidian-compatible image references
    */
-  async extractImages($, url) {
+  async extractImages($, baseUrl) {
     const images = [];
+    const skippedImages = [];
     const seenUrls = new Set();
     const crypto = await import('crypto');
-    const domain = UrlUtils.getDomain(url);
+    const domain = UrlUtils.getDomain(baseUrl);
 
     // Replace image references in HTML with Obsidian wiki-links
     const replaceImageReference = (img, imageName) => {
@@ -366,11 +379,56 @@ class UrlConverter {
       return alt;
     };
 
+    // Normalize image URL
+    const normalizeImageUrl = (src) => {
+      if (!src) return null;
+      
+      // Handle data URLs
+      if (src.startsWith('data:')) {
+        const match = src.match(/^data:image\/([a-zA-Z0-9]+);base64,(.+)$/);
+        if (match) {
+          return {
+            isDataUrl: true,
+            ext: match[1],
+            data: match[2]
+          };
+        }
+        return null;
+      }
+
+      // Handle protocol-relative URLs
+      if (src.startsWith('//')) {
+        src = 'https:' + src;
+      }
+
+      // Handle relative URLs
+      if (!src.match(/^https?:\/\//i)) {
+        const baseUrlObj = new URL(baseUrl);
+        if (src.startsWith('/')) {
+          // Absolute path
+          src = `${baseUrlObj.protocol}//${baseUrlObj.host}${src}`;
+        } else {
+          // Relative path
+          src = new URL(src, baseUrl).href;
+        }
+      }
+
+      return { isDataUrl: false, url: src };
+    };
+
     const downloadImage = async (url) => {
       try {
         const response = await fetch(url);
+        if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+        
+        const contentType = response.headers.get('content-type');
+        const ext = contentType?.split('/')[1]?.split(';')[0] || 'jpg';
+        
         const buffer = await response.arrayBuffer();
-        return Buffer.from(buffer).toString('base64');
+        return {
+          data: Buffer.from(buffer).toString('base64'),
+          ext
+        };
       } catch (error) {
         console.error(`Failed to download image: ${url}`, error);
         return null;
@@ -378,36 +436,64 @@ class UrlConverter {
     };
 
     const processImage = async (img) => {
-      const src = $(img).attr('src');
-      if (!src || seenUrls.has(src)) return null;
-      if (!src.startsWith('http')) {
-        console.warn(`Skipping non-http image source: ${src}`);
+      const srcAttr = $(img).attr('src');
+      const normalizedSrc = normalizeImageUrl(srcAttr);
+      
+      if (!normalizedSrc) {
+        skippedImages.push({ src: srcAttr, reason: 'Invalid source URL' });
         return null;
       }
 
-      seenUrls.add(src);
+      if (normalizedSrc.isDataUrl) {
+        const { ext, data } = normalizedSrc;
+        if (!this.config.conversion.imageTypes.includes(ext)) {
+          skippedImages.push({ src: srcAttr, reason: `Unsupported image type: ${ext}` });
+          return null;
+        }
 
-      const imageData = await downloadImage(src);
-      if (!imageData) return null;
+        const hash = crypto.createHash('md5').update(data).digest('hex').slice(0, 8);
+        const imageName = `image-${hash}.${ext}`;
+        const alt = replaceImageReference(img, imageName);
 
-      const ext = src.split('.').pop().toLowerCase();
+        return {
+          data,
+          name: `web/${domain}/assets/${imageName}`,
+          type: `image/${ext}`,
+          metadata: {
+            originalUrl: 'data-url',
+            alt: alt || undefined,
+            dateAdded: new Date().toISOString()
+          }
+        };
+      }
+
+      const { url } = normalizedSrc;
+      if (seenUrls.has(url)) return null;
+      seenUrls.add(url);
+
+      const downloadResult = await downloadImage(url);
+      if (!downloadResult) {
+        skippedImages.push({ src: url, reason: 'Download failed' });
+        return null;
+      }
+
+      const { data, ext } = downloadResult;
       if (!this.config.conversion.imageTypes.includes(ext)) {
-        console.warn(`Unsupported image type: ${ext}`);
+        skippedImages.push({ src: url, reason: `Unsupported image type: ${ext}` });
         return null;
       }
 
-      // Create hash for unique filename
-      const hash = crypto.createHash('md5').update(src).digest('hex').slice(0, 8);
+      const hash = crypto.createHash('md5').update(url).digest('hex').slice(0, 8);
       const imageName = `image-${hash}.${ext}`;
       const alt = replaceImageReference(img, imageName);
 
       return {
-        url: src,
-        data: imageData,
+        url,
+        data,
         name: `web/${domain}/assets/${imageName}`,
         type: `image/${ext}`,
         metadata: {
-          originalUrl: src,
+          originalUrl: url,
           alt: alt || undefined,
           dateAdded: new Date().toISOString()
         }
@@ -430,13 +516,16 @@ class UrlConverter {
       }
     }
 
-    return images;
+    return {
+      images,
+      skippedImages: this.config.conversion.includeSkippedImages ? skippedImages : []
+    };
   }
 
   /**
    * Formats the final content with metadata
    */
-  formatContent(markdown, metadata = null) {
+  formatContent(markdown, metadata = null, skippedImages = []) {
     const sections = [];
 
     // Add frontmatter if metadata exists
@@ -454,6 +543,20 @@ class UrlConverter {
 
     // Add main content
     sections.push(markdown);
+
+    // Add skipped images info if any
+    if (skippedImages.length > 0) {
+      sections.push(
+        '',
+        '## Skipped Images',
+        'The following images were skipped during conversion:',
+        '',
+        skippedImages.map(img => 
+          `- ${img.src}\n  Reason: ${img.reason}`
+        ).join('\n'),
+        ''
+      );
+    }
 
     return sections.join('\n');
   }
