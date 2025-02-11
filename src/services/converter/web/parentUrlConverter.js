@@ -33,9 +33,13 @@ const CONFIG = {
   http: {
     headers: {
       'accept': 'text/html,application/xhtml+xml',
+      'accept-encoding': 'gzip, deflate',
       'accept-language': 'en-US,en;q=0.9',
-      'user-agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
-    }
+      'user-agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+      'cache-control': 'no-cache',
+      'pragma': 'no-cache'
+    },
+    decompress: true
   }
 };
 
@@ -98,64 +102,123 @@ class WebsiteCrawler {
         timeout: CONFIG.crawler.timeout,
         retry: CONFIG.crawler.retry,
         headers: CONFIG.http.headers,
-        throwHttpErrors: false
+        throwHttpErrors: false,
+        followRedirect: true,
+        maxRedirects: 10
       });
 
+      // Get the final URL after redirects
+      const finalUrl = response.url;
+
       if (!response.ok) {
-        console.log(`❌ Failed to load: ${url} (${response.statusCode})`);
+        console.log(`❌ Failed to load: ${finalUrl} (${response.statusCode})`);
         return;
       }
 
+      // Check if the final URL is valid for our domain
+      if (!await this.isValidUrl(finalUrl, parentUrl)) {
+        console.log(`⚠️ Skipping external URL after redirect: ${finalUrl}`);
+        return;
+      }
+
+      // Some servers might not provide content-type header, attempt to parse HTML anyway
       const contentType = response.headers['content-type'] || '';
-      if (contentType.includes('text/html')) {
-        this.discoveredUrls.add(url);
-        const links = this.extractLinks(response.body, url);
-        console.log(`✓ Processed: ${url} (${links.length} links)`);
+      const isHtml = contentType.includes('text/html') || 
+                    contentType === '' || // Empty content type - try anyway
+                    response.body.trim().startsWith('<!DOCTYPE html>') ||
+                    response.body.trim().startsWith('<html');
+
+      if (isHtml) {
+        this.discoveredUrls.add(finalUrl);
+        const links = await this.extractLinks(response.body, finalUrl);
+        console.log(`✓ Processed: ${finalUrl} (${links.length} links)`);
 
         for (const link of links) {
-          if (this.isValidUrl(link, parentUrl) && !visitedUrls.has(link)) {
+          if (!visitedUrls.has(link)) {
             queue.push({ url: link, depth: depth + 1 });
           }
         }
+      }
+
+      // Log if we're skipping content
+      if (!isHtml) {
+        console.log(`⚠️ Skipping non-HTML content: ${finalUrl} (${contentType})`);
       }
     } catch (error) {
       console.log(`❌ Error on ${url}: ${error.message}`);
     }
   }
 
-  extractLinks(html, baseUrl) {
+  async extractLinks(html, baseUrl) {
     const links = new Set();
     const $ = cheerio.load(html);
 
+    // Get all links and process them
+    const linkPromises = [];
+
     // Extract regular links
     $('a[href]').each((_, element) => {
-      try {
-        const href = new URL($(element).attr('href'), baseUrl).href;
-        if (href) links.add(href);
-      } catch {}
+      const href = $(element).attr('href');
+      if (href) {
+        try {
+          const absoluteUrl = new URL(href, baseUrl).href;
+          linkPromises.push(this.resolveRedirects(absoluteUrl));
+        } catch {}
+      }
     });
 
     // Extract canonical links
     $('link[rel="canonical"]').each((_, element) => {
-      try {
-        const href = new URL($(element).attr('href'), baseUrl).href;
-        if (href) links.add(href);
-      } catch {}
+      const href = $(element).attr('href');
+      if (href) {
+        try {
+          const absoluteUrl = new URL(href, baseUrl).href;
+          linkPromises.push(this.resolveRedirects(absoluteUrl));
+        } catch {}
+      }
+    });
+
+    // Wait for all redirects to be resolved
+    const resolvedLinks = await Promise.all(linkPromises);
+    resolvedLinks.forEach(link => {
+      if (link) links.add(link);
     });
 
     return Array.from(links);
   }
 
-  isValidUrl(url, parentUrl) {
+  async resolveRedirects(url) {
     try {
-      const urlObj = new URL(url);
+      const response = await got.head(url, {
+        followRedirect: true,
+        maxRedirects: 10,
+        timeout: CONFIG.crawler.timeout,
+        retry: CONFIG.crawler.retry
+      });
+      return response.url;
+    } catch {
+      return null;
+    }
+  }
+
+  async isValidUrl(url, parentUrl) {
+    try {
+      // Get final URL after redirects
+      const finalUrl = await this.resolveRedirects(url);
+      if (!finalUrl) return false;
+
+      const urlObj = new URL(finalUrl);
       const parentObj = new URL(parentUrl);
 
-      if (!urlObj.hostname.endsWith(parentObj.hostname)) {
+      const parentDomain = parentObj.hostname.replace(/^www\./, '');
+      const urlDomain = urlObj.hostname.replace(/^www\./, '');
+
+      // Check if domains match (ignoring www.)
+      if (urlDomain !== parentDomain) {
         return false;
       }
 
-      if (CONFIG.crawler.excludePatterns.some(pattern => pattern.test(url))) {
+      if (CONFIG.crawler.excludePatterns.some(pattern => pattern.test(finalUrl))) {
         return false;
       }
 
@@ -170,7 +233,7 @@ class WebsiteCrawler {
  * URL Processor class to handle conversion of discovered URLs
  */
 class UrlProcessor {
-  async processUrls(urls) {
+  async processUrls(urls, options = {}) {
     const limit = pLimit(CONFIG.crawler.concurrentLimit);
     console.log(`\nConverting ${urls.size} pages to Markdown...\n`);
 
@@ -178,13 +241,18 @@ class UrlProcessor {
       limit(async () => {
         try {
           const result = await convertUrlToMarkdown(url, {
+            ...options,
             includeImages: true,
-            includeMeta: true
+            includeMeta: true,
+            decompress: true,
+            followRedirect: true,
+            maxRedirects: 10,
+            throwHttpErrors: false
           });
 
           const urlPath = new URL(url).pathname || '/';
           const name = this.sanitizeFilename(urlPath);
-          console.log(`✓ Converted: ${url}`);
+          console.log(`✓ Converted: ${url} -> ${name}`);
           return {
             success: true,
             name: `${name}.md`,
@@ -277,7 +345,12 @@ export async function convertParentUrlToMarkdown(parentUrl) {
       throw new AppError('No valid URLs found to convert', 400);
     }
 
-    const processedPages = await processor.processUrls(urls);
+    const processedPages = await processor.processUrls(urls, {
+      decompress: true,
+      followRedirect: true,
+      maxRedirects: 10,
+      throwHttpErrors: false
+    });
     const hostname = new URL(parentUrl).hostname;
 
     // Process and deduplicate images

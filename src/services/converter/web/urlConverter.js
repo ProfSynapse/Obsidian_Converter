@@ -17,8 +17,14 @@ import { extractMetadata } from '../../../utils/metadataExtractor.js';
         methods: ['GET']
       },
       headers: {
-        'user-agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
-      }
+        'accept': 'text/html,application/xhtml+xml',
+        'accept-encoding': 'gzip, deflate',
+        'accept-language': 'en-US,en;q=0.9',
+        'user-agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
+        'cache-control': 'no-cache',
+        'pragma': 'no-cache'
+      },
+      decompress: true
     },
     conversion: {
       maxRetries: 3,
@@ -128,87 +134,6 @@ class UrlUtils {
   }
 }
 
-/**
- * Handles browser management and web scraping
- */
-class BrowserManager {
-  constructor(config = CONFIG.puppeteer) {
-    this.config = config;
-    this.browser = null;
-    this.page = null;
-  }
-
-  async initialize() {
-    try {
-      console.log('Initializing Puppeteer browser...');
-      this.browser = await puppeteer.launch(this.config.launch);
-      this.page = await this.browser.newPage();
-
-      // Set user agent and extra headers
-      await this.page.setUserAgent(CONFIG.puppeteer.userAgent || 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/88.0.4324.96 Safari/537.36');
-      await this.page.setExtraHTTPHeaders({
-        'Accept-Language': 'en-US,en;q=0.9'
-      });
-
-      // Handle dialog windows
-      this.page.on('dialog', async dialog => {
-        console.log('Dismissing dialog:', dialog.message());
-        await dialog.dismiss();
-      });
-
-      console.log('Browser initialized successfully.');
-
-    } catch (error) {
-      console.error('Failed to initialize browser:', error);
-      throw new UrlConversionError(
-        'Failed to initialize browser',
-        'BROWSER_ERROR',
-        error
-      );
-    }
-  }
-
-  async navigateToUrl(url) {
-    try {
-      console.log(`Navigating to URL: ${url}`);
-      const response = await this.page.goto(url, this.config.navigation);
-
-      if (!response) {
-        throw new UrlConversionError('Failed to load page');
-      }
-
-      if (!response.ok()) {
-        throw new UrlConversionError(
-          `Page returned status ${response.status()}`,
-          'HTTP_ERROR'
-        );
-      }
-
-      // Wait for content to be ready
-      await this.page.waitForSelector('body');
-      console.log('Page loaded successfully.');
-
-    } catch (error) {
-      if (error instanceof UrlConversionError) throw error;
-      console.error(`Navigation failed: ${error.message}`);
-      throw new UrlConversionError(
-        `Navigation failed: ${error.message}`,
-        'NAVIGATION_ERROR'
-      );
-    }
-  }
-
-  async cleanup() {
-    if (this.browser) {
-      console.log('Closing Puppeteer browser...');
-      await this.browser.close();
-      this.browser = null;
-      this.page = null;
-      console.log('Browser closed.');
-    }
-  }
-}
-
   /**
    * Main URL converter class
    */
@@ -242,17 +167,36 @@ class BrowserManager {
     }
 
     /**
-     * Fetches HTML content from a URL
+     * Fetches HTML content from a URL, handling redirects
      */
     async fetchContent(url) {
       try {
         const response = await got(url, {
           timeout: this.config.http.timeout,
           retry: this.config.http.retry,
-          headers: this.config.http.headers
+          headers: this.config.http.headers,
+          followRedirect: true,
+          maxRedirects: 10
         });
+
+        // Log the redirect chain if any
+        if (response.redirectUrls && response.redirectUrls.length > 0) {
+          console.log('URL redirect chain:', {
+            originalUrl: url,
+            redirects: response.redirectUrls,
+            finalUrl: response.url
+          });
+        }
+
         return response.body;
       } catch (error) {
+        console.error('URL fetch error:', {
+          url,
+          error: error.message,
+          code: error.code,
+          statusCode: error.response?.statusCode
+        });
+
         throw new UrlConversionError(
           `Failed to fetch URL: ${error.message}`,
           'NETWORK_ERROR',
@@ -417,19 +361,29 @@ class BrowserManager {
 
     const downloadImage = async (url) => {
       try {
-        const response = await fetch(url);
-        if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+        const response = await got(url, {
+          timeout: this.config.http.timeout,
+          retry: this.config.http.retry,
+          headers: this.config.http.headers,
+          followRedirect: true,
+          maxRedirects: 10,
+          responseType: 'buffer'
+        });
         
-        const contentType = response.headers.get('content-type');
+        const contentType = response.headers['content-type'];
         const ext = contentType?.split('/')[1]?.split(';')[0] || 'jpg';
         
-        const buffer = await response.arrayBuffer();
         return {
-          data: Buffer.from(buffer).toString('base64'),
+          data: response.body.toString('base64'),
           ext
         };
       } catch (error) {
-        console.error(`Failed to download image: ${url}`, error);
+        console.error('Image download error:', {
+          url,
+          error: error.message,
+          code: error.code,
+          statusCode: error.response?.statusCode
+        });
         return null;
       }
     };
