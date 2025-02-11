@@ -1,7 +1,8 @@
 // services/converter/web/parenturlConverter.js
 
-import puppeteer from 'puppeteer';
+import got from 'got';
 import pLimit from 'p-limit';
+import * as cheerio from 'cheerio';
 import { convertUrlToMarkdown } from './urlConverter.js';
 import { AppError } from '../../../utils/errorHandler.js';
 
@@ -13,7 +14,7 @@ const CONFIG = {
     maxPages: 100,
     maxDepth: 1000,
     concurrentLimit: 5,
-    timeout: 300000,
+    timeout: 30000,
     validProtocols: ['http:', 'https:'],
     excludePatterns: [
       /\.(pdf|zip|doc|docx|xls|xlsx|ppt|pptx)$/i,  // Document files
@@ -23,31 +24,18 @@ const CONFIG = {
       /\/feed\//,                                   // RSS/Atom feeds
       /\/rss\//                                     // RSS feeds
     ],
-    retryAttempts: 3,
-    retryDelay: 1000
+    retry: {
+      limit: 3,
+      statusCodes: [408, 413, 429, 500, 502, 503, 504],
+      methods: ['GET']
+    }
   },
-  puppeteer: {
-    launch: {
-      headless: true,
-      args: [
-        '--no-sandbox',
-        '--disable-setuid-sandbox',
-        '--disable-dev-shm-usage',
-        '--disable-accelerated-2d-canvas',
-        '--disable-gpu',
-        '--disable-software-rasterizer',
-        '--disable-extensions',
-        '--no-zygote',
-        '--single-process',
-        '--disable-infobars'
-      ],
-      timeout: 60000
-    },
-    navigation: {
-      waitUntil: 'networkidle2',
-      timeout: 60000
-    },
-    userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+  http: {
+    headers: {
+      'accept': 'text/html,application/xhtml+xml',
+      'accept-language': 'en-US,en;q=0.9',
+      'user-agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+    }
   }
 };
 
@@ -56,25 +44,8 @@ const CONFIG = {
  */
 class WebsiteCrawler {
   constructor() {
-    this.browser = null;
     this.discoveredUrls = new Set();
     this.maxDepth = CONFIG.crawler.maxDepth;
-  }
-
-  /**
-   * Initializes the crawler
-   */
-  async initialize() {
-    this.browser = await puppeteer.launch(CONFIG.puppeteer.launch);
-  }
-
-  /**
-   * Cleans up resources
-   */
-  async cleanup() {
-    if (this.browser) {
-      await this.browser.close();
-    }
   }
 
   async crawl(startUrl) {
@@ -122,26 +93,23 @@ class WebsiteCrawler {
   }
 
   async processUrl(url, parentUrl, depth, queue, visitedUrls) {
-    let page;
     try {
-      page = await this.browser.newPage();
-      await page.setUserAgent(CONFIG.puppeteer.userAgent);
-
-      const response = await page.goto(url, {
-        ...CONFIG.puppeteer.navigation,
-        waitUntil: 'domcontentloaded'
+      const response = await got(url, {
+        timeout: CONFIG.crawler.timeout,
+        retry: CONFIG.crawler.retry,
+        headers: CONFIG.http.headers,
+        throwHttpErrors: false
       });
 
-      if (!response) {
-        console.log(`❌ Failed to load: ${url}`);
+      if (!response.ok) {
+        console.log(`❌ Failed to load: ${url} (${response.statusCode})`);
         return;
       }
 
-      const contentType = response.headers()['content-type'] || '';
+      const contentType = response.headers['content-type'] || '';
       if (contentType.includes('text/html')) {
         this.discoveredUrls.add(url);
-        await page.waitForSelector('body');
-        const links = await this.extractLinks(page);
+        const links = this.extractLinks(response.body, url);
         console.log(`✓ Processed: ${url} (${links.length} links)`);
 
         for (const link of links) {
@@ -152,31 +120,30 @@ class WebsiteCrawler {
       }
     } catch (error) {
       console.log(`❌ Error on ${url}: ${error.message}`);
-    } finally {
-      if (page) await page.close().catch(() => {});
     }
   }
 
-  async extractLinks(page) {
-    return await page.evaluate(() => {
-      const links = new Set();
-      
-      document.querySelectorAll('a[href]').forEach(a => {
-        try {
-          const href = new URL(a.href, window.location.origin).href;
-          if (href) links.add(href);
-        } catch {}
-      });
+  extractLinks(html, baseUrl) {
+    const links = new Set();
+    const $ = cheerio.load(html);
 
-      const canonical = document.querySelector('link[rel="canonical"]');
-      if (canonical && canonical.href) {
-        try {
-          links.add(new URL(canonical.href, window.location.origin).href);
-        } catch {}
-      }
-
-      return Array.from(links);
+    // Extract regular links
+    $('a[href]').each((_, element) => {
+      try {
+        const href = new URL($(element).attr('href'), baseUrl).href;
+        if (href) links.add(href);
+      } catch {}
     });
+
+    // Extract canonical links
+    $('link[rel="canonical"]').each((_, element) => {
+      try {
+        const href = new URL($(element).attr('href'), baseUrl).href;
+        if (href) links.add(href);
+      } catch {}
+    });
+
+    return Array.from(links);
   }
 
   isValidUrl(url, parentUrl) {
@@ -303,9 +270,7 @@ export async function convertParentUrlToMarkdown(parentUrl) {
   const processor = new UrlProcessor();
 
   try {
-    await crawler.initialize();
     const urls = await crawler.crawl(parentUrl);
-
     console.log(`Found ${urls.size} URLs to process`);
 
     if (urls.size === 0) {
@@ -359,8 +324,9 @@ export async function convertParentUrlToMarkdown(parentUrl) {
       images: allImages,
       success: true
     };
-  } finally {
-    await crawler.cleanup();
+  } catch (error) {
+    console.error('Parent URL conversion failed:', error);
+    throw new AppError(`Failed to convert parent URL: ${error.message}`, 500);
   }
 }
 

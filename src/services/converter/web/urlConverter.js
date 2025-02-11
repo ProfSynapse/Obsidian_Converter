@@ -1,36 +1,23 @@
 // services/converter/web/urlConverter.js
 
-import puppeteer from 'puppeteer';
+import got from 'got';
 import TurndownService from 'turndown';
 import * as cheerio from 'cheerio';
-import { extractMetadata } from '../../../utils/metadataExtractor.js';  // Fix path
+import { extractMetadata } from '../../../utils/metadataExtractor.js';
 
   /**
-   * Configuration for URL conversion and browser settings
+   * Configuration for URL conversion settings
    */
   const CONFIG = {
-    puppeteer: {
-      launch: {
-        headless: true,
-        args: [
-          '--no-sandbox',
-          '--disable-setuid-sandbox',
-          '--disable-dev-shm-usage',
-          '--disable-accelerated-2d-canvas',
-          '--disable-gpu',
-          '--disable-software-rasterizer',
-          '--disable-notifications',
-          '--disable-extensions',
-          '--no-zygote',
-          '--single-process',
-          '--disable-infobars'
-        ],
-        defaultViewport: { width: 1920, height: 1080 },
-        timeout: 60000  // Increased timeout
+    http: {
+      timeout: 30000,
+      retry: {
+        limit: 3,
+        statusCodes: [408, 413, 429, 500, 502, 503, 504],
+        methods: ['GET']
       },
-      navigation: {
-        waitUntil: ['networkidle2', 'domcontentloaded'],
-        timeout: 60000  // Increased timeout
+      headers: {
+        'user-agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
       }
     },
     conversion: {
@@ -222,10 +209,10 @@ class BrowserManager {
   }
 }
 
-/**
- * Main URL converter class
- */
-class UrlConverter {
+  /**
+   * Main URL converter class
+   */
+  class UrlConverter {
     constructor(config = CONFIG) {
       this.config = config;
       this.turndownService = new TurndownService({
@@ -252,7 +239,26 @@ class UrlConverter {
         filter: ['table'],
         replacement: (content) => content + '\n\n'
       });
-      this.browserManager = new BrowserManager(config.puppeteer);
+    }
+
+    /**
+     * Fetches HTML content from a URL
+     */
+    async fetchContent(url) {
+      try {
+        const response = await got(url, {
+          timeout: this.config.http.timeout,
+          retry: this.config.http.retry,
+          headers: this.config.http.headers
+        });
+        return response.body;
+      } catch (error) {
+        throw new UrlConversionError(
+          `Failed to fetch URL: ${error.message}`,
+          'NETWORK_ERROR',
+          error
+        );
+      }
     }
   
     /**
@@ -271,19 +277,19 @@ class UrlConverter {
         const url = UrlUtils.normalizeUrl(urlInput);
         console.log(`Converting URL: ${url}`);
   
-        // Initialize browser
-        await this.browserManager.initialize();
-        await this.browserManager.navigateToUrl(url);
+        // Fetch HTML content
+        const html = await this.fetchContent(url);
+        console.log(`Fetched HTML content, length: ${html.length}`);
   
         // Extract content
-        const { html, metadata, images, skippedImages } = await this.extractContent(url, {
+        const { cleanedHtml, metadata, images, skippedImages } = await this.extractContent(html, url, {
           includeImages,
           includeMeta
         });
-        console.log(`Extracted HTML content, length: ${html.length}`);
+        console.log(`Extracted and cleaned HTML content`);
   
         // Convert to Markdown
-        const markdown = this.turndownService.turndown(html);
+        const markdown = this.turndownService.turndown(cleanedHtml);
         console.log(`Converted to Markdown, length: ${markdown.length}`);
   
         // Format final content
@@ -292,14 +298,14 @@ class UrlConverter {
   
         return {
           content,
-          images: includeImages ? images.images : [],
-          skippedImages: includeImages && this.config.conversion.includeSkippedImages ? images.skippedImages : [],
+          images: includeImages ? images : [],
+          skippedImages: includeImages && this.config.conversion.includeSkippedImages ? skippedImages : [],
           name: UrlUtils.sanitizeFilename(
             originalName || UrlUtils.getDomain(url)
           ),
           success: true,
           metadata,
-          url // **Include the URL here**
+          url
         };
   
       } catch (error) {
@@ -311,25 +317,18 @@ class UrlConverter {
           success: false,
           error: error.message
         };
-  
-      } finally {
-        await this.browserManager.cleanup();
       }
     }
 
   /**
-   * Extracts and cleans content from webpage
+   * Extracts and cleans content from HTML
    */
-  async extractContent(url, options) {
+  async extractContent(html, url, options) {
     const { includeImages, includeMeta } = options;
-    const page = this.browserManager.page;
-
-    // Get page content
-    const html = await page.content();
     const $ = cheerio.load(html);
 
     // Clean up unwanted elements
-    $('script, style, iframe, noscript, nav, footer, header, .navigation, .footer, .header, .ad, .advertisement, .social-share, .comments').remove();
+    $('script, style, iframe, noscript, nav, footer, header, .navigation, .footer, .header, .ad, .advertisement, .social-share, .comments, link[rel="stylesheet"]').remove();
 
     // Clean empty elements
     $('p:empty, div:empty, span:empty').remove();
@@ -337,27 +336,27 @@ class UrlConverter {
     // Clean up classes and styles
     $('*').removeAttr('class').removeAttr('style');
 
+    // Add spacing between elements for better readability
+    $('h1, h2, h3, h4, h5, h6, p, ul, ol, blockquote, pre, table').after('\n');
+
     // Extract metadata if needed
     const metadata = includeMeta ? await extractMetadata(url) : null;
     console.log(`Extracted metadata:`, metadata);
 
-    // Extract images if needed
-    const images = includeImages ? await this.extractImages($, url) : [];
-    console.log(`Extracted ${images.length} images.`);
-
-    // Add spacing between elements for better readability
-    $('h1, h2, h3, h4, h5, h6, p, ul, ol, blockquote, pre, table').after('\n');
-
-    let processedImages = { images: [], skippedImages: [] };
+    // Process images if needed
+    let images = [], skippedImages = [];
     if (includeImages) {
-      processedImages = await this.extractImages($, url);
+      const result = await this.extractImages($, url);
+      images = result.images;
+      skippedImages = result.skippedImages;
+      console.log(`Processed ${images.length} images`);
     }
 
     return {
-      html: $.html(),
+      cleanedHtml: $.html(),
       metadata,
-      images: processedImages.images,
-      skippedImages: processedImages.skippedImages
+      images,
+      skippedImages
     };
   }
 

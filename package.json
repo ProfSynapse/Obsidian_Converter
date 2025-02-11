@@ -17,6 +17,7 @@
     "cheerio": "^1.0.0",
     "file-saver": "^2.0.5",
     "file-type": "^19.6.0",
+    "got": "^14.4.6",
     "jszip": "^3.10.1",
     "mammoth": "^1.4.21",
     "node-fetch": "^3.3.2",
