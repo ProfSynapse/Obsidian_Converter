@@ -169,15 +169,72 @@ class UrlUtils {
     /**
      * Fetches HTML content from a URL, handling redirects
      */
-    async fetchContent(url) {
+    /**
+     * Merges Got options with defaults
+     */
+    mergeGotOptions(options = {}) {
+      const gotOptions = {
+        timeout: {
+          request: this.config.http.timeout,
+          response: this.config.http.timeout
+        },
+        retry: {
+          limit: this.config.http.retry.limit,
+          statusCodes: this.config.http.retry.statusCodes,
+          methods: this.config.http.retry.methods,
+          calculateDelay: ({retryCount}) => retryCount * 1000
+        },
+        headers: {
+          ...this.config.http.headers,
+          ...(options.headers || {})
+        },
+        followRedirect: true,
+        maxRedirects: 10,
+        throwHttpErrors: false,
+        decompress: true,
+        responseType: 'text',
+        resolveBodyOnly: false
+      };
+
+      // Merge any additional options
+      return {
+        ...gotOptions,
+        ...(options.got || {}),
+        // Ensure headers are merged properly
+        headers: {
+          ...gotOptions.headers,
+          ...(options.got?.headers || {})
+        },
+        // Ensure retry config is merged properly
+        retry: {
+          ...gotOptions.retry,
+          ...(options.got?.retry || {})
+        },
+        // Ensure timeout config is merged properly
+        timeout: {
+          ...gotOptions.timeout,
+          ...(options.got?.timeout || {})
+        }
+      };
+    }
+
+    /**
+     * Fetches HTML content from a URL, handling redirects
+     */
+    async fetchContent(url, options = {}) {
+      console.log('Fetching URL with options:', {
+        url,
+        options: JSON.stringify(options, null, 2)
+      });
+
       try {
-        const response = await got(url, {
-          timeout: this.config.http.timeout,
-          retry: this.config.http.retry,
-          headers: this.config.http.headers,
-          followRedirect: true,
-          maxRedirects: 10
+        const gotOptions = this.mergeGotOptions(options);
+        console.log('Merged Got options:', {
+          url,
+          options: JSON.stringify(gotOptions, null, 2)
         });
+
+        const response = await got(url, gotOptions);
 
         // Log the redirect chain if any
         if (response.redirectUrls && response.redirectUrls.length > 0) {
@@ -194,7 +251,8 @@ class UrlUtils {
           url,
           error: error.message,
           code: error.code,
-          statusCode: error.response?.statusCode
+          statusCode: error.response?.statusCode,
+          options: options
         });
 
         throw new UrlConversionError(
@@ -213,16 +271,27 @@ class UrlUtils {
         includeImages = true,
         includeMeta = true,
         apiKey = null,
-        originalName = null
+        originalName = null,
+        got: gotOptions = {},
+        ...otherOptions
       } = options;
   
       try {
         // Validate and normalize URL
         const url = UrlUtils.normalizeUrl(urlInput);
-        console.log(`Converting URL: ${url}`);
+        console.log(`Converting URL: ${url} with options:`, {
+          includeImages,
+          includeMeta,
+          hasApiKey: !!apiKey,
+          originalName,
+          gotOptions: Object.keys(gotOptions)
+        });
   
-        // Fetch HTML content
-        const html = await this.fetchContent(url);
+        // Fetch HTML content with merged options
+        const html = await this.fetchContent(url, {
+          got: gotOptions,
+          ...otherOptions
+        });
         console.log(`Fetched HTML content, length: ${html.length}`);
   
         // Extract content
@@ -268,40 +337,86 @@ class UrlUtils {
    * Extracts and cleans content from HTML
    */
   async extractContent(html, url, options) {
-    const { includeImages, includeMeta } = options;
-    const $ = cheerio.load(html);
+    try {
+      const { includeImages, includeMeta } = options;
+      const $ = cheerio.load(html);
 
-    // Clean up unwanted elements
-    $('script, style, iframe, noscript, nav, footer, header, .navigation, .footer, .header, .ad, .advertisement, .social-share, .comments, link[rel="stylesheet"]').remove();
+      console.log('Cleaning HTML content for:', url);
 
-    // Clean empty elements
-    $('p:empty, div:empty, span:empty').remove();
+      // Store the original content length for comparison
+      const originalLength = html.length;
 
-    // Clean up classes and styles
-    $('*').removeAttr('class').removeAttr('style');
+      // Clean up unwanted elements
+      $('script, style, iframe, noscript, nav, footer, header, .navigation, .footer, .header, .ad, .advertisement, .social-share, .comments, link[rel="stylesheet"]').remove();
+      console.log('Removed unwanted elements');
 
-    // Add spacing between elements for better readability
-    $('h1, h2, h3, h4, h5, h6, p, ul, ol, blockquote, pre, table').after('\n');
+      // Clean empty elements
+      $('p:empty, div:empty, span:empty').remove();
+      console.log('Removed empty elements');
 
-    // Extract metadata if needed
-    const metadata = includeMeta ? await extractMetadata(url) : null;
-    console.log(`Extracted metadata:`, metadata);
+      // Clean up classes and styles
+      $('*').removeAttr('class').removeAttr('style');
+      console.log('Cleaned attributes');
 
-    // Process images if needed
-    let images = [], skippedImages = [];
-    if (includeImages) {
-      const result = await this.extractImages($, url);
-      images = result.images;
-      skippedImages = result.skippedImages;
-      console.log(`Processed ${images.length} images`);
+      // Add spacing between elements for better readability
+      $('h1, h2, h3, h4, h5, h6, p, ul, ol, blockquote, pre, table').after('\n');
+      console.log('Added spacing');
+
+      // Check if we still have meaningful content
+      const cleanedHtml = $.html();
+      if (cleanedHtml.length < originalLength * 0.1) {
+        console.warn('Warning: Significant content loss during cleaning', {
+          originalLength,
+          newLength: cleanedHtml.length,
+          url
+        });
+      }
+
+      // Extract metadata if needed
+      let metadata = null;
+      if (includeMeta) {
+        try {
+          metadata = await extractMetadata(url);
+          console.log('Extracted metadata:', metadata);
+        } catch (error) {
+          console.error('Metadata extraction failed:', error);
+          // Continue without metadata
+        }
+      }
+
+      // Process images if needed
+      let images = [], skippedImages = [];
+      if (includeImages) {
+        try {
+          const result = await this.extractImages($, url);
+          images = result.images;
+          skippedImages = result.skippedImages;
+          console.log(`Processed ${images.length} images, skipped ${skippedImages.length}`);
+        } catch (error) {
+          console.error('Image processing failed:', error);
+          // Continue without images
+        }
+      }
+
+      return {
+        cleanedHtml,
+        metadata,
+        images,
+        skippedImages
+      };
+
+    } catch (error) {
+      console.error('Content extraction failed:', {
+        url,
+        error: error.message,
+        stack: error.stack
+      });
+      throw new UrlConversionError(
+        `Failed to extract content: ${error.message}`,
+        'EXTRACTION_ERROR',
+        error
+      );
     }
-
-    return {
-      cleanedHtml: $.html(),
-      metadata,
-      images,
-      skippedImages
-    };
   }
 
   /**
@@ -362,12 +477,16 @@ class UrlUtils {
     const downloadImage = async (url) => {
       try {
         const response = await got(url, {
-          timeout: this.config.http.timeout,
-          retry: this.config.http.retry,
-          headers: this.config.http.headers,
-          followRedirect: true,
-          maxRedirects: 10,
-          responseType: 'buffer'
+          ...this.mergeGotOptions(),
+          responseType: 'buffer',
+          resolveBodyOnly: false
+        });
+
+        console.log('Image download response:', {
+          url,
+          statusCode: response.statusCode,
+          contentType: response.headers['content-type'],
+          size: response.body?.length
         });
         
         const contentType = response.headers['content-type'];

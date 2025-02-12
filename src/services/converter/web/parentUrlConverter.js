@@ -31,6 +31,7 @@ const CONFIG = {
     }
   },
   http: {
+    defaultTimeout: 30000,
     headers: {
       'accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,text/xml;q=0.8,*/*;q=0.7',
       'accept-encoding': 'gzip, deflate, br',
@@ -48,6 +49,23 @@ const CONFIG = {
     responseType: 'text',
     resolveBodyOnly: false,
     dynamicContentWait: 2000, // Wait time in ms for dynamic content
+    preflight: {
+      timeout: 5000,      // Quick check timeout
+      retries: 2          // Limited retries for preflight
+    },
+    timeouts: {
+      lookup: 3000,       // DNS lookup timeout
+      connect: 5000,      // TCP connection timeout
+      request: 30000,     // Full request timeout
+      response: 30000     // Response timeout
+    },
+    keepAlive: true,
+    keepAliveMsecs: 1000,
+    maxSockets: 50,       // Maximum concurrent sockets
+    cleanup: {
+      interval: 60000,    // Cleanup interval
+      maxAge: 300000     // Max age for cached connections
+    },
     spa: {
       selectors: [
         '[data-router-view]',   // Common SPA view containers
@@ -122,21 +140,30 @@ class WebsiteCrawler {
     try {
       console.log(`🔄 Processing URL: ${url}`);
       
-      // First try a HEAD request to check status and content type
+      // Quick HEAD request to check content type
       try {
-        const headResponse = await got.head(url, {
+        const preflightOptions = {
           retry: {
-            limit: 2,
+            limit: CONFIG.http.preflight.retries,
             statusCodes: [408, 429, 500, 502, 503, 504],
             methods: ['HEAD'],
             calculateDelay: ({retryCount}) => retryCount * 500
           },
-          timeout: { request: 5000, response: 5000 },
+          timeout: {
+            lookup: CONFIG.http.timeouts.lookup,
+            connect: CONFIG.http.timeouts.connect,
+            request: CONFIG.http.preflight.timeout,
+            response: CONFIG.http.preflight.timeout
+          },
           headers: CONFIG.http.headers,
           throwHttpErrors: false,
           followRedirect: true,
-          maxRedirects: 5
-        });
+          maxRedirects: 5,
+          keepAlive: CONFIG.http.keepAlive,
+          keepAliveMsecs: CONFIG.http.keepAliveMsecs
+        };
+
+        const headResponse = await got.head(url, preflightOptions);
 
         // Skip if it's not HTML and not an SPA
         const contentType = headResponse.headers['content-type'] || '';
@@ -151,8 +178,8 @@ class WebsiteCrawler {
         console.log(`⚠️ HEAD request failed for ${url}, falling back to GET`);
       }
 
-      // Proceed with GET request
-      const response = await got(url, {
+      // Proceed with GET request with full timeout and connection settings
+      const fullRequestOptions = {
         retry: {
           limit: CONFIG.crawler.retry.limit,
           statusCodes: CONFIG.crawler.retry.statusCodes,
@@ -160,15 +187,27 @@ class WebsiteCrawler {
           calculateDelay: ({retryCount}) => retryCount * 1000
         },
         timeout: {
-          request: CONFIG.crawler.timeout,
-          response: CONFIG.crawler.timeout
+          lookup: CONFIG.http.timeouts.lookup,
+          connect: CONFIG.http.timeouts.connect,
+          request: CONFIG.http.timeouts.request,
+          response: CONFIG.http.timeouts.response
         },
         headers: CONFIG.http.headers,
         throwHttpErrors: false,
         followRedirect: true,
         maxRedirects: 10,
-        decompress: CONFIG.http.decompress
+        decompress: CONFIG.http.decompress,
+        keepAlive: CONFIG.http.keepAlive,
+        keepAliveMsecs: CONFIG.http.keepAliveMsecs,
+        maxSockets: CONFIG.http.maxSockets
+      };
+
+      console.log('Sending GET request with options:', {
+        url,
+        options: fullRequestOptions
       });
+
+      const response = await got(url, fullRequestOptions);
 
       console.log('Got response:', {
         url,
@@ -325,7 +364,7 @@ class WebsiteCrawler {
 
   async resolveRedirects(url) {
     try {
-      const response = await got.head(url, {
+      const resolveOptions = {
         retry: {
           limit: CONFIG.crawler.retry.limit,
           statusCodes: CONFIG.crawler.retry.statusCodes,
@@ -333,22 +372,34 @@ class WebsiteCrawler {
           calculateDelay: ({retryCount}) => retryCount * 1000
         },
         timeout: {
-          request: CONFIG.crawler.timeout,
-          response: CONFIG.crawler.timeout
+          lookup: CONFIG.http.timeouts.lookup,
+          connect: CONFIG.http.timeouts.connect,
+          request: CONFIG.http.timeouts.request,
+          response: CONFIG.http.timeouts.response
         },
         headers: CONFIG.http.headers,
         followRedirect: true,
         maxRedirects: 10,
-        decompress: CONFIG.http.decompress
-      });
+        decompress: CONFIG.http.decompress,
+        keepAlive: CONFIG.http.keepAlive,
+        keepAliveMsecs: CONFIG.http.keepAliveMsecs,
+        maxSockets: CONFIG.http.maxSockets
+      };
+
+      const response = await got.head(url, resolveOptions);
       
-      console.log('Redirect resolved:', {
+      const redirectInfo = {
         originalUrl: url,
         finalUrl: response.url,
-        statusCode: response.statusCode
-      });
+        statusCode: response.statusCode,
+        redirectChain: response.redirectUrls || []
+      };
+      
+      console.log('Redirect resolved:', redirectInfo);
+      
       return response.url;
-    } catch {
+    } catch (error) {
+      console.log(`❌ Failed to resolve redirects for ${url}:`, error.message);
       return null;
     }
   }
@@ -485,10 +536,30 @@ class UrlProcessor {
             ...options,
             includeImages: true,
             includeMeta: true,
-            decompress: true,
-            followRedirect: true,
-            maxRedirects: 10,
-            throwHttpErrors: false
+            got: {
+              decompress: CONFIG.http.decompress,
+              followRedirect: true,
+              maxRedirects: 10,
+              throwHttpErrors: false,
+              headers: CONFIG.http.headers,
+              keepAlive: CONFIG.http.keepAlive,
+              keepAliveMsecs: CONFIG.http.keepAliveMsecs,
+              maxSockets: CONFIG.http.maxSockets,
+              timeout: {
+                lookup: CONFIG.http.timeouts.lookup,
+                connect: CONFIG.http.timeouts.connect,
+                request: CONFIG.http.timeouts.request,
+                response: CONFIG.http.timeouts.response
+              },
+              retry: {
+                limit: CONFIG.crawler.retry.limit,
+                statusCodes: CONFIG.crawler.retry.statusCodes,
+                methods: CONFIG.crawler.retry.methods,
+                calculateDelay: ({retryCount}) => retryCount * 1000
+              }
+            },
+            dynamicContentWait: CONFIG.http.dynamicContentWait,
+            spa: CONFIG.http.spa
           });
 
           const urlPath = new URL(url).pathname || '/';
