@@ -32,14 +32,36 @@ const CONFIG = {
   },
   http: {
     headers: {
-      'accept': 'text/html,application/xhtml+xml',
-      'accept-encoding': 'gzip, deflate',
+      'accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,text/xml;q=0.8,*/*;q=0.7',
+      'accept-encoding': 'gzip, deflate, br',
       'accept-language': 'en-US,en;q=0.9',
-      'user-agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
       'cache-control': 'no-cache',
-      'pragma': 'no-cache'
+      'pragma': 'no-cache',
+      'sec-fetch-dest': 'document',
+      'sec-fetch-mode': 'navigate',
+      'sec-fetch-site': 'same-origin',
+      'sec-fetch-user': '?1',
+      'upgrade-insecure-requests': '1',
+      'user-agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
     },
-    decompress: true
+    decompress: true,
+    responseType: 'text',
+    resolveBodyOnly: false,
+    dynamicContentWait: 2000, // Wait time in ms for dynamic content
+    spa: {
+      selectors: [
+        '[data-router-view]',   // Common SPA view containers
+        '[data-view]',
+        '[ng-view]',
+        '[ui-view]',
+        '[v-cloak]',           // Vue.js
+        '[data-reactroot]',    // React
+        '[ng-app]',            // Angular
+        '.nuxt-content',       // Nuxt.js
+        '.gatsby-content'      // Gatsby
+      ],
+      navigationTimeout: 5000
+    }
   }
 };
 
@@ -98,13 +120,62 @@ class WebsiteCrawler {
 
   async processUrl(url, parentUrl, depth, queue, visitedUrls) {
     try {
+      console.log(`🔄 Processing URL: ${url}`);
+      
+      // First try a HEAD request to check status and content type
+      try {
+        const headResponse = await got.head(url, {
+          retry: {
+            limit: 2,
+            statusCodes: [408, 429, 500, 502, 503, 504],
+            methods: ['HEAD'],
+            calculateDelay: ({retryCount}) => retryCount * 500
+          },
+          timeout: { request: 5000, response: 5000 },
+          headers: CONFIG.http.headers,
+          throwHttpErrors: false,
+          followRedirect: true,
+          maxRedirects: 5
+        });
+
+        // Skip if it's not HTML and not an SPA
+        const contentType = headResponse.headers['content-type'] || '';
+        if (!contentType.includes('html') && 
+            !contentType.includes('text/plain') && // Some SPAs return text/plain
+            contentType !== '') {
+          console.log(`⚠️ Skipping non-HTML content: ${url} (${contentType})`);
+          return;
+        }
+      } catch (headError) {
+        // If HEAD fails, we'll still try GET (some servers don't support HEAD)
+        console.log(`⚠️ HEAD request failed for ${url}, falling back to GET`);
+      }
+
+      // Proceed with GET request
       const response = await got(url, {
-        timeout: CONFIG.crawler.timeout,
-        retry: CONFIG.crawler.retry,
+        retry: {
+          limit: CONFIG.crawler.retry.limit,
+          statusCodes: CONFIG.crawler.retry.statusCodes,
+          methods: CONFIG.crawler.retry.methods,
+          calculateDelay: ({retryCount}) => retryCount * 1000
+        },
+        timeout: {
+          request: CONFIG.crawler.timeout,
+          response: CONFIG.crawler.timeout
+        },
         headers: CONFIG.http.headers,
         throwHttpErrors: false,
         followRedirect: true,
-        maxRedirects: 10
+        maxRedirects: 10,
+        decompress: CONFIG.http.decompress
+      });
+
+      console.log('Got response:', {
+        url,
+        statusCode: response.statusCode,
+        finalUrl: response.url,
+        contentType: response.headers['content-type'],
+        bodyLength: response.body?.length
       });
 
       // Get the final URL after redirects
@@ -129,8 +200,29 @@ class WebsiteCrawler {
                     response.body.trim().startsWith('<html');
 
       if (isHtml) {
+        // Wait for dynamic content if SPA indicators are found
+        let html = response.body;
+        const $ = cheerio.load(html);
+        
+        const hasSpaIndicators = CONFIG.http.spa.selectors.some(selector => 
+          $(selector).length > 0
+        );
+
+        if (hasSpaIndicators || html.includes('app.js') || html.includes('bundle.js')) {
+          console.log('🔄 SPA detected, waiting for dynamic content...');
+          
+          // Add small delay to allow dynamic content to load
+          await new Promise(resolve => setTimeout(resolve, CONFIG.http.dynamicContentWait));
+
+          // Recheck for more content after delay
+          const afterLinks = await this.extractLinks(html, finalUrl);
+          if (afterLinks.length > 0) {
+            console.log(`Found ${afterLinks.length} links after dynamic content wait`);
+          }
+        }
+
         this.discoveredUrls.add(finalUrl);
-        const links = await this.extractLinks(response.body, finalUrl);
+        const links = await this.extractLinks(html, finalUrl);
         console.log(`✓ Processed: ${finalUrl} (${links.length} links)`);
 
         for (const link of links) {
@@ -152,53 +244,188 @@ class WebsiteCrawler {
   async extractLinks(html, baseUrl) {
     const links = new Set();
     const $ = cheerio.load(html);
-
-    // Get all links and process them
     const linkPromises = [];
 
-    // Extract regular links
-    $('a[href]').each((_, element) => {
-      const href = $(element).attr('href');
-      if (href) {
-        try {
-          const absoluteUrl = new URL(href, baseUrl).href;
-          linkPromises.push(this.resolveRedirects(absoluteUrl));
-        } catch {}
+    // Function to process URL
+    const processUrl = (href) => {
+      if (!href) return;
+      try {
+        // Clean the URL
+        href = href.trim()
+          .replace(/[\n\r\t]/g, '')
+          .split('#')[0] // Remove hash
+          .split('?')[0]; // Remove query params
+
+        if (href.startsWith('mailto:') || href.startsWith('tel:') || href.startsWith('javascript:')) {
+          return;
+        }
+
+        const absoluteUrl = new URL(href, baseUrl).href;
+        linkPromises.push(this.resolveRedirects(absoluteUrl));
+      } catch (error) {
+        console.log(`⚠️ Invalid URL found: ${href}`);
       }
+    };
+
+    // Extract all <a href> links
+    $('a[href]').each((_, element) => {
+      processUrl($(element).attr('href'));
     });
 
     // Extract canonical links
     $('link[rel="canonical"]').each((_, element) => {
-      const href = $(element).attr('href');
-      if (href) {
-        try {
-          const absoluteUrl = new URL(href, baseUrl).href;
-          linkPromises.push(this.resolveRedirects(absoluteUrl));
-        } catch {}
+      processUrl($(element).attr('href'));
+    });
+
+    // Extract meta refresh redirects
+    $('meta[http-equiv="refresh"]').each((_, element) => {
+      const content = $(element).attr('content');
+      if (content) {
+        const match = content.match(/URL=['"]?([^'"]+)['"]?/i);
+        if (match) {
+          processUrl(match[1]);
+        }
       }
     });
 
-    // Wait for all redirects to be resolved
+    // Extract alternate links
+    $('link[rel="alternate"]').each((_, element) => {
+      processUrl($(element).attr('href'));
+    });
+
+    // Extract pagination links
+    $('link[rel="next"], link[rel="prev"]').each((_, element) => {
+      processUrl($(element).attr('href'));
+    });
+
+    // Extract Open Graph URLs
+    $('meta[property="og:url"]').each((_, element) => {
+      processUrl($(element).attr('content'));
+    });
+
+    // Extract script-based redirects
+    const scriptContent = $('script').text();
+    const urlMatches = scriptContent.match(/window\.location(?:\.href)?\s*=\s*['"]([^'"]+)['"]/g);
+    if (urlMatches) {
+      urlMatches.forEach(match => {
+        const url = match.split(/['"]/)[1];
+        processUrl(url);
+      });
+    }
+
+    // Wait for all redirects to be resolved and filter duplicates
     const resolvedLinks = await Promise.all(linkPromises);
     resolvedLinks.forEach(link => {
       if (link) links.add(link);
     });
 
+    console.log(`Found ${links.size} unique links on ${baseUrl}`);
     return Array.from(links);
   }
 
   async resolveRedirects(url) {
     try {
       const response = await got.head(url, {
+        retry: {
+          limit: CONFIG.crawler.retry.limit,
+          statusCodes: CONFIG.crawler.retry.statusCodes,
+          methods: CONFIG.crawler.retry.methods,
+          calculateDelay: ({retryCount}) => retryCount * 1000
+        },
+        timeout: {
+          request: CONFIG.crawler.timeout,
+          response: CONFIG.crawler.timeout
+        },
+        headers: CONFIG.http.headers,
         followRedirect: true,
         maxRedirects: 10,
-        timeout: CONFIG.crawler.timeout,
-        retry: CONFIG.crawler.retry
+        decompress: CONFIG.http.decompress
+      });
+      
+      console.log('Redirect resolved:', {
+        originalUrl: url,
+        finalUrl: response.url,
+        statusCode: response.statusCode
       });
       return response.url;
     } catch {
       return null;
     }
+  }
+
+  /**
+   * Gets the root domain from a hostname
+   * @private 
+   */
+  #getRootDomain(hostname) {
+    const parts = hostname.split('.');
+    if (parts.length <= 2) return hostname;
+    return parts.slice(-2).join('.');
+  }
+
+  /**
+   * Checks if a URL belongs to same root domain or is a valid CDN domain
+   * @private
+   */
+  #isSameDomainOrCDN(urlDomain, parentDomain) {
+    // Clean and get root domains
+    const cleanUrl = urlDomain.replace(/^www\./, '');
+    const cleanParent = parentDomain.replace(/^www\./, '');
+
+    // Get root domains
+    const urlRoot = this.#getRootDomain(cleanUrl);
+    const parentRoot = this.#getRootDomain(cleanParent);
+
+    // Check if domains are exactly same
+    if (cleanUrl === cleanParent) return true;
+
+    // Check if root domains match
+    if (urlRoot === parentRoot) return true;
+
+    // Check for common CDN and hosting domains
+    const cdnDomains = [
+      'cloudfront.net',
+      'netlify.app',
+      'pages.dev',
+      'hs-sites.com',
+      'hubspot.com',
+      'amazonaws.com',
+      'cloudflare.net',
+      'azurewebsites.net',
+      'azureedge.net',
+      'vercel.app',
+      'webflow.io',
+      'squarespace.com',
+      'wixsite.com',
+      'shopify.com',
+      'myshopify.com',
+      'cdn.shopify.com',
+      'webflow.com',
+      'ghost.io',
+      'ngrok.io',
+      'herokuapp.com',
+      'gtm.js',
+      'googletagmanager.com',
+      'fastly.net',
+      'akamaized.net',
+      'cloudinary.com',
+      'imgix.net'
+    ];
+
+    // Also check for subdomains of the parent domain
+    const parentDomainParts = cleanParent.split('.');
+    if (cleanUrl.endsWith(parentDomainParts.slice(-2).join('.'))) {
+      return true;
+    }
+
+    // Return true if the URL is from a CDN and has the original domain as a subdomain
+    return cdnDomains.some(cdn => {
+      if (cleanUrl.endsWith(cdn)) {
+        const subdomain = cleanUrl.replace(new RegExp(`\\.${cdn.replace('.', '\\.')}$`), '');
+        return subdomain.includes(cleanParent);
+      }
+      return false;
+    });
   }
 
   async isValidUrl(url, parentUrl) {
@@ -210,20 +437,34 @@ class WebsiteCrawler {
       const urlObj = new URL(finalUrl);
       const parentObj = new URL(parentUrl);
 
-      const parentDomain = parentObj.hostname.replace(/^www\./, '');
-      const urlDomain = urlObj.hostname.replace(/^www\./, '');
+      console.log('Checking URL validity:', {
+        url: finalUrl,
+        parent: parentUrl,
+        urlDomain: urlObj.hostname,
+        parentDomain: parentObj.hostname
+      });
 
-      // Check if domains match (ignoring www.)
-      if (urlDomain !== parentDomain) {
+      // Check domain validity
+      if (!this.#isSameDomainOrCDN(urlObj.hostname, parentObj.hostname)) {
+        console.log('❌ Domain mismatch:', {
+          url: urlObj.hostname,
+          parent: parentObj.hostname,
+          urlRoot: this.#getRootDomain(urlObj.hostname),
+          parentRoot: this.#getRootDomain(parentObj.hostname)
+        });
         return false;
       }
 
-      if (CONFIG.crawler.excludePatterns.some(pattern => pattern.test(finalUrl))) {
+      // Check exclusion patterns
+      const excluded = CONFIG.crawler.excludePatterns.some(pattern => pattern.test(finalUrl));
+      if (excluded) {
+        console.log('❌ URL excluded by pattern:', finalUrl);
         return false;
       }
 
       return true;
-    } catch {
+    } catch (error) {
+      console.log('❌ URL validation error:', error.message);
       return false;
     }
   }
@@ -337,7 +578,28 @@ export async function convertParentUrlToMarkdown(parentUrl) {
   const crawler = new WebsiteCrawler();
   const processor = new UrlProcessor();
 
+  // Normalize and validate the parent URL first
   try {
+    parentUrl = normalizeUrl(parentUrl);
+    new URL(parentUrl); // Validate URL format
+  } catch (error) {
+    console.error('Invalid parent URL:', error);
+    throw new AppError(`Invalid parent URL: ${error.message}`, 400);
+  }
+
+  console.log('Starting parent URL conversion:', {
+    url: parentUrl,
+    hostname: new URL(parentUrl).hostname,
+    config: {
+      maxPages: CONFIG.crawler.maxPages,
+      maxDepth: CONFIG.crawler.maxDepth,
+      retryLimit: CONFIG.crawler.retry.limit,
+      timeout: CONFIG.crawler.timeout
+    }
+  });
+
+  try {
+    const startTime = Date.now();
     const urls = await crawler.crawl(parentUrl);
     console.log(`Found ${urls.size} URLs to process`);
 
