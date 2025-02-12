@@ -31,7 +31,6 @@ const CONFIG = {
     }
   },
   http: {
-    defaultTimeout: 30000,
     headers: {
       'accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,text/xml;q=0.8,*/*;q=0.7',
       'accept-encoding': 'gzip, deflate, br',
@@ -47,24 +46,31 @@ const CONFIG = {
     },
     decompress: true,
     responseType: 'text',
-    resolveBodyOnly: false,
     dynamicContentWait: 2000, // Wait time in ms for dynamic content
+    timeout: {
+      request: 30000,
+      response: 30000
+    },
     preflight: {
-      timeout: 5000,      // Quick check timeout
-      retries: 2          // Limited retries for preflight
+      timeout: 5000,    // Quick check timeout
+      maxRetries: 2     // Limited retries for preflight
     },
-    timeouts: {
-      lookup: 3000,       // DNS lookup timeout
-      connect: 5000,      // TCP connection timeout
-      request: 30000,     // Full request timeout
-      response: 30000     // Response timeout
-    },
-    keepAlive: true,
-    keepAliveMsecs: 1000,
-    maxSockets: 50,       // Maximum concurrent sockets
-    cleanup: {
-      interval: 60000,    // Cleanup interval
-      maxAge: 300000     // Max age for cached connections
+    retry: {
+      limit: 3,
+      methods: ['GET', 'HEAD'],
+      statusCodes: [408, 413, 429, 500, 502, 503, 504],
+      errorCodes: [
+        'ETIMEDOUT',
+        'ECONNRESET',
+        'EADDRINUSE',
+        'ECONNREFUSED',
+        'EPIPE',
+        'ENOTFOUND',
+        'ENETUNREACH',
+        'EAI_AGAIN'
+      ],
+      calculateDelay: ({retryCount}) => retryCount * 1000,
+      maxRetryAfter: 60000 // Maximum value for retry-after header
     },
     spa: {
       selectors: [
@@ -142,26 +148,29 @@ class WebsiteCrawler {
       
       // Quick HEAD request to check content type
       try {
+        // Quick preflight check with HEAD request
         const preflightOptions = {
           retry: {
-            limit: CONFIG.http.preflight.retries,
-            statusCodes: [408, 429, 500, 502, 503, 504],
+            limit: CONFIG.http.preflight.maxRetries,
+            statusCodes: CONFIG.http.retry.statusCodes,
             methods: ['HEAD'],
+            errorCodes: CONFIG.http.retry.errorCodes,
             calculateDelay: ({retryCount}) => retryCount * 500
           },
           timeout: {
-            lookup: CONFIG.http.timeouts.lookup,
-            connect: CONFIG.http.timeouts.connect,
             request: CONFIG.http.preflight.timeout,
             response: CONFIG.http.preflight.timeout
           },
           headers: CONFIG.http.headers,
           throwHttpErrors: false,
           followRedirect: true,
-          maxRedirects: 5,
-          keepAlive: CONFIG.http.keepAlive,
-          keepAliveMsecs: CONFIG.http.keepAliveMsecs
+          maxRedirects: 5
         };
+
+        console.log('Preflight check:', {
+          url,
+          options: preflightOptions
+        });
 
         const headResponse = await got.head(url, preflightOptions);
 
@@ -178,28 +187,26 @@ class WebsiteCrawler {
         console.log(`⚠️ HEAD request failed for ${url}, falling back to GET`);
       }
 
-      // Proceed with GET request with full timeout and connection settings
+      // Full GET request with proper Got v14 options
       const fullRequestOptions = {
         retry: {
-          limit: CONFIG.crawler.retry.limit,
-          statusCodes: CONFIG.crawler.retry.statusCodes,
-          methods: CONFIG.crawler.retry.methods,
-          calculateDelay: ({retryCount}) => retryCount * 1000
+          limit: CONFIG.http.retry.limit,
+          statusCodes: CONFIG.http.retry.statusCodes,
+          methods: CONFIG.http.retry.methods,
+          errorCodes: CONFIG.http.retry.errorCodes,
+          calculateDelay: ({retryCount}) => retryCount * 1000,
+          maxRetryAfter: CONFIG.http.retry.maxRetryAfter
         },
         timeout: {
-          lookup: CONFIG.http.timeouts.lookup,
-          connect: CONFIG.http.timeouts.connect,
-          request: CONFIG.http.timeouts.request,
-          response: CONFIG.http.timeouts.response
+          request: CONFIG.http.timeout.request,
+          response: CONFIG.http.timeout.response
         },
         headers: CONFIG.http.headers,
         throwHttpErrors: false,
         followRedirect: true,
         maxRedirects: 10,
         decompress: CONFIG.http.decompress,
-        keepAlive: CONFIG.http.keepAlive,
-        keepAliveMsecs: CONFIG.http.keepAliveMsecs,
-        maxSockets: CONFIG.http.maxSockets
+        responseType: 'text'
       };
 
       console.log('Sending GET request with options:', {
@@ -366,24 +373,22 @@ class WebsiteCrawler {
     try {
       const resolveOptions = {
         retry: {
-          limit: CONFIG.crawler.retry.limit,
-          statusCodes: CONFIG.crawler.retry.statusCodes,
-          methods: CONFIG.crawler.retry.methods,
-          calculateDelay: ({retryCount}) => retryCount * 1000
+          limit: CONFIG.http.retry.limit,
+          statusCodes: CONFIG.http.retry.statusCodes,
+          methods: ['HEAD'],
+          errorCodes: CONFIG.http.retry.errorCodes,
+          calculateDelay: ({retryCount}) => retryCount * 1000,
+          maxRetryAfter: CONFIG.http.retry.maxRetryAfter
         },
         timeout: {
-          lookup: CONFIG.http.timeouts.lookup,
-          connect: CONFIG.http.timeouts.connect,
-          request: CONFIG.http.timeouts.request,
-          response: CONFIG.http.timeouts.response
+          request: CONFIG.http.timeout.request,
+          response: CONFIG.http.timeout.response
         },
         headers: CONFIG.http.headers,
         followRedirect: true,
         maxRedirects: 10,
-        decompress: CONFIG.http.decompress,
-        keepAlive: CONFIG.http.keepAlive,
-        keepAliveMsecs: CONFIG.http.keepAliveMsecs,
-        maxSockets: CONFIG.http.maxSockets
+        throwHttpErrors: false,
+        responseType: 'text'
       };
 
       const response = await got.head(url, resolveOptions);
@@ -537,26 +542,24 @@ class UrlProcessor {
             includeImages: true,
             includeMeta: true,
             got: {
+              retry: {
+                limit: CONFIG.http.retry.limit,
+                statusCodes: CONFIG.http.retry.statusCodes,
+                methods: CONFIG.http.retry.methods,
+                errorCodes: CONFIG.http.retry.errorCodes,
+                calculateDelay: ({retryCount}) => retryCount * 1000,
+                maxRetryAfter: CONFIG.http.retry.maxRetryAfter
+              },
+              timeout: {
+                request: CONFIG.http.timeout.request,
+                response: CONFIG.http.timeout.response
+              },
               decompress: CONFIG.http.decompress,
               followRedirect: true,
               maxRedirects: 10,
-              throwHttpErrors: false,
               headers: CONFIG.http.headers,
-              keepAlive: CONFIG.http.keepAlive,
-              keepAliveMsecs: CONFIG.http.keepAliveMsecs,
-              maxSockets: CONFIG.http.maxSockets,
-              timeout: {
-                lookup: CONFIG.http.timeouts.lookup,
-                connect: CONFIG.http.timeouts.connect,
-                request: CONFIG.http.timeouts.request,
-                response: CONFIG.http.timeouts.response
-              },
-              retry: {
-                limit: CONFIG.crawler.retry.limit,
-                statusCodes: CONFIG.crawler.retry.statusCodes,
-                methods: CONFIG.crawler.retry.methods,
-                calculateDelay: ({retryCount}) => retryCount * 1000
-              }
+              throwHttpErrors: false,
+              responseType: 'text'
             },
             dynamicContentWait: CONFIG.http.dynamicContentWait,
             spa: CONFIG.http.spa
