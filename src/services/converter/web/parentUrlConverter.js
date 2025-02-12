@@ -274,49 +274,26 @@ class UrlProcessor {
 }
 
 /**
- * Validates and normalizes a URL string
- * @private
- */
-function normalizeUrl(url) {
-  try {
-    // Clean the URL
-    url = url.trim()
-      .replace(/[\n\r\t]/g, '')
-      .replace(/\/{2,}/g, '/')
-      .replace(/\/+$/, '');
-
-    // Add protocol if missing
-    if (!/^https?:\/\//i.test(url)) {
-      url = 'https://' + url.replace(/^\/\//, '');
-    }
-
-    const urlObj = new URL(url);
-    if (!CONFIG.validProtocols.includes(urlObj.protocol)) {
-      throw new Error(`Invalid protocol: ${urlObj.protocol}`);
-    }
-
-    return urlObj.href;
-  } catch (error) {
-    throw new AppError(`Invalid URL: ${error.message}`, 400);
-  }
-}
-
-/**
  * Converts a parent URL and its child pages to Markdown
+ * @param {string} parentUrl - The URL normalized by the frontend
  */
 export async function convertParentUrlToMarkdown(parentUrl) {
   const finder = new UrlFinder();
   const processor = new UrlProcessor();
 
   try {
-    // Normalize and validate the URL
-    parentUrl = normalizeUrl(parentUrl);
-    const urlObj = new URL(parentUrl);
-    const hostname = urlObj.hostname;
+    // Basic URL validation
+    let urlObj;
+    try {
+      urlObj = new URL(parentUrl);
+    } catch (error) {
+      throw new AppError('Invalid URL format', 400);
+    }
     
+    const hostname = urlObj.hostname;
     console.log(`Starting conversion of ${parentUrl}`);
 
-    // First get all child pages
+    // Get all child pages
     const childUrls = await finder.findChildUrls(parentUrl);
     if (childUrls.length === 0) {
       console.log('No child pages found, converting parent URL only');
