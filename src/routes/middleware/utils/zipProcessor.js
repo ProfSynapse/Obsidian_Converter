@@ -283,7 +283,6 @@ async function processWebContent(categoryFolder, baseName, content, images, item
   console.log('🌐 Processing web content:', {
     baseName,
     hasContent: !!content,
-    imageCount: images?.length || 0,
     hasFiles: !!item.files,
     fileCount: item.files?.length || 0
   });
@@ -318,23 +317,6 @@ async function processWebContent(categoryFolder, baseName, content, images, item
       }
     }
   }
-
-  // Process images
-  if (images?.length > 0) {
-    const assetsFolder = siteFolder.folder('assets');
-    for (const image of images) {
-      if (image?.data && image?.name) {
-        try {
-          const imageBuffer = Buffer.from(image.data, 'base64');
-          // Extract just the filename from the full path
-          const imageName = image.name.split('/').pop();
-          assetsFolder.file(imageName, imageBuffer);
-        } catch (error) {
-          console.error(`Error processing image ${image.name}:`, error);
-        }
-      }
-    }
-  }
 }
 
 /**
@@ -345,22 +327,9 @@ async function processWebContent(categoryFolder, baseName, content, images, item
  * @param {string} content - The content
  * @param {Array} images - Array of images
  */
-async function processRegularContent(categoryFolder, category, baseName, content, images) {
+async function processRegularContent(categoryFolder, category, baseName, content) {
+  console.log(`📄 Processing regular content: ${baseName}`);
   categoryFolder.file(`${baseName}.md`, content);
-  
-  if (images?.length > 0) {
-    const attachmentsFolder = categoryFolder.folder(`${baseName}_attachments`);
-    for (const image of images) {
-      if (image?.data && image?.name) {
-        try {
-          const imageBuffer = Buffer.from(image.data, 'base64');
-          attachmentsFolder.file(image.name, imageBuffer);
-        } catch (error) {
-          console.error(`Error processing attachment ${image.name}:`, error);
-        }
-      }
-    }
-  }
 }
 
 /**

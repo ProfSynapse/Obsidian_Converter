@@ -45,7 +45,6 @@ const CONFIG = {
     responseType: 'text'
   },
   conversion: {
-    maxImages: 50,
     imageTypes: ['jpg', 'jpeg', 'png', 'gif', 'webp', 'svg', 'ico']
   }
 };
@@ -129,49 +128,35 @@ class UrlConverter {
       });
 
       // Process images
-      const images = [];
-      const domain = new URL(url).hostname;
-
+      const imageRefs = [];
       if (options.includeImages !== false) {
-        const processImage = async ($img) => {
+        $content.find('img').each((_, img) => {
+          const $img = $(img);
           const src = $img.attr('src');
-          if (!src) return null;
+          const alt = $img.attr('alt') || '';
+          
+          if (!src) return;
 
           try {
             const imageUrl = new URL(src, url).href;
-            const crypto = await import('crypto');
-            const hash = crypto.createHash('md5')
-              .update(imageUrl)
-              .digest('hex')
-              .slice(0, 8);
+            const ext = imageUrl.split('.').pop()?.toLowerCase() || '';
             
-            const ext = imageUrl.split('.').pop()?.toLowerCase() || 'jpg';
-            const imageName = `image-${hash}.${ext}`;
+            if (!ext || !CONFIG.conversion.imageTypes.includes(ext)) return;
+
+            // Replace image with markdown format
+            $img.replaceWith(`![${alt}](${imageUrl})`);
             
-            if (CONFIG.conversion.imageTypes.includes(ext)) {
-              $img.replaceWith(`![[${imageName}]]`);
-              
-              return {
-                url: imageUrl,
-                name: `web/${domain}/assets/${imageName}`,
-                type: `image/${ext}`,
-                metadata: {
-                  originalUrl: imageUrl,
-                  alt: $img.attr('alt') || undefined,
-                  dateAdded: new Date().toISOString()
-                }
-              };
-            }
+            // Track image reference
+            imageRefs.push({
+              url: imageUrl,
+              alt: alt || undefined,
+              referenceUrl: url,
+              addedAt: new Date().toISOString()
+            });
           } catch (error) {
             console.error('Image processing error:', error);
           }
-          return null;
-        };
-
-        // Process all images sequentially
-        const imagePromises = $content.find('img').map((_, img) => processImage($(img))).get();
-        const processedImages = await Promise.all(imagePromises);
-        images.push(...processedImages.filter(Boolean));
+        });
       }
 
       // Convert to markdown
@@ -201,9 +186,9 @@ class UrlConverter {
 
       return {
         content,
-        images,
+        images: imageRefs,
         success: true,
-        name: options.originalName || domain,
+        name: options.originalName || new URL(url).hostname,
         metadata,
         url
       };

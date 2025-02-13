@@ -297,22 +297,28 @@ export async function convertParentUrlToMarkdown(parentUrl) {
     // Convert all pages to markdown
     const processedPages = await processor.processUrls(allUrls);
 
-    // Generate index and collect images
+    // Collect unique image references
     const seenImageUrls = new Set();
-    const allImages = processedPages
+    const allImageRefs = processedPages
       .filter(p => p.success)
       .flatMap(p => p.images || [])
       .filter(img => {
-        if (!img?.data || !img?.name || seenImageUrls.has(img.url)) return false;
+        if (!img?.url || seenImageUrls.has(img.url)) return false;
         seenImageUrls.add(img.url);
         return true;
-      })
-      .map(img => ({
-        name: `web/${hostname}/assets/${img.name.split('/').pop()}`,
-        data: img.data,
-        type: 'binary',
-        metadata: img.metadata
-      }));
+      });
+
+    // Add image reference metadata to the index
+    const imageSection = allImageRefs.length > 0 ? [
+      '## Referenced Images',
+      '',
+      'The following images are referenced in the archive:',
+      '',
+      ...allImageRefs.map(img => 
+        `- [${img.alt || 'Image'}](${img.url}) (from ${img.referenceUrl})`
+      ),
+      ''
+    ].join('\n') : '';
 
     const index = processor.generateIndex(parentUrl, processedPages);
 
@@ -324,18 +330,18 @@ export async function convertParentUrlToMarkdown(parentUrl) {
       files: [
         {
           name: `web/${hostname}/index.md`,
-          content: index,
+          content: `${index}\n\n${imageSection}`,
           type: 'text'
         },
         ...processedPages
           .filter(p => p.success)
           .map(({ name, content }) => ({
             name: `web/${hostname}/pages/${name}`,
-            content: content.replace(/!\[\[(.*?)\]\]/g, `![[../assets/$1]]`),
+            content,
             type: 'text'
           }))
       ],
-      images: allImages,
+      imageRefs: allImageRefs,
       success: true
     };
   } catch (error) {
