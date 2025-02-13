@@ -224,12 +224,22 @@ export async function createBatchZip(items) {
  */
 function calculateItemSize(item) {
   let size = 0;
+
+  // Add size of main content
   if (item.content) {
     size += item.content.length;
   }
+
+  // Add size of images
   if (item.images) {
     size += item.images.reduce((total, img) => total + (img.data ? img.data.length : 0), 0);
   }
+
+  // Add size of additional files (from parent URL conversion)
+  if (item.files && Array.isArray(item.files)) {
+    size += item.files.reduce((total, file) => total + (file.content ? file.content.length : 0), 0);
+  }
+
   return size;
 }
 
@@ -252,7 +262,7 @@ async function processBatch(zip, batch, categories) {
 
     try {
       if (category === 'web') {
-        await processWebContent(categoryFolder, baseName, content, images);
+        await processWebContent(categoryFolder, baseName, content, images, item);
       } else {
         await processRegularContent(categoryFolder, category, baseName, content, images);
       }
@@ -269,20 +279,58 @@ async function processBatch(zip, batch, categories) {
  * @param {string} content - The content
  * @param {Array} images - Array of images
  */
-async function processWebContent(categoryFolder, baseName, content, images) {
+async function processWebContent(categoryFolder, baseName, content, images, item) {
+  console.log('🌐 Processing web content:', {
+    baseName,
+    hasContent: !!content,
+    imageCount: images?.length || 0,
+    hasFiles: !!item.files,
+    fileCount: item.files?.length || 0
+  });
+
   const siteFolder = categoryFolder.folder(baseName);
-  if (siteFolder) {
-    siteFolder.file('index.md', content);
-    if (images?.length > 0) {
-      const assetsFolder = siteFolder.folder('assets');
-      for (const image of images) {
-        if (image?.data && image?.name) {
-          try {
-            const imageBuffer = Buffer.from(image.data, 'base64');
-            assetsFolder.file(image.name, imageBuffer);
-          } catch (error) {
-            console.error(`Error processing image ${image.name}:`, error);
-          }
+  if (!siteFolder) {
+    console.error('Failed to create site folder:', baseName);
+    return;
+  }
+
+  // Add index file
+  siteFolder.file('index.md', content);
+  console.log('📄 Added index.md');
+
+  // Process additional files from parent URL conversion
+  if (item.files && Array.isArray(item.files)) {
+    console.log(`📑 Processing ${item.files.length} additional files for ${baseName}`);
+    for (const file of item.files) {
+      try {
+        if (!file.name || !file.content) {
+          console.warn('⚠️ Skipping invalid file:', file.name);
+          continue;
+        }
+        const relativePath = file.name.split('/').slice(2).join('/'); // Remove web/domain prefix
+        console.log(`📄 Adding file: ${relativePath}`);
+        siteFolder.file(relativePath, file.content);
+      } catch (error) {
+        console.error('❌ Error processing file:', {
+          name: file.name,
+          error: error.message
+        });
+      }
+    }
+  }
+
+  // Process images
+  if (images?.length > 0) {
+    const assetsFolder = siteFolder.folder('assets');
+    for (const image of images) {
+      if (image?.data && image?.name) {
+        try {
+          const imageBuffer = Buffer.from(image.data, 'base64');
+          // Extract just the filename from the full path
+          const imageName = image.name.split('/').pop();
+          assetsFolder.file(imageName, imageBuffer);
+        } catch (error) {
+          console.error(`Error processing image ${image.name}:`, error);
         }
       }
     }
