@@ -165,33 +165,24 @@ class UrlProcessor {
     const tasks = Array.from(urls).map(url =>
       limit(async () => {
         try {
-          const result = await convertUrlToMarkdown(url, {
+          // Create clean options object for URL conversion
+          const conversionOptions = {
             ...options,
             includeImages: true,
             includeMeta: true,
             got: {
-              retry: {
-                limit: CONFIG.http.retry.limit,
-                statusCodes: CONFIG.http.retry.statusCodes,
-                methods: CONFIG.http.retry.methods,
-                errorCodes: CONFIG.http.retry.errorCodes,
-                calculateDelay: ({retryCount}) => retryCount * 1000,
-                maxRetryAfter: CONFIG.http.retry.maxRetryAfter
-              },
-              timeout: {
-                request: CONFIG.http.timeout.request,
-                response: CONFIG.http.timeout.response
-              },
+              retry: CONFIG.http.retry,
+              timeout: CONFIG.http.timeout,
+              headers: CONFIG.http.headers,
               decompress: CONFIG.http.decompress,
               followRedirect: true,
-              maxRedirects: 10,
-              headers: CONFIG.http.headers,
               throwHttpErrors: false,
               responseType: 'text'
             },
-            dynamicContentWait: CONFIG.http.dynamicContentWait,
             spa: CONFIG.http.spa
-          });
+          };
+
+          const result = await convertUrlToMarkdown(url, conversionOptions);
 
           const urlPath = new URL(url).pathname || '/';
           const name = this.sanitizeFilename(urlPath);
