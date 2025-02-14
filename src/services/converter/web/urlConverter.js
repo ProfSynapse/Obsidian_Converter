@@ -143,17 +143,19 @@ class UrlConverter {
         const normalizeUrl = (src, baseUrl) => {
           if (!src) return null;
           try {
-            let imgUrl = src.trim();
+            const imgUrl = src.trim();
             if (imgUrl.startsWith('data:')) return null;
-            if (imgUrl.startsWith('//')) {
-              imgUrl = `https:${imgUrl}`;
-            }
 
-            const urlObj = new URL(imgUrl, baseUrl);
+            // Convert protocol-relative URLs
+            const fullUrl = imgUrl.startsWith('//') ? `https:${imgUrl}` : imgUrl;
+            
+            // Parse URL and remove query/hash but preserve encoded characters
+            const urlObj = new URL(fullUrl, baseUrl);
             urlObj.search = '';
             urlObj.hash = '';
             
-            return decodeURIComponent(urlObj.href);
+            // Keep the encoded URL to preserve spaces
+            return urlObj.href;
           } catch (error) {
             console.error('URL normalization error:', error);
             return null;
@@ -199,16 +201,20 @@ class UrlConverter {
             const imageData = processImageUrl(src, $img.attr('alt') || '');
             if (imageData) {
               const isLinked = $img.parent('a').length > 0;
+              // Create text node to prevent HTML escaping
+              const createMarkdown = (alt, url, href = null) => {
+                if (href && href !== url) {
+                  return $.text(`[![${alt}](${url})](${href})`);
+                }
+                return $.text(`![${alt}](${url})`);
+              };
+
               if (isLinked) {
                 const $link = $img.parent('a');
                 const href = $link.attr('href');
-                if (href && href !== imageData.url) {
-                  $link.replaceWith(`[![${imageData.alt}](${imageData.url})](${href})`);
-                } else {
-                  $link.replaceWith(`![${imageData.alt}](${imageData.url})`);
-                }
+                $link.replaceWith(createMarkdown(imageData.alt, imageData.url, href));
               } else {
-                $img.replaceWith(`![${imageData.alt}](${imageData.url})`);
+                $img.replaceWith(createMarkdown(imageData.alt, imageData.url));
               }
               imageRefs.push(imageData);
               break;
@@ -224,7 +230,7 @@ class UrlConverter {
           if (match) {
             const imageData = processImageUrl(match[1]);
             if (imageData) {
-              $el.before(`\n\n![${imageData.alt}](${imageData.url})\n\n`);
+              $el.before($.text(`\n\n![${imageData.alt}](${imageData.url})\n\n`));
               $el.removeAttr('style');
               imageRefs.push(imageData);
             }
