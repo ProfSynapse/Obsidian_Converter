@@ -45,7 +45,21 @@ const CONFIG = {
     responseType: 'text'
   },
   conversion: {
-    imageTypes: ['jpg', 'jpeg', 'png', 'gif', 'webp', 'svg', 'ico']
+    imageTypes: ['jpg', 'jpeg', 'png', 'gif', 'webp', 'svg', 'ico'],
+    excludePatterns: [
+      /\/(analytics|tracking|pixel|beacon|ad)\//i,
+      /\.(analytics|tracking)\./i,
+      /\b(ga|gtm|pixel|fb)\b/i,
+      /\b(doubleclick|adsense)\b/i
+    ],
+    lazyLoadAttrs: [
+      'data-src',
+      'data-original',
+      'data-lazy',
+      'data-srcset',
+      'loading-src',
+      'lazy-src'
+    ]
   }
 };
 
@@ -196,150 +210,104 @@ class UrlConverter {
       const response = await got(url, gotOptions);
       const $ = cheerio.load(response.body);
       
-      // Content selection rules - from most specific to most general
-      const contentSelectors = {
-        article: [
-          'article[class*="post"]', 'article[class*="content"]', 'article[class*="entry"]',
-          'article[id*="post"]', 'article[id*="content"]', 'article',
-          '[role="article"]', '[typeof="Article"]'
-        ],
-        blog: [
-          '.post-content', '.entry-content', '.article-content', '.blog-content',
-          '.post-body', '.entry-body', '.article-body', '.blog-post',
-          '.blog-entry', '.post-entry', '.single-post'
-        ],
-        docs: [
-          '.markdown-body', '.readme', '.documentation', '.docs-content',
-          '.wiki-content', '.document-content', '.help-content',
-          '[role="document"]', '[role="documentation"]'
-        ],
-        news: [
-          '.story-content', '.news-content', '.article-text', '.story-body',
-          '.news-article', '.article-body', '.story', '.news-body'
-        ],
-        main: [
-          'main[role="main"]', 'div[role="main"]', 'main', '#main-content',
-          '#mainContent', '.main-content', '.maincontent', '[role="main"]'
-        ],
-        cms: [
-          '.node-content', '.page-content', '.site-content', '.cms-content',
-          '.contentBody', '.page-body', '.wysiwyg-content', '.editor-content',
-          '[data-content]', '[data-content-area]'
-        ],
-        forum: [
-          '.thread-content', '.forum-post', '.message-content', '.post-message',
-          '.forum-content', '.thread-body', '.message-body', '.forum-message'
-        ],
-        common: [
-          '#content', '.content', '[class*="content-"]', '[id*="content-"]',
-          '[class*="-content"]', '[id*="-content"]', '.text', '.body'
-        ]
-      };
-
-      // Initialize content container
-      const $contentParts = $('<div></div>');
-
-      // Initialize content collection with a wrapper
-      const $wrapper = $('<div class="content-wrapper"></div>');
+      // Track if we found meaningful content
       let foundContent = false;
 
-      // Track processed elements to avoid duplicates
-      const processedNodes = new Set();
-      
-      // First pass: Find specific content sections
-      for (const [category, selectors] of Object.entries(contentSelectors)) {
-        for (const selector of selectors) {
-          $(selector).each((_, element) => {
-            // Skip if we've already processed this node
-            if (processedNodes.has(element)) return;
-            
-            const $element = $(element);
-            // Skip empty sections
-            if (!$element.text().trim()) return;
-            
-            foundContent = true;
-            processedNodes.add(element);
-            
-            // Add section with category marker
-            const $section = $('<div></div>')
-              .addClass(`section-${category}`)
-              .append($element.clone());
-            
-            $wrapper.append($section);
-            console.log(`Found content in ${category}: ${selector}`);
-          });
+      // First remove obvious non-content elements
+      console.log('Removing non-content elements...');
+      const removeInitial = [
+        'script', 'style', 'link', 'meta', 'noscript',
+        '.cookie-banner', '.gdpr-notice', '.ads',
+        'header nav', 'footer nav', '.social-share'
+      ];
+      removeInitial.forEach(selector => {
+        $(selector).remove();
+      });
+
+      // Keep a copy of the full body for fallback
+      const $fullBody = $('body').clone();
+
+      // Try to find the main content container
+      console.log('Looking for main content container...');
+      let $mainContent = null;
+      const mainSelectors = [
+        'main',
+        'article',
+        '[role="main"]',
+        '[role="article"]',
+        '.post-content',
+        '.article-content',
+        '.entry-content',
+        '.content',
+        '#content',
+        '#main'
+      ];
+
+      for (const selector of mainSelectors) {
+        const $found = $(selector).first();
+        if ($found.length && $found.text().trim().length > 100) {
+          console.log(`Found main content using selector: ${selector}`);
+          $mainContent = $found;
+          break;
         }
       }
 
-      // If no content found through selectors, try other approaches
-      if (!foundContent) {
-        console.log('No specific content found, looking for article content');
+      // If no main content found, try looking for the largest content div
+      if (!$mainContent) {
+        console.log('No main content found, looking for largest content block...');
+        let maxLength = 0;
+        let bestDiv = null;
 
-        // First, look for divs with significant text content
-        const possibleContentDivs = new Map(); // Map to store div scores
         $('div').each((_, div) => {
           const $div = $(div);
-          const paragraphs = $div.find('p');
-          if (paragraphs.length < 2) return; // Skip divs with few paragraphs
-
-          // Score based on content indicators
-          let score = 0;
-          score += paragraphs.length * 2;
-          score += $div.find('h1, h2, h3, h4, h5, h6').length * 3;
-          score += $div.find('ul, ol').length * 2;
-          score += $div.find('blockquote').length * 2;
-          score -= $div.find('script, style, iframe').length * 5;
-          score -= $div.find('.ad, .share, .social').length * 3;
-
-          // Additional scoring based on div characteristics
-          const id = $div.attr('id') || '';
-          const className = $div.attr('class') || '';
-          if (/(article|content|post|entry|text|body)/i.test(id)) score += 5;
-          if (/(article|content|post|entry|text|body)/i.test(className)) score += 5;
-          if (/(header|footer|nav|sidebar|widget)/i.test(id)) score -= 5;
-          if (/(header|footer|nav|sidebar|widget)/i.test(className)) score -= 5;
-
-          // Store score if significant
-          if (score > 5) {
-            possibleContentDivs.set(div, score);
+          // Skip obvious non-content divs
+          if ($div.closest('header, footer, nav, aside, [role="complementary"]').length) return;
+          
+          const text = $div.text().trim();
+          if (text.length > maxLength && 
+              $div.find('p, h1, h2, h3, h4, h5, h6').length > 0) {
+            maxLength = text.length;
+            bestDiv = div;
           }
         });
 
-        // Sort divs by score and process top scoring ones
-        const sortedDivs = Array.from(possibleContentDivs.entries())
-          .sort((a, b) => b[1] - a[1]);
-
-        if (sortedDivs.length > 0) {
-          console.log('Found content divs:', sortedDivs.length);
-          sortedDivs.slice(0, 3).forEach(([div, score]) => {
-            console.log(`Processing div with score ${score}`);
-            const $div = $(div);
-            foundContent = true;
-            $wrapper.append($div.clone());
-          });
-        }
-
-        // If still no content, look for individual content elements
-        if (!foundContent) {
-          $('body').find('p, h1, h2, h3, h4, h5, h6, ul, ol, blockquote').each((_, element) => {
-            const $element = $(element);
-            const $parent = $element.parent();
-            
-            // Skip elements in unwanted sections
-            if ($parent.is('header, footer, nav, aside, .sidebar')) return;
-            
-            // Check if element has meaningful content
-            const text = $element.text().trim();
-            if (text && text.length >= 2) {
-              foundContent = true;
-              $wrapper.append($element.clone());
-            }
-          });
+        if (bestDiv) {
+          console.log('Found largest content block');
+          $mainContent = $(bestDiv);
         }
       }
 
-      // Last resort: Use body content
-      const $content = foundContent ? $wrapper : $('body');
+      // Create fresh wrapper and copy content
+      const $wrapper = $('<div class="content-wrapper"></div>');
+
+      if ($mainContent) {
+        // Keep original structure but clean it up
+        console.log('Processing main content...');
+        const $cleanContent = $mainContent.clone();
+        
+        // Remove unwanted nested elements
+        $cleanContent.find('header, footer, nav, aside, .sidebar, .widget, .comments').remove();
+        
+        // Move any remaining headings and content to wrapper
+        $wrapper.append($cleanContent);
+        foundContent = true;
+      } else {
+        // Fallback to body content after cleaning
+        console.log('No main content found, using cleaned body...');
+        const $cleanBody = $fullBody.clone();
+        $cleanBody.find('header, footer, nav, aside, .sidebar, .widget, .comments').remove();
+        $wrapper.append($cleanBody.children());
+        foundContent = $wrapper.text().trim().length > 100;
+      }
+
+      const $content = $wrapper;
+
+      // Log what we found
+      if (foundContent) {
+        console.log('Content found. Length:', $content.text().trim().length);
+      } else {
+        console.log('No meaningful content found');
+      }
       console.log(`Content found: ${foundContent ? 'YES' : 'NO - using body'}`);
 
       // Clean up content structure
@@ -408,7 +376,76 @@ class UrlConverter {
 
       // Pre-process images and their containers
       const imageRefs = [];
+      const processedUrls = new Set();
+      
       if (options.includeImages !== false) {
+        // Helper function to sanitize image filename
+        const sanitizeImageFilename = (url) => {
+          try {
+            const urlObj = new URL(url);
+            const filename = urlObj.pathname.split('/').pop() || 'image';
+            return filename
+              .replace(/[^a-zA-Z0-9.-]/g, '-')
+              .replace(/^-+|-+$/g, '')
+              .toLowerCase();
+          } catch (e) {
+            return 'image';
+          }
+        };
+
+        // Helper function to process image
+        const processImage = ($img, parentUrl = null) => {
+          // Get all possible image sources
+          const srcs = [
+            $img.attr('src'),
+            ...CONFIG.conversion.lazyLoadAttrs.map(attr => $img.attr(attr))
+          ].filter(Boolean);
+
+          if (srcs.length === 0) return null;
+
+          // Find first valid image source
+          for (const src of srcs) {
+            try {
+              const cleanSrc = src
+                .replace(/\s+/g, '')
+                .replace(/['"]/g, '')
+                .split('#')[0]
+                .split('?')[0];
+
+              if (cleanSrc.startsWith('data:')) continue;
+
+              const imageUrl = new URL(cleanSrc, url).href;
+              
+              // Skip if already processed or matches exclude patterns
+              if (processedUrls.has(imageUrl) || 
+                  CONFIG.conversion.excludePatterns.some(pattern => pattern.test(imageUrl))) {
+                continue;
+              }
+
+              const ext = imageUrl.split('.').pop()?.toLowerCase() || '';
+              if (!ext || !CONFIG.conversion.imageTypes.includes(ext)) continue;
+
+              processedUrls.add(imageUrl);
+
+              const alt = $img.attr('alt') || '';
+              const filename = sanitizeImageFilename(imageUrl);
+              
+              // Return image data
+              return {
+                url: imageUrl,
+                alt: alt || undefined,
+                filename,
+                linkedTo: parentUrl,
+                referenceUrl: url,
+                addedAt: new Date().toISOString()
+              };
+            } catch (error) {
+              console.error('Image processing error:', error);
+            }
+          }
+          return null;
+        };
+
         // First, handle images that are inside links
         $content.find('a > img').each((_, img) => {
           const $img = $(img);
@@ -447,23 +484,16 @@ class UrlConverter {
 
             const targetUrl = cleanHref ? new URL(cleanHref, url).href : null;
 
-            // Replace entire link+image structure with markdown
-            if (targetUrl && targetUrl !== imageUrl) {
-              // Image is linked to something else
-              $link.replaceWith(`[![${alt}](${imageUrl})](${targetUrl})`);
-            } else {
-              // Image links to itself or no link
-              $link.replaceWith(`![${alt}](${imageUrl})`);
+            const imageData = processImage($img, targetUrl);
+            if (imageData) {
+              // Replace with Obsidian format
+              if (targetUrl && targetUrl !== imageData.url) {
+                $link.replaceWith(`[![${imageData.alt}](![[${imageData.filename}]])](${targetUrl})`);
+              } else {
+                $link.replaceWith(`![[${imageData.filename}]]`);
+              }
+              imageRefs.push(imageData);
             }
-
-            // Track image reference
-            imageRefs.push({
-              url: imageUrl,
-              alt: alt || undefined,
-              linkedTo: targetUrl || undefined,
-              referenceUrl: url,
-              addedAt: new Date().toISOString()
-            });
           } catch (error) {
             console.error('Linked image processing error:', error);
           }
@@ -496,16 +526,12 @@ class UrlConverter {
             
             if (!ext || !CONFIG.conversion.imageTypes.includes(ext)) return;
 
-            // Replace with standard markdown image
-            $img.replaceWith(`![${alt}](${imageUrl})`);
-            
-            // Track image reference
-            imageRefs.push({
-              url: imageUrl,
-              alt: alt || undefined,
-              referenceUrl: url,
-              addedAt: new Date().toISOString()
-            });
+            const imageData = processImage($img);
+            if (imageData) {
+              // Replace with Obsidian format
+              $img.replaceWith(`![[${imageData.filename}]]`);
+              imageRefs.push(imageData);
+            }
           } catch (error) {
             console.error('Standalone image processing error:', error);
           }

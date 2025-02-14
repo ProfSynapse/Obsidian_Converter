@@ -13,12 +13,31 @@ const CONFIG = {
   concurrentLimit: 5,
   validProtocols: ['http:', 'https:'],
   excludePatterns: [
-    /\.(jpg|jpeg|png|gif|svg|css|js|ico|woff|woff2|ttf|eot)$/i,  // Assets
-    /\.(pdf|zip|doc|docx|xls|xlsx|ppt|pptx)$/i,                  // Documents
-    /\?(utm_|source=|campaign=)/i,                                // Tracking
-    /#.*/,                                                        // Anchors
-    /^(mailto:|tel:|javascript:)/i,                              // Protocols
-    /\/(api|feed|rss|auth|login|signup|sitemap|robots\.txt)/i    // System
+    // Assets and media
+    /\.(jpg|jpeg|png|gif|svg|css|js|ico|woff|woff2|ttf|eot)$/i,
+    /\.(mp3|mp4|wav|avi|mov|wmv|flv|ogg|webm)$/i,
+    
+    // Documents and archives
+    /\.(pdf|zip|doc|docx|xls|xlsx|ppt|pptx|rar|7z)$/i,
+    
+    // Tracking and analytics
+    /\?(utm_|source=|campaign=|ref=|fbclid=|gclid=)/i,
+    /\/(analytics|tracking|pixel|beacon|ad)\//i,
+    /\.(analytics|tracking)\./i,
+    /\b(ga|gtm|pixel|fb)\b/i,
+    
+    // System and utility
+    /#.*/,  // Anchors
+    /^(mailto:|tel:|javascript:|data:)/i,  // Protocols
+    /\/(api|feed|rss|auth|login|signup|sitemap|robots\.txt)/i,  // System paths
+    /\/(cart|checkout|account|profile|settings)/i,  // User pages
+    /\/(search|tags?|categories)/i,  // Navigation
+    /\/(wp-admin|wp-content|wp-includes)/i,  // CMS
+    /\/(cdn-cgi|__webpack|_next|static)\//i,  // Infrastructure
+    
+    // Dynamic and temporary
+    /\?.*(?:session|token|nonce|timestamp)=/i,
+    /\/\d{4}\/\d{2}\/\d{2}\//  // Date-based URLs
   ],
   http: {
     headers: {
@@ -208,24 +227,120 @@ class UrlProcessor {
   sanitizeFilename(input) {
     if (!input) return 'index';
 
-    return input
+    // Extract meaningful parts from the path
+    const parts = input.split('/').filter(Boolean);
+    const lastPart = parts.pop() || 'index';
+    
+    // Clean up the filename
+    const sanitized = lastPart
       .toLowerCase()
-      .replace(/^\/+|\/+$/g, '')
+      // Remove file extensions
+      .replace(/\.[^.]+$/, '')
+      // Remove query parameters
+      .split('?')[0]
+      // Remove special characters
       .replace(/[^a-z0-9]+/g, '-')
+      // Clean up dashes
       .replace(/^-+|-+$/g, '')
-      .slice(0, 100) || 'index';
+      // Limit length but try to keep words intact
+      .split('-')
+      .reduce((acc, part) => {
+        if ((acc + (acc ? '-' : '') + part).length <= 100) {
+          return acc + (acc ? '-' : '') + part;
+        }
+        return acc;
+      }, '');
+
+    return sanitized || 'index';
   }
 
-  generateIndex(parentUrl, pages) {
+  /**
+   * Organizes images into a structured format for Obsidian
+   */
+  organizeImages(imageRefs, hostname) {
+    const organized = {
+      images: [],
+      imageIndex: new Map()
+    };
+
+    imageRefs.forEach(img => {
+      try {
+        // Generate a unique, clean filename
+        const ext = img.url.split('.').pop()?.toLowerCase() || 'jpg';
+        const baseFilename = this.sanitizeFilename(img.filename || 'image');
+        let filename = baseFilename;
+        let counter = 1;
+
+        // Ensure unique filenames
+        while (organized.imageIndex.has(filename)) {
+          filename = `${baseFilename}-${counter++}`;
+        }
+
+        // Store image reference
+        const imageRef = {
+          ...img,
+          originalUrl: img.url,
+          filename: `${filename}.${ext}`,
+          path: `assets/${hostname}/${filename}.${ext}`,
+          addedAt: new Date().toISOString()
+        };
+
+        organized.images.push(imageRef);
+        organized.imageIndex.set(filename, imageRef);
+      } catch (error) {
+        console.error('Error organizing image:', error);
+      }
+    });
+
+    return organized;
+  }
+
+  generateIndex(parentUrl, pages, imageData) {
     const successfulPages = pages.filter(p => p.success);
     const failedPages = pages.filter(p => !p.success);
     const hostname = new URL(parentUrl).hostname;
+    const timestamp = new Date().toISOString();
+
+    // Group pages by their primary sections (based on URL structure)
+    const sections = new Map();
+    successfulPages.forEach(page => {
+      try {
+        const url = new URL(page.url);
+        const pathParts = url.pathname.split('/').filter(Boolean);
+        const section = pathParts[0] || 'main';
+        if (!sections.has(section)) {
+          sections.set(section, []);
+        }
+        sections.get(section).push(page);
+      } catch (error) {
+        console.error('Error processing page section:', error);
+      }
+    });
+
+    // Generate section content
+    const sectionContent = Array.from(sections.entries())
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([section, pages]) => [
+        `### ${section.charAt(0).toUpperCase() + section.slice(1)}`,
+        '',
+        ...pages.map(page => {
+          const name = page.name.replace(/\.md$/, '');
+          return `- [[pages/${name}|${name}]] - [Original](${page.url})`;
+        }),
+        ''
+      ].join('\n'));
 
     return [
       `---`,
       `title: "${hostname} Archive"`,
       `description: "Website archive of ${hostname}"`,
-      `date: "${new Date().toISOString()}"`,
+      `date: "${timestamp}"`,
+      `source: "${parentUrl}"`,
+      `archived_at: "${timestamp}"`,
+      `total_pages: ${pages.length}`,
+      `successful_pages: ${successfulPages.length}`,
+      `failed_pages: ${failedPages.length}`,
+      `total_images: ${imageData.images.length}`,
       `tags:`,
       `  - website-archive`,
       `  - ${hostname.replace(/\./g, '-')}`,
@@ -235,17 +350,24 @@ class UrlProcessor {
       '',
       '## Site Information',
       `- **Source URL:** ${parentUrl}`,
-      `- **Archived:** ${new Date().toISOString()}`,
+      `- **Archived:** ${timestamp}`,
       `- **Total Pages:** ${pages.length}`,
       `- **Successful:** ${successfulPages.length}`,
       `- **Failed:** ${failedPages.length}`,
+      `- **Images:** ${imageData.images.length}`,
       '',
-      '## Successfully Converted Pages',
+      '## Content Structure',
       '',
-      ...successfulPages.map(page => {
-        const name = page.name.replace(/\.md$/, '');
-        return `- [[pages/${name}|${name}]] - [Original](${page.url})`;
-      }),
+      '```',
+      `${hostname}/`,
+      '├── pages/     # Converted markdown pages',
+      '├── assets/    # Downloaded images and media',
+      '└── index.md   # This file',
+      '```',
+      '',
+      '## Pages by Section',
+      '',
+      ...sectionContent,
       '',
       failedPages.length ? [
         '## Failed Conversions',
@@ -253,13 +375,35 @@ class UrlProcessor {
         ...failedPages.map(page => `- ${page.url}: ${page.error}`),
         ''
       ].join('\n') : '',
+      '## Image Gallery',
+      '',
+      'All images are stored in the `assets/` folder using Obsidian format: `![[filename]]`',
+      '',
+      '### Recently Added Images',
+      '',
+      ...imageData.images
+        .sort((a, b) => b.addedAt.localeCompare(a.addedAt))
+        .slice(0, 10)
+        .map(img => 
+          `- ![[${img.filename}]] - ${img.alt || 'No description'}`
+        ),
+      '',
       '## Notes',
       '',
+      '- All pages are stored in the `pages/` folder',
       '- All images are stored in the `assets/` folder',
       '- Internal links are preserved as wiki-links',
       '- Original URLs are preserved in page metadata',
       '- Images use Obsidian format: ![[image.jpg]]',
-      '- Generated with Obsidian Note Converter'
+      '- Generated with Obsidian Note Converter',
+      '',
+      '## Technical Details',
+      '',
+      '- **Conversion Date:** ' + timestamp,
+      '- **URL Structure:** Preserved where possible',
+      '- **Image Processing:** Duplicates removed, filenames sanitized',
+      '- **Content Cleaning:** Navigation, ads, and popups removed',
+      '- **Metadata:** Original page metadata preserved in frontmatter'
     ].join('\n');
   }
 }
@@ -308,41 +452,43 @@ export async function convertParentUrlToMarkdown(parentUrl) {
         return true;
       });
 
-    // Add image reference metadata to the index
-    const imageSection = allImageRefs.length > 0 ? [
-      '## Referenced Images',
-      '',
-      'The following images are referenced in the archive:',
-      '',
-      ...allImageRefs.map(img => 
-        `- [${img.alt || 'Image'}](${img.url}) (from ${img.referenceUrl})`
-      ),
-      ''
-    ].join('\n') : '';
+    // Organize images
+    const organizedImages = processor.organizeImages(allImageRefs, hostname);
 
-    const index = processor.generateIndex(parentUrl, processedPages);
+    // Generate index with organized image data
+    const index = processor.generateIndex(parentUrl, processedPages, organizedImages);
 
+    // Create files array with proper paths
+    const files = [
+      {
+        name: `web/${hostname}/index.md`,
+        content: index,
+        type: 'text'
+      },
+      ...processedPages
+        .filter(p => p.success)
+        .map(({ name, content }) => ({
+          name: `web/${hostname}/pages/${name}`,
+          content,
+          type: 'text'
+        }))
+    ];
+
+    // Return result with organized image data
     return {
       url: parentUrl,
       type: 'parenturl',
       content: index,
       name: hostname,
-      files: [
-        {
-          name: `web/${hostname}/index.md`,
-          content: `${index}\n\n${imageSection}`,
-          type: 'text'
-        },
-        ...processedPages
-          .filter(p => p.success)
-          .map(({ name, content }) => ({
-            name: `web/${hostname}/pages/${name}`,
-            content,
-            type: 'text'
-          }))
-      ],
-      imageRefs: allImageRefs,
-      success: true
+      files,
+      imageRefs: organizedImages.images,
+      success: true,
+      stats: {
+        totalPages: processedPages.length,
+        successfulPages: processedPages.filter(p => p.success).length,
+        failedPages: processedPages.filter(p => !p.success).length,
+        totalImages: organizedImages.images.length
+      }
     };
   } catch (error) {
     console.error('URL conversion failed:', error);
