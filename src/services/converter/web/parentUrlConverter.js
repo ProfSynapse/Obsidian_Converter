@@ -13,9 +13,9 @@ const CONFIG = {
   concurrentLimit: 5,
   validProtocols: ['http:', 'https:'],
   excludePatterns: [
-    // Assets and media
-    /\.(jpg|jpeg|png|gif|svg|css|js|ico|woff|woff2|ttf|eot)$/i,
-    /\.(mp3|mp4|wav|avi|mov|wmv|flv|ogg|webm)$/i,
+    // Assets to exclude
+    /\.(css|js|woff|woff2|ttf|eot)$/i,
+    /\.(mp3|mp4|wav|avi|mov|wmv|flv|ogg|webm)$/i, // Media files
     
     // Documents and archives
     /\.(pdf|zip|doc|docx|xls|xlsx|ppt|pptx|rar|7z)$/i,
@@ -255,44 +255,27 @@ class UrlProcessor {
   }
 
   /**
-   * Organizes images into a structured format for Obsidian
+   * Collects unique image references from pages
    */
-  organizeImages(imageRefs, hostname) {
-    const organized = {
-      images: [],
-      imageIndex: new Map()
-    };
+  collectImageReferences(pages) {
+    const seenUrls = new Set();
+    const images = [];
 
-    imageRefs.forEach(img => {
-      try {
-        // Generate a unique, clean filename
-        const ext = img.url.split('.').pop()?.toLowerCase() || 'jpg';
-        const baseFilename = this.sanitizeFilename(img.filename || 'image');
-        let filename = baseFilename;
-        let counter = 1;
-
-        // Ensure unique filenames
-        while (organized.imageIndex.has(filename)) {
-          filename = `${baseFilename}-${counter++}`;
-        }
-
-        // Store image reference
-        const imageRef = {
-          ...img,
-          originalUrl: img.url,
-          filename: `${filename}.${ext}`,
-          path: `assets/${hostname}/${filename}.${ext}`,
-          addedAt: new Date().toISOString()
-        };
-
-        organized.images.push(imageRef);
-        organized.imageIndex.set(filename, imageRef);
-      } catch (error) {
-        console.error('Error organizing image:', error);
+    pages.filter(p => p.success).forEach(page => {
+      if (page.images) {
+        page.images.forEach(img => {
+          if (img?.url && !seenUrls.has(img.url)) {
+            seenUrls.add(img.url);
+            images.push({
+              ...img,
+              referenceUrl: page.url
+            });
+          }
+        });
       }
     });
 
-    return organized;
+    return images;
   }
 
   generateIndex(parentUrl, pages, imageData) {
@@ -301,7 +284,7 @@ class UrlProcessor {
     const hostname = new URL(parentUrl).hostname;
     const timestamp = new Date().toISOString();
 
-    // Group pages by their primary sections (based on URL structure)
+    // Group pages by their primary sections
     const sections = new Map();
     successfulPages.forEach(page => {
       try {
@@ -330,6 +313,20 @@ class UrlProcessor {
         ''
       ].join('\n'));
 
+    // Collect all image references
+    const allImages = new Set();
+    pages.filter(p => p.success).forEach(page => {
+      if (page.images) {
+        page.images.forEach(img => {
+          if (img.url) allImages.add(img);
+        });
+      }
+    });
+
+    const imageList = Array.from(allImages)
+      .sort((a, b) => (b.addedAt || '').localeCompare(a.addedAt || ''))
+      .map(img => `- [${img.alt || 'Image'}](${img.url}) (from ${img.referenceUrl})`);
+
     return [
       `---`,
       `title: "${hostname} Archive"`,
@@ -337,10 +334,6 @@ class UrlProcessor {
       `date: "${timestamp}"`,
       `source: "${parentUrl}"`,
       `archived_at: "${timestamp}"`,
-      `total_pages: ${pages.length}`,
-      `successful_pages: ${successfulPages.length}`,
-      `failed_pages: ${failedPages.length}`,
-      `total_images: ${imageData.images.length}`,
       `tags:`,
       `  - website-archive`,
       `  - ${hostname.replace(/\./g, '-')}`,
@@ -354,18 +347,8 @@ class UrlProcessor {
       `- **Total Pages:** ${pages.length}`,
       `- **Successful:** ${successfulPages.length}`,
       `- **Failed:** ${failedPages.length}`,
-      `- **Images:** ${imageData.images.length}`,
       '',
-      '## Content Structure',
-      '',
-      '```',
-      `${hostname}/`,
-      '├── pages/     # Converted markdown pages',
-      '├── assets/    # Downloaded images and media',
-      '└── index.md   # This file',
-      '```',
-      '',
-      '## Pages by Section',
+      '## Successfully Converted Pages',
       '',
       ...sectionContent,
       '',
@@ -375,35 +358,19 @@ class UrlProcessor {
         ...failedPages.map(page => `- ${page.url}: ${page.error}`),
         ''
       ].join('\n') : '',
-      '## Image Gallery',
+      '## Referenced Images',
       '',
-      'All images are stored in the `assets/` folder using Obsidian format: `![[filename]]`',
+      'The following images are referenced in the archive:',
       '',
-      '### Recently Added Images',
-      '',
-      ...imageData.images
-        .sort((a, b) => b.addedAt.localeCompare(a.addedAt))
-        .slice(0, 10)
-        .map(img => 
-          `- ![[${img.filename}]] - ${img.alt || 'No description'}`
-        ),
+      ...imageList.slice(0, 30), // Limit to first 30 images to keep the list manageable
       '',
       '## Notes',
       '',
       '- All pages are stored in the `pages/` folder',
-      '- All images are stored in the `assets/` folder',
       '- Internal links are preserved as wiki-links',
       '- Original URLs are preserved in page metadata',
-      '- Images use Obsidian format: ![[image.jpg]]',
-      '- Generated with Obsidian Note Converter',
-      '',
-      '## Technical Details',
-      '',
-      '- **Conversion Date:** ' + timestamp,
-      '- **URL Structure:** Preserved where possible',
-      '- **Image Processing:** Duplicates removed, filenames sanitized',
-      '- **Content Cleaning:** Navigation, ads, and popups removed',
-      '- **Metadata:** Original page metadata preserved in frontmatter'
+      '- Images are linked to their original source URLs',
+      '- Generated with Obsidian Note Converter'
     ].join('\n');
   }
 }
@@ -441,24 +408,13 @@ export async function convertParentUrlToMarkdown(parentUrl) {
     // Convert all pages to markdown
     const processedPages = await processor.processUrls(allUrls);
 
-    // Collect unique image references
-    const seenImageUrls = new Set();
-    const allImageRefs = processedPages
-      .filter(p => p.success)
-      .flatMap(p => p.images || [])
-      .filter(img => {
-        if (!img?.url || seenImageUrls.has(img.url)) return false;
-        seenImageUrls.add(img.url);
-        return true;
-      });
+    // Collect image references
+    const imageRefs = processor.collectImageReferences(processedPages);
 
-    // Organize images
-    const organizedImages = processor.organizeImages(allImageRefs, hostname);
+    // Generate index with image references
+    const index = processor.generateIndex(parentUrl, processedPages, { images: imageRefs });
 
-    // Generate index with organized image data
-    const index = processor.generateIndex(parentUrl, processedPages, organizedImages);
-
-    // Create files array with proper paths
+    // Create files array with markdown content
     const files = [
       {
         name: `web/${hostname}/index.md`,
@@ -474,20 +430,18 @@ export async function convertParentUrlToMarkdown(parentUrl) {
         }))
     ];
 
-    // Return result with organized image data
     return {
       url: parentUrl,
       type: 'parenturl',
       content: index,
       name: hostname,
       files,
-      imageRefs: organizedImages.images,
       success: true,
       stats: {
         totalPages: processedPages.length,
         successfulPages: processedPages.filter(p => p.success).length,
         failedPages: processedPages.filter(p => !p.success).length,
-        totalImages: organizedImages.images.length
+        totalImages: imageRefs.length
       }
     };
   } catch (error) {

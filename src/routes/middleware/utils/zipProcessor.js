@@ -279,12 +279,11 @@ async function processBatch(zip, batch, categories) {
  * @param {string} content - The content
  * @param {Array} images - Array of images
  */
-async function processWebContent(categoryFolder, baseName, content, images, item) {
+async function processWebContent(categoryFolder, baseName, content, _, item) {
   console.log('🌐 Processing web content:', {
     baseName,
     hasContent: !!content,
-    hasFiles: !!item.files,
-    fileCount: item.files?.length || 0
+    hasFiles: !!item.files
   });
 
   const siteFolder = categoryFolder.folder(baseName);
@@ -293,22 +292,31 @@ async function processWebContent(categoryFolder, baseName, content, images, item
     return;
   }
 
-  // Add index file
-  siteFolder.file('index.md', content);
-  console.log('📄 Added index.md');
+  // Create pages directory
+  const pagesFolder = siteFolder.folder('pages');
 
-  // Process additional files from parent URL conversion
+  // Add files in their proper locations
   if (item.files && Array.isArray(item.files)) {
-    console.log(`📑 Processing ${item.files.length} additional files for ${baseName}`);
+    console.log(`📑 Processing ${item.files.length} markdown files`);
     for (const file of item.files) {
       try {
         if (!file.name || !file.content) {
           console.warn('⚠️ Skipping invalid file:', file.name);
           continue;
         }
-        const relativePath = file.name.split('/').slice(2).join('/'); // Remove web/domain prefix
-        console.log(`📄 Adding file: ${relativePath}`);
-        siteFolder.file(relativePath, file.content);
+
+        // Split path into parts and get the final part
+        const pathParts = file.name.split('/');
+        const finalPath = pathParts[pathParts.length - 1];
+
+        // Add file to pages folder or root based on path
+        if (finalPath.includes('index.md')) {
+          siteFolder.file('index.md', file.content);
+          console.log('📄 Added index.md to root');
+        } else {
+          pagesFolder.file(finalPath, file.content);
+          console.log(`📄 Added ${finalPath} to pages/`);
+        }
       } catch (error) {
         console.error('❌ Error processing file:', {
           name: file.name,
@@ -316,6 +324,10 @@ async function processWebContent(categoryFolder, baseName, content, images, item
         });
       }
     }
+  } else {
+    // If no files array, just add the content as index.md
+    siteFolder.file('index.md', content);
+    console.log('📄 Added single index.md file');
   }
 }
 

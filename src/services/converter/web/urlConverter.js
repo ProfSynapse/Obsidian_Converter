@@ -145,84 +145,199 @@ class UrlConverter {
       // Fallback to body if no main content found
       $content = $content || $('body');
 
-      // Process images
+      // Process images with comprehensive detection
       const imageRefs = [];
       const processedUrls = new Set();
-      
+
       if (options.includeImages !== false) {
-        const processImage = ($img, parentUrl = null) => {
-          const srcs = [
-            $img.attr('src'),
-            ...CONFIG.conversion.lazyLoadAttrs.map(attr => $img.attr(attr))
-          ].filter(Boolean);
+        // Helper function to clean and normalize URLs
+        const normalizeUrl = (src, baseUrl) => {
+          if (!src) return null;
+          try {
+            const cleanSrc = src
+              .replace(/\s+/g, '')
+              .replace(/['"]/g, '')
+              .trim();
 
-          if (srcs.length === 0) return null;
+            if (cleanSrc.startsWith('data:')) return null;
 
-          for (const src of srcs) {
-            try {
-              const cleanSrc = src
-                .replace(/\s+/g, '')
-                .replace(/['"]/g, '')
-                .split('#')[0]
-                .split('?')[0];
-
-              if (cleanSrc.startsWith('data:')) continue;
-
-              const imageUrl = new URL(cleanSrc, url).href;
-              
-              if (processedUrls.has(imageUrl) || 
-                  CONFIG.conversion.excludePatterns.some(pattern => pattern.test(imageUrl))) {
-                continue;
-              }
-
-              const ext = imageUrl.split('.').pop()?.toLowerCase() || '';
-              if (!ext || !CONFIG.conversion.imageTypes.includes(ext)) continue;
-
-              processedUrls.add(imageUrl);
-
-              const alt = $img.attr('alt') || '';
-              const urlObj = new URL(imageUrl);
-              const filename = urlObj.pathname.split('/').pop() || 'image';
-              const sanitizedFilename = filename
-                .replace(/[^a-zA-Z0-9.-]/g, '-')
-                .replace(/^-+|-+$/g, '')
-                .toLowerCase();
-              
-              return {
-                url: imageUrl,
-                alt: alt || undefined,
-                filename: sanitizedFilename,
-                linkedTo: parentUrl,
-                referenceUrl: url,
-                addedAt: new Date().toISOString()
-              };
-            } catch (error) {
-              console.error('Image processing error:', error);
+            // Handle protocol-relative URLs
+            if (cleanSrc.startsWith('//')) {
+              return `https:${cleanSrc}`;
             }
+
+            return new URL(cleanSrc, baseUrl).href;
+          } catch (error) {
+            console.error('URL normalization error:', error);
+            return null;
           }
-          return null;
         };
 
-        // Handle linked images
-        $content.find('a > img').each((_, img) => {
-          const $img = $(img);
-          const $link = $img.parent('a');
-          const href = $link.attr('href');
-
-          const imageData = processImage($img, href);
-          if (imageData) {
-            $link.replaceWith(`![[${imageData.filename}]]`);
-            imageRefs.push(imageData);
+        // Helper function to sanitize filenames
+        const sanitizeFilename = (url) => {
+          try {
+            const urlObj = new URL(url);
+            let filename = urlObj.pathname.split('/').pop() || 'image';
+            
+            // Remove query parameters but keep file extension
+            filename = filename.split('?')[0].split('#')[0];
+            
+            // Clean the filename
+            return filename
+              .replace(/[^a-zA-Z0-9.-]/g, '-') // Replace special chars with hyphen
+              .replace(/--+/g, '-')            // Replace multiple hyphens with single
+              .replace(/^-+|-+$/g, '')         // Remove leading/trailing hyphens
+              .toLowerCase();
+          } catch (error) {
+            console.error('Filename sanitization error:', error);
+            return 'image';
           }
-        });
+        };
 
-        // Handle standalone images
-        $content.find('img').not('a > img').each((_, img) => {
-          const $img = $(img);
-          const imageData = processImage($img);
-          if (imageData) {
-            $img.replaceWith(`![[${imageData.filename}]]`);
-            imageRefs.push(imageData);
+        // Process a potential image URL
+        const processImageUrl = (imgUrl, altText = '', parentUrl = null) => {
+          if (!imgUrl) return null;
+          
+          try {
+            const normalizedUrl = normalizeUrl(imgUrl, url);
+            if (!normalizedUrl) return null;
+
+            if (processedUrls.has(normalizedUrl)) return null;
+
+            const ext = normalizedUrl.split('.').pop()?.toLowerCase() || '';
+            if (!ext || !CONFIG.conversion.imageTypes.includes(ext)) return null;
+
+            if (CONFIG.conversion.excludePatterns.some(pattern => pattern.test(normalizedUrl))) {
+              return null;
+            }
+
+            processedUrls.add(normalizedUrl);
+
+            return {
+              url: normalizedUrl,
+              alt: altText || undefined,
+              filename: sanitizeFilename(normalizedUrl),
+              linkedTo: parentUrl,
+              referenceUrl: url,
+              addedAt: new Date().toISOString()
+            };
+          } catch (error) {
+            console.error('Image processing error:', error);
+            return null;
+          }
+        };
+
+        // Find all possible image sources
+        const findImageSources = ($element) => {
+          const sources = [];
+
+          // Direct image elements
+          $element.find('img').each((_, img) => {
+            const $img = $(img);
+            const srcs = [
+              $img.attr('src'),
+              ...CONFIG.conversion.lazyLoadAttrs.map(attr => $img.attr(attr))
+            ].filter(Boolean);
+
+            srcs.forEach(src => {
+              const imageData = processImageUrl(src, $img.attr('alt'));
+              if (imageData) {
+                sources.push({
+                  element: $img,
+                  data: imageData,
+                  isLinked: $img.parent('a').length > 0
+                });
+              }
+            });
+          });
+
+          // Background images
+          $element.find('[style*="background"]').each((_, el) => {
+            const $el = $(el);
+            const style = $el.attr('style') || '';
+            const match = style.match(/background(?:-image)?\s*:\s*url\(['"]?([^'"]+)['"]?\)/i);
+            
+            if (match) {
+              const imageData = processImageUrl(match[1]);
+              if (imageData) {
+                sources.push({
+                  element: $el,
+                  data: imageData,
+                  isBackground: true
+                });
+              }
+            }
+          });
+
+          // JSON-LD images
+          $element.find('script[type="application/ld+json"]').each((_, script) => {
+            try {
+              const json = JSON.parse($(script).html());
+              const findImages = (obj) => {
+                if (!obj || typeof obj !== 'object') return;
+                
+                if (Array.isArray(obj)) {
+                  obj.forEach(item => findImages(item));
+                  return;
+                }
+
+                for (const [key, value] of Object.entries(obj)) {
+                  if (typeof value === 'string' && 
+                      (key.toLowerCase().includes('image') || key.toLowerCase().includes('photo'))) {
+                    const imageData = processImageUrl(value);
+                    if (imageData) {
+                      sources.push({
+                        data: imageData,
+                        isJsonLd: true
+                      });
+                    }
+                  } else if (typeof value === 'object') {
+                    findImages(value);
+                  }
+                }
+              };
+
+              findImages(json);
+            } catch (error) {
+              console.error('JSON-LD parsing error:', error);
+            }
+          });
+
+          return sources;
+        };
+
+        // Process all image sources
+        const imageSources = findImageSources($content);
+        
+        // Replace images in content and collect references
+        imageSources.forEach(({ element, data, isLinked, isBackground }) => {
+          if (data) {
+            if (element) {
+              if (isBackground) {
+                // For background images, use the direct URL
+                element.before(`\n\n![${data.alt || ''}](${data.url})\n\n`);
+                element.removeAttr('style');
+              } else if (isLinked) {
+                // For linked images
+                const $link = element.parent('a');
+                const href = $link.attr('href');
+                if (href && href !== data.url) {
+                  $link.replaceWith(`[![${data.alt || ''}](${data.url})](${href})`);
+                } else {
+                  $link.replaceWith(`![${data.alt || ''}](${data.url})`);
+                }
+              } else {
+                // For regular images
+                element.replaceWith(`![${data.alt || ''}](${data.url})`);
+              }
+            }
+            // Store reference but don't download
+            imageRefs.push({
+              url: data.url,
+              alt: data.alt,
+              linkedTo: data.linkedTo,
+              addedAt: new Date().toISOString()
+            });
           }
         });
       }
