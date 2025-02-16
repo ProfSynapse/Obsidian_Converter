@@ -19,7 +19,7 @@ class UrlConversionError extends Error {
 }
 
 /**
- * Configuration for URL conversion settings
+ * Configuration for HTTP requests
  */
 const CONFIG = {
   http: {
@@ -43,17 +43,6 @@ const CONFIG = {
     followRedirect: true,
     decompress: true,
     responseType: 'text'
-  },
-  conversion: {
-    imageTypes: ['jpg', 'jpeg', 'png', 'gif', 'webp', 'svg', 'ico', 'avif', 'bmp', 'tiff'],
-    imageAttributes: [
-      'src',
-      'data-src',
-      'data-original',
-      'data-lazy',
-      'data-srcset',
-      'srcset'
-    ]
   }
 };
 
@@ -72,92 +61,43 @@ class UrlConverter {
   }
 
   addBasicRules() {
+    // Keep table structure
     this.turndownService.addRule('tables', {
       filter: ['table'],
       replacement: (content) => content
     });
 
+    // Format code blocks
     this.turndownService.addRule('codeBlocks', {
       filter: ['pre'],
       replacement: (content) => `\n\`\`\`\n${content}\n\`\`\`\n`
     });
 
+    // Convert line breaks
     this.turndownService.addRule('lineBreaks', {
       filter: ['br'],
       replacement: () => '\n'
     });
   }
 
-  /**
-   * Extract image URL from srcset attribute
-   */
-  extractSrcsetUrl(srcset) {
-    if (!srcset) return null;
-    // Get largest image from srcset (last one in the list)
-    const urls = srcset.split(',')
-      .map(src => src.trim().split(' ')[0])
-      .filter(Boolean);
-    return urls[urls.length - 1] || urls[0];
-  }
+  findBestImageUrl(img) {
+    const src = img.attr('src');
+    const srcset = img.attr('srcset');
 
-  /**
-   * Extract image URLs from an HTML img element
-   */
-  extractImageUrls($img) {
-    const urls = [];
-    
-    // Check all possible image attributes
-    for (const attr of CONFIG.conversion.imageAttributes) {
-      const value = $img.attr(attr);
-      if (!value) continue;
+    if (!srcset) return src;
 
-      if (attr === 'srcset') {
-        const srcsetUrl = this.extractSrcsetUrl(value);
-        if (srcsetUrl) urls.push(srcsetUrl);
-      } else {
-        urls.push(value);
-      }
-    }
+    // Parse srcset and get the largest image
+    const sources = srcset.split(',')
+      .map(s => {
+        const [url, width] = s.trim().split(/\s+/);
+        return {
+          url,
+          width: parseInt(width) || 0
+        };
+      })
+      .sort((a, b) => b.width - a.width);
 
-    // Log found URLs
-    console.log('Found image URLs:', urls);
-    return urls.filter(Boolean);
-  }
-
-  /**
-   * Normalize and validate an image URL
-   */
-  normalizeImageUrl(url, baseUrl) {
-    try {
-      // Handle protocol-relative URLs
-      const fullUrl = url.startsWith('//') ? `https:${url}` : url;
-      
-      // Create full URL
-      const normalizedUrl = new URL(fullUrl, baseUrl).href;
-
-      // Check if URL points to an image
-      const urlPath = normalizedUrl.toLowerCase();
-      const hasImageExt = CONFIG.conversion.imageTypes.some(ext => 
-        urlPath.includes(`.${ext}`)
-      );
-
-      // Check if URL has image hints in query params
-      const params = new URLSearchParams(normalizedUrl.split('?')[1] || '');
-      const nameParam = params.get('name') || '';
-      const hasImageName = CONFIG.conversion.imageTypes.some(ext =>
-        nameParam.toLowerCase().endsWith(`.${ext}`)
-      );
-
-      if (!hasImageExt && !hasImageName) {
-        console.log('Skipping non-image URL:', normalizedUrl);
-        return null;
-      }
-
-      return normalizedUrl;
-    } catch (error) {
-      console.error('URL normalization error:', error);
-      return null;
-    }
+    return sources[0]?.url || src;
   }
 
   async convertToMarkdown(url, options = {}) {
@@ -180,7 +120,10 @@ class UrlConverter {
         '.ads', '.social-share', '.comments',
         '.navigation', '.menu', '.widget'
       ];
-      removeSelectors.forEach(selector => $(selector).remove());
+
+      removeSelectors.forEach(selector => {
+        $(selector).remove();
+      });
 
       // Find main content
       const contentSelectors = [
@@ -199,59 +142,22 @@ class UrlConverter {
       }
       $content = $content || $('body');
 
-      const imageRefs = [];
-      const processedUrls = new Set();
+      // Replace all img tags with markdown syntax
+      $content.find('img').each((_, img) => {
+        const $img = $(img);
+        const src = this.findBestImageUrl($img);
+        if (src) {
+          const alt = $img.attr('alt') || '';
+          $img.replaceWith(`\n![${alt}](${src})\n`);
+        }
+      });
 
-      if (options.includeImages !== false) {
-        // Process all img tags
-        $content.find('img').each((_, img) => {
-          const $img = $(img);
-          const urls = this.extractImageUrls($img);
-          
-          for (const imageUrl of urls) {
-            const normalizedUrl = this.normalizeImageUrl(imageUrl, url);
-            if (!normalizedUrl || processedUrls.has(normalizedUrl)) continue;
-
-            processedUrls.add(normalizedUrl);
-            const imageData = {
-              url: normalizedUrl,
-              alt: $img.attr('alt') || $img.attr('title') || '',
-              referenceUrl: url,
-              addedAt: new Date().toISOString()
-            };
-
-            const isLinked = $img.parent('a').length > 0;
-            const createMarkdown = (alt, imgUrl, href = null) => {
-              if (href && href !== imgUrl) {
-                return $.text(`[![[[${imgUrl}]${alt ? ` | ${alt}` : ''}]](${href})`);
-              }
-              return $.text(`![[${imgUrl}]${alt ? ` | ${alt}` : ''}`);
-            };
-
-            if (isLinked) {
-              const $link = $img.parent('a');
-              const href = $link.attr('href');
-              $link.replaceWith(createMarkdown(imageData.alt, imageData.url, href));
-            } else {
-              $img.replaceWith(createMarkdown(imageData.alt, imageData.url));
-            }
-            
-            console.log('Processing image:', {
-              original: imageUrl,
-              normalized: normalizedUrl,
-              alt: imageData.alt
-            });
-            
-            imageRefs.push(imageData);
-            break; // Take first valid URL
-          }
-        });
-      }
-
+      // Convert HTML to Markdown
       const markdown = this.turndownService.turndown($content.html())
-        .replace(/\n{3,}/g, '\n\n')
+        .replace(/\n{3,}/g, '\n\n')  // Remove extra newlines
         .trim();
 
+      // Extract metadata
       let metadata = null;
       if (options.includeMeta !== false) {
         try {
@@ -261,6 +167,7 @@ class UrlConverter {
         }
       }
 
+      // Combine metadata and markdown
       const content = [
         metadata ? [
           '---',
@@ -274,7 +181,6 @@ class UrlConverter {
 
       return {
         content,
-        images: imageRefs,
         success: true,
         name: options.originalName || new URL(url).hostname,
         metadata,
