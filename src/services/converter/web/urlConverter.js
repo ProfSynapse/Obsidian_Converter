@@ -80,24 +80,11 @@ class UrlConverter {
     });
   }
 
-  findBestImageUrl(img) {
-    const src = img.attr('src');
-    const srcset = img.attr('srcset');
-
-    if (!srcset) return src;
-
-    // Parse srcset and get the largest image
-    const sources = srcset.split(',')
-      .map(s => {
-        const [url, width] = s.trim().split(/\s+/);
-        return {
-          url,
-          width: parseInt(width) || 0
-        };
-      })
-      .sort((a, b) => b.width - a.width);
-
-    return sources[0]?.url || src;
+  sanitizeImage(markdown) {
+    // Remove escaping from markdown image syntax
+    return markdown
+      .replace(/!\\\[/g, '![')  // Fix escaped opening brackets
+      .replace(/\\\]/g, ']');   // Fix escaped closing brackets
   }
 
   async convertToMarkdown(url, options = {}) {
@@ -145,10 +132,11 @@ class UrlConverter {
       // Replace all img tags with markdown syntax
       $content.find('img').each((_, img) => {
         const $img = $(img);
-        const src = this.findBestImageUrl($img);
+        const src = $img.attr('src');
         if (src) {
           const alt = $img.attr('alt') || '';
-          $img.replaceWith(`\n![${alt}](${src})\n`);
+          const markdown = `\n![${alt}](${src})\n`;
+          $img.replaceWith(markdown);
         }
       });
 
@@ -156,6 +144,9 @@ class UrlConverter {
       const markdown = this.turndownService.turndown($content.html())
         .replace(/\n{3,}/g, '\n\n')  // Remove extra newlines
         .trim();
+
+      // Clean up markdown image syntax
+      const cleanedMarkdown = this.sanitizeImage(markdown);
 
       // Extract metadata
       let metadata = null;
@@ -176,7 +167,7 @@ class UrlConverter {
             .join('\n'),
           '---'
         ].join('\n') : null,
-        markdown
+        cleanedMarkdown
       ].filter(Boolean).join('\n\n');
 
       return {
