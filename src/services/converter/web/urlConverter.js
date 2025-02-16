@@ -45,20 +45,43 @@ const CONFIG = {
     responseType: 'text'
   },
   conversion: {
-    imageTypes: ['jpg', 'jpeg', 'png', 'gif', 'webp', 'svg', 'ico'],
+    imageTypes: ['jpg', 'jpeg', 'png', 'gif', 'webp', 'svg', 'ico', 'avif', 'bmp', 'tiff'],
+    // Reduced exclude patterns to avoid filtering legitimate images
     excludePatterns: [
-      /\/(analytics|tracking|pixel|beacon|ad)\//i,
-      /\.(analytics|tracking)\./i,
-      /\b(ga|gtm|pixel|fb)\b/i,
-      /\b(doubleclick|adsense)\b/i
+      /\/(analytics|tracking|beacon)\//i
     ],
     lazyLoadAttrs: [
+      'src',
       'data-src',
       'data-original',
       'data-lazy',
       'data-srcset',
+      'data-original-src',
+      'data-fallback-src',
       'loading-src',
-      'lazy-src'
+      'lazy-src',
+      'srcset',
+      'data-image',
+      'data-img',
+      'data-lazy-src',
+      'data-hs-src'  // HubSpot specific
+    ],
+    backgroundImageSelectors: [
+      '[style*="background"]',
+      '[style*="background-image"]',
+      '[data-background]',
+      '[data-bg]'
+    ],
+    // Added image path patterns to help identify images without extensions
+    imagePathPatterns: [
+      /\/images?\//i,
+      /\/img\//i,
+      /\/photos?\//i,
+      /\/pictures?\//i,
+      /\/uploads\//i,
+      /\/media\//i,
+      /\/assets\//i,
+      /\.hubspotusercontent/i  // HubSpot specific
     ]
   }
 };
@@ -120,14 +143,24 @@ class UrlConverter {
       });
 
       const contentSelectors = [
-        'article', 'main', '[role="main"]',
-        '.post-content', '.entry-content', '.article-content',
-        '.content', '#content', '#main'
+        'article',
+        'main',
+        '[role="main"]',
+        '.post-content',
+        '.entry-content',
+        '.article-content',
+        '.content',
+        '#content',
+        '#main',
+        '.main-content',  // Added more selectors
+        '.page-content',
+        '[data-hs-page-content]', // HubSpot specific
+        'body'
       ];
 
       let $content = null;
       for (const selector of contentSelectors) {
-        const $found = $(selector).first();
+        const $found = $(selector);
         if ($found.length) {
           $content = $found;
           break;
@@ -149,12 +182,10 @@ class UrlConverter {
             // Convert protocol-relative URLs
             const fullUrl = imgUrl.startsWith('//') ? `https:${imgUrl}` : imgUrl;
             
-            // Parse URL and remove query/hash but preserve encoded characters
+            // Handle relative paths
             const urlObj = new URL(fullUrl, baseUrl);
-            urlObj.search = '';
-            urlObj.hash = '';
             
-            // Keep the encoded URL to preserve spaces
+            // Keep query parameters for CDN and dynamic images
             return urlObj.href;
           } catch (error) {
             console.error('URL normalization error:', error);
@@ -162,15 +193,22 @@ class UrlConverter {
           }
         };
 
-        const processImageUrl = (imgUrl, altText = '', parentUrl = null) => {
+        const processImageUrl = (imgUrl, altText = '', titleText = '') => {
           if (!imgUrl) return null;
           
           try {
             const normalizedUrl = normalizeUrl(imgUrl, url);
-            if (!normalizedUrl || processedUrls.has(normalizedUrl)) return null;
+            if (!normalizedUrl) return null;
 
-            const ext = normalizedUrl.split('.').pop()?.toLowerCase() || '';
-            if (!ext || !CONFIG.conversion.imageTypes.includes(ext)) return null;
+            // Skip already processed identical URLs
+            if (processedUrls.has(normalizedUrl)) return null;
+
+            // Check file extension or URL patterns
+            const ext = normalizedUrl.split('.').pop()?.toLowerCase().split('?')[0] || '';
+            const isValidExtension = CONFIG.conversion.imageTypes.includes(ext);
+            const hasImagePath = CONFIG.conversion.imagePathPatterns.some(pattern => pattern.test(normalizedUrl));
+
+            if (!isValidExtension && !hasImagePath) return null;
 
             if (CONFIG.conversion.excludePatterns.some(pattern => pattern.test(normalizedUrl))) {
               return null;
@@ -179,8 +217,7 @@ class UrlConverter {
             processedUrls.add(normalizedUrl);
             return {
               url: normalizedUrl,
-              alt: altText || '',
-              linkedTo: parentUrl,
+              alt: altText || titleText || '',
               referenceUrl: url,
               addedAt: new Date().toISOString()
             };
@@ -190,23 +227,29 @@ class UrlConverter {
           }
         };
 
+        // Process img tags with enhanced lazy loading support
         $content.find('img').each((_, img) => {
           const $img = $(img);
-          const srcs = [
-            $img.attr('src'),
-            ...CONFIG.conversion.lazyLoadAttrs.map(attr => $img.attr(attr))
-          ].filter(Boolean);
+          
+          // Get all possible image source attributes
+          const srcs = CONFIG.conversion.lazyLoadAttrs
+            .map(attr => $img.attr(attr))
+            .filter(Boolean);
 
           for (const src of srcs) {
-            const imageData = processImageUrl(src, $img.attr('alt') || '');
+            const imageData = processImageUrl(
+              src,
+              $img.attr('alt') || '',
+              $img.attr('title') || $img.attr('data-title') || ''
+            );
+
             if (imageData) {
               const isLinked = $img.parent('a').length > 0;
-              // Create text node to prevent HTML escaping
-              const createMarkdown = (alt, url, href = null) => {
+              const createMarkdown = (altText, url, href = null) => {
                 if (href && href !== url) {
-                  return $.text(`[![${alt}](${url})](${href})`);
+                  return $.text(`[![[[${url}]${altText ? ` | ${altText}` : ''}]](${href})`);
                 }
-                return $.text(`![${alt}](${url})`);
+                return $.text(`![[${url}]${altText ? ` | ${altText}` : ''}`);
               };
 
               if (isLinked) {
@@ -222,19 +265,25 @@ class UrlConverter {
           }
         });
 
-        $content.find('[style*="background"]').each((_, el) => {
-          const $el = $(el);
-          const style = $el.attr('style') || '';
-          const match = style.match(/background(?:-image)?\s*:\s*url\(['"]?([^'"]+)['"]?\)/i);
-          
-          if (match) {
-            const imageData = processImageUrl(match[1]);
-            if (imageData) {
-              $el.before($.text(`\n\n![${imageData.alt}](${imageData.url})\n\n`));
-              $el.removeAttr('style');
-              imageRefs.push(imageData);
+        // Enhanced background image processing
+        CONFIG.conversion.backgroundImageSelectors.forEach(selector => {
+          $content.find(selector).each((_, el) => {
+            const $el = $(el);
+            const style = $el.attr('style') || '';
+            const dataBg = $el.attr('data-background') || $el.attr('data-bg');
+            
+            // Check both inline style and data attributes
+            const bgMatch = style.match(/background(?:-image)?\s*:\s*url\(['"]?([^'"]+)['"]?\)/i);
+            const bgUrl = bgMatch ? bgMatch[1] : dataBg;
+
+            if (bgUrl) {
+              const imageData = processImageUrl(bgUrl);
+              if (imageData) {
+                $el.before($.text(`\n\n![[${imageData.url}]${imageData.alt ? ` | ${imageData.alt}` : ''}]\n\n`));
+                imageRefs.push(imageData);
+              }
             }
-          }
+          });
         });
       }
 
