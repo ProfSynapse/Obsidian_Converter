@@ -46,42 +46,13 @@ const CONFIG = {
   },
   conversion: {
     imageTypes: ['jpg', 'jpeg', 'png', 'gif', 'webp', 'svg', 'ico', 'avif', 'bmp', 'tiff'],
-    // Reduced exclude patterns to avoid filtering legitimate images
-    excludePatterns: [
-      /\/(analytics|tracking|beacon)\//i
-    ],
-    lazyLoadAttrs: [
+    imageAttributes: [
       'src',
       'data-src',
       'data-original',
       'data-lazy',
       'data-srcset',
-      'data-original-src',
-      'data-fallback-src',
-      'loading-src',
-      'lazy-src',
-      'srcset',
-      'data-image',
-      'data-img',
-      'data-lazy-src',
-      'data-hs-src'  // HubSpot specific
-    ],
-    backgroundImageSelectors: [
-      '[style*="background"]',
-      '[style*="background-image"]',
-      '[data-background]',
-      '[data-bg]'
-    ],
-    // Added image path patterns to help identify images without extensions
-    imagePathPatterns: [
-      /\/images?\//i,
-      /\/img\//i,
-      /\/photos?\//i,
-      /\/pictures?\//i,
-      /\/uploads\//i,
-      /\/media\//i,
-      /\/assets\//i,
-      /\.hubspotusercontent/i  // HubSpot specific
+      'srcset'
     ]
   }
 };
@@ -117,45 +88,105 @@ class UrlConverter {
     });
   }
 
+  /**
+   * Extract image URL from srcset attribute
+   */
+  extractSrcsetUrl(srcset) {
+    if (!srcset) return null;
+    // Get largest image from srcset (last one in the list)
+    const urls = srcset.split(',')
+      .map(src => src.trim().split(' ')[0])
+      .filter(Boolean);
+    return urls[urls.length - 1] || urls[0];
+  }
+
+  /**
+   * Extract image URLs from an HTML img element
+   */
+  extractImageUrls($img) {
+    const urls = [];
+    
+    // Check all possible image attributes
+    for (const attr of CONFIG.conversion.imageAttributes) {
+      const value = $img.attr(attr);
+      if (!value) continue;
+
+      if (attr === 'srcset') {
+        const srcsetUrl = this.extractSrcsetUrl(value);
+        if (srcsetUrl) urls.push(srcsetUrl);
+      } else {
+        urls.push(value);
+      }
+    }
+
+    // Log found URLs
+    console.log('Found image URLs:', urls);
+    return urls.filter(Boolean);
+  }
+
+  /**
+   * Normalize and validate an image URL
+   */
+  normalizeImageUrl(url, baseUrl) {
+    try {
+      // Handle protocol-relative URLs
+      const fullUrl = url.startsWith('//') ? `https:${url}` : url;
+      
+      // Create full URL
+      const normalizedUrl = new URL(fullUrl, baseUrl).href;
+
+      // Check if URL points to an image
+      const urlPath = normalizedUrl.toLowerCase();
+      const hasImageExt = CONFIG.conversion.imageTypes.some(ext => 
+        urlPath.includes(`.${ext}`)
+      );
+
+      // Check if URL has image hints in query params
+      const params = new URLSearchParams(normalizedUrl.split('?')[1] || '');
+      const nameParam = params.get('name') || '';
+      const hasImageName = CONFIG.conversion.imageTypes.some(ext =>
+        nameParam.toLowerCase().endsWith(`.${ext}`)
+      );
+
+      if (!hasImageExt && !hasImageName) {
+        console.log('Skipping non-image URL:', normalizedUrl);
+        return null;
+      }
+
+      return normalizedUrl;
+    } catch (error) {
+      console.error('URL normalization error:', error);
+      return null;
+    }
+  }
+
   async convertToMarkdown(url, options = {}) {
     try {
-      const gotOptions = {
+      const response = await got(url, {
         ...CONFIG.http,
         ...options.got,
         headers: {
           ...CONFIG.http.headers,
           ...(options.got?.headers || {})
         }
-      };
+      });
 
-      const response = await got(url, gotOptions);
       const $ = cheerio.load(response.body);
 
+      // Remove unnecessary elements
       const removeSelectors = [
         'script', 'style', 'iframe', 'noscript',
         'header nav', 'footer nav', 'aside',
         '.ads', '.social-share', '.comments',
         '.navigation', '.menu', '.widget'
       ];
+      removeSelectors.forEach(selector => $(selector).remove());
 
-      removeSelectors.forEach(selector => {
-        $(selector).remove();
-      });
-
+      // Find main content
       const contentSelectors = [
-        'article',
-        'main',
-        '[role="main"]',
-        '.post-content',
-        '.entry-content',
-        '.article-content',
-        '.content',
-        '#content',
-        '#main',
-        '.main-content',  // Added more selectors
-        '.page-content',
-        '[data-hs-page-content]', // HubSpot specific
-        'body'
+        'article', 'main', '[role="main"]',
+        '.post-content', '.entry-content', '.article-content',
+        '.content', '#content', '#main', 'body'
       ];
 
       let $content = null;
@@ -166,124 +197,54 @@ class UrlConverter {
           break;
         }
       }
-
       $content = $content || $('body');
 
       const imageRefs = [];
       const processedUrls = new Set();
 
       if (options.includeImages !== false) {
-        const normalizeUrl = (src, baseUrl) => {
-          if (!src) return null;
-          try {
-            const imgUrl = src.trim();
-            if (imgUrl.startsWith('data:')) return null;
-
-            // Convert protocol-relative URLs
-            const fullUrl = imgUrl.startsWith('//') ? `https:${imgUrl}` : imgUrl;
-            
-            // Handle relative paths
-            const urlObj = new URL(fullUrl, baseUrl);
-            
-            // Keep query parameters for CDN and dynamic images
-            return urlObj.href;
-          } catch (error) {
-            console.error('URL normalization error:', error);
-            return null;
-          }
-        };
-
-        const processImageUrl = (imgUrl, altText = '', titleText = '') => {
-          if (!imgUrl) return null;
+        // Process all img tags
+        $content.find('img').each((_, img) => {
+          const $img = $(img);
+          const urls = this.extractImageUrls($img);
           
-          try {
-            const normalizedUrl = normalizeUrl(imgUrl, url);
-            if (!normalizedUrl) return null;
-
-            // Skip already processed identical URLs
-            if (processedUrls.has(normalizedUrl)) return null;
-
-            // Check file extension or URL patterns
-            const ext = normalizedUrl.split('.').pop()?.toLowerCase().split('?')[0] || '';
-            const isValidExtension = CONFIG.conversion.imageTypes.includes(ext);
-            const hasImagePath = CONFIG.conversion.imagePathPatterns.some(pattern => pattern.test(normalizedUrl));
-
-            if (!isValidExtension && !hasImagePath) return null;
-
-            if (CONFIG.conversion.excludePatterns.some(pattern => pattern.test(normalizedUrl))) {
-              return null;
-            }
+          for (const imageUrl of urls) {
+            const normalizedUrl = this.normalizeImageUrl(imageUrl, url);
+            if (!normalizedUrl || processedUrls.has(normalizedUrl)) continue;
 
             processedUrls.add(normalizedUrl);
-            return {
+            const imageData = {
               url: normalizedUrl,
-              alt: altText || titleText || '',
+              alt: $img.attr('alt') || $img.attr('title') || '',
               referenceUrl: url,
               addedAt: new Date().toISOString()
             };
-          } catch (error) {
-            console.error('Image processing error:', error);
-            return null;
-          }
-        };
 
-        // Process img tags with enhanced lazy loading support
-        $content.find('img').each((_, img) => {
-          const $img = $(img);
-          
-          // Get all possible image source attributes
-          const srcs = CONFIG.conversion.lazyLoadAttrs
-            .map(attr => $img.attr(attr))
-            .filter(Boolean);
-
-          for (const src of srcs) {
-            const imageData = processImageUrl(
-              src,
-              $img.attr('alt') || '',
-              $img.attr('title') || $img.attr('data-title') || ''
-            );
-
-            if (imageData) {
-              const isLinked = $img.parent('a').length > 0;
-              const createMarkdown = (altText, url, href = null) => {
-                if (href && href !== url) {
-                  return $.text(`[![[[${url}]${altText ? ` | ${altText}` : ''}]](${href})`);
-                }
-                return $.text(`![[${url}]${altText ? ` | ${altText}` : ''}`);
-              };
-
-              if (isLinked) {
-                const $link = $img.parent('a');
-                const href = $link.attr('href');
-                $link.replaceWith(createMarkdown(imageData.alt, imageData.url, href));
-              } else {
-                $img.replaceWith(createMarkdown(imageData.alt, imageData.url));
+            const isLinked = $img.parent('a').length > 0;
+            const createMarkdown = (alt, imgUrl, href = null) => {
+              if (href && href !== imgUrl) {
+                return $.text(`[![[[${imgUrl}]${alt ? ` | ${alt}` : ''}]](${href})`);
               }
-              imageRefs.push(imageData);
-              break;
-            }
-          }
-        });
+              return $.text(`![[${imgUrl}]${alt ? ` | ${alt}` : ''}`);
+            };
 
-        // Enhanced background image processing
-        CONFIG.conversion.backgroundImageSelectors.forEach(selector => {
-          $content.find(selector).each((_, el) => {
-            const $el = $(el);
-            const style = $el.attr('style') || '';
-            const dataBg = $el.attr('data-background') || $el.attr('data-bg');
+            if (isLinked) {
+              const $link = $img.parent('a');
+              const href = $link.attr('href');
+              $link.replaceWith(createMarkdown(imageData.alt, imageData.url, href));
+            } else {
+              $img.replaceWith(createMarkdown(imageData.alt, imageData.url));
+            }
             
-            // Check both inline style and data attributes
-            const bgMatch = style.match(/background(?:-image)?\s*:\s*url\(['"]?([^'"]+)['"]?\)/i);
-            const bgUrl = bgMatch ? bgMatch[1] : dataBg;
-
-            if (bgUrl) {
-              const imageData = processImageUrl(bgUrl);
-              if (imageData) {
-                $el.before($.text(`\n\n![[${imageData.url}]${imageData.alt ? ` | ${imageData.alt}` : ''}]\n\n`));
-                imageRefs.push(imageData);
-              }
-            }
-          });
+            console.log('Processing image:', {
+              original: imageUrl,
+              normalized: normalizedUrl,
+              alt: imageData.alt
+            });
+            
+            imageRefs.push(imageData);
+            break; // Take first valid URL
+          }
         });
       }
 
