@@ -208,12 +208,28 @@ export async function createBatchZip(items) {
     memoryChange: Math.round((process.memoryUsage().heapUsed - initialMemory) / 1024 / 1024) + 'MB'
   });
 
-  // Generate ZIP with streaming support
+  // Generate ZIP with optimized settings for large files
+  console.log('📦 Generating optimized ZIP file:', {
+    categories: Array.from(categories.keys()),
+    memory: process.memoryUsage(),
+    memoryChange: Math.round((process.memoryUsage().heapUsed - initialMemory) / 1024 / 1024) + 'MB'
+  });
+
   return zip.generateAsync({
     type: 'nodebuffer',
     compression: 'DEFLATE',
-    compressionOptions: { level: 9 },
-    streamFiles: true
+    compressionOptions: { level: 6 }, // Balance between speed and compression
+    streamFiles: true,
+    platform: process.platform === 'win32' ? 'DOS' : 'UNIX'
+  }, {
+    // Add progress callback for monitoring
+    onUpdate: (metadata) => {
+      console.log('🔄 ZIP progress:', {
+        percent: Math.round(metadata.percent),
+        currentFile: metadata.currentFile,
+        bytesProcessed: metadata.bytesProcessed
+      });
+    }
   });
 }
 

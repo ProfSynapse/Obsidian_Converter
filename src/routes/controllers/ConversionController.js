@@ -478,20 +478,67 @@ export class ConversionController {
   }
 
   #sendZipResponse(res, result) {
-    // Handle different response types based on conversion result
     const contentType = result.type === 'markdown' ? 'text/markdown' : 'application/zip';
+    const isLargeFile = result.buffer.length > 50 * 1024 * 1024; // 50MB threshold
     
-    console.log('📤 Sending response:', {
+    console.log('📤 Preparing response:', {
       type: result.type,
       filename: result.filename,
       contentType,
-      contentLength: result.buffer.length
+      size: result.buffer.length,
+      isLargeFile
     });
 
+    // Set response headers
     res.set({
       'Content-Type': contentType,
       'Content-Disposition': `attachment; filename="${result.filename}"`,
+      'Content-Length': result.buffer.length,
+      'Transfer-Encoding': isLargeFile ? 'chunked' : undefined,
+      'Cache-Control': 'no-cache',
+      'X-Content-Type-Options': 'nosniff'
     });
-    res.send(result.buffer);
+
+    if (isLargeFile) {
+      // For large files, use streaming
+      const { Readable } = require('stream');
+      const CHUNK_SIZE = 1024 * 1024; // 1MB chunks
+      let offset = 0;
+
+      const readableStream = new Readable({
+        read(size) {
+          if (offset >= result.buffer.length) {
+            this.push(null);
+            return;
+          }
+
+          const chunk = result.buffer.slice(offset, offset + CHUNK_SIZE);
+          this.push(chunk);
+          offset += chunk.length;
+
+          // Log progress
+          const progress = Math.round((offset / result.buffer.length) * 100);
+          console.log(`📤 Streaming progress: ${progress}%`);
+        }
+      });
+
+      // Handle stream events
+      readableStream.on('end', () => {
+        console.log('📤 Stream completed');
+      });
+
+      readableStream.on('error', (error) => {
+        console.error('❌ Stream error:', error);
+        if (!res.headersSent) {
+          res.status(500).send('Error streaming response');
+        }
+      });
+
+      // Pipe the stream to response
+      readableStream.pipe(res);
+    } else {
+      // For small files, send directly
+      res.send(result.buffer);
+    }
   }
 }

@@ -5,6 +5,7 @@ import fs from 'fs';  // Add fs import
 import cors from 'cors';
 import helmet from 'helmet';
 import dotenv from 'dotenv';
+import compression from 'express-compression';
 import { config } from './src/config/default.js';
 import router from './src/routes/index.js';  // Updated path
 import proxyRoutes from './src/routes/proxyRoutes.js';  // Updated path
@@ -83,16 +84,45 @@ class Server {
             }
         }));
 
-        // Simple body parsing strategy
+        // Configure response timeouts
         this.app.use((req, res, next) => {
+            // Set higher timeout for parent URL conversions
+            if (req.path.includes('/parent-url')) {
+                req.setTimeout(600000); // 10 minutes
+                res.setTimeout(600000); // 10 minutes
+            }
+            next();
+        });
+
+        // Enhanced body parsing strategy with streaming support
+        this.app.use((req, res, next) => {
+            // Skip body parsing for streaming responses
+            if (req.headers['transfer-encoding'] === 'chunked') {
+                return next();
+            }
+
             if (!req.headers['content-type']?.includes('multipart/form-data')) {
                 express.json({
-                    limit: config.conversion.maxFileSize || '50mb'
+                    limit: config.conversion.maxFileSize || '500mb',
+                    strict: false
                 })(req, res, next);
             } else {
                 // Let multer handle multipart
                 next();
             }
+        });
+
+        // Enable response compression
+        this.app.use(compression({
+            level: 6,
+            threshold: '1mb'
+        }));
+
+        // Add streaming support headers
+        this.app.use((req, res, next) => {
+            res.setHeader('X-Content-Type-Options', 'nosniff');
+            res.setHeader('Cache-Control', 'no-cache');
+            next();
         });
 
         // Request timestamp and logging
