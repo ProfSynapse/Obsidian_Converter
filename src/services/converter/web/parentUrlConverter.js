@@ -106,7 +106,7 @@ class UrlFinder {
     this.childUrls = new Set();
   }
 
-  async *findChildUrlsInChunks(parentUrl, chunkSize = 50) {
+  async findChildUrlsInChunks(parentUrl, chunkSize = 50) {
     try {
       console.log(`🔍 Finding child pages for: ${parentUrl}`);
       
@@ -134,7 +134,7 @@ class UrlFinder {
 
       const $ = cheerio.load(response.body);
       const parentUrlObj = new URL(parentUrl);
-      
+      const chunks = [];
       let currentChunk = [];
       
       // Find all <a> tags with href
@@ -164,10 +164,10 @@ class UrlFinder {
               this.childUrls.add(absoluteUrl);
               currentChunk.push(absoluteUrl);
               
-              // When chunk is full, yield it and start a new one
+              // When chunk is full, add it to chunks and start a new one
               if (currentChunk.length >= chunkSize) {
-                console.log(`📦 Yielding chunk of ${currentChunk.length} URLs`);
-                yield currentChunk;
+                console.log(`📦 Creating chunk of ${currentChunk.length} URLs`);
+                chunks.push([...currentChunk]);
                 currentChunk = [];
                 
                 // Force garbage collection if available
@@ -183,13 +183,14 @@ class UrlFinder {
         }
       });
 
-      // Yield any remaining URLs
+      // Add any remaining URLs as the final chunk
       if (currentChunk.length > 0) {
-        console.log(`📦 Yielding final chunk of ${currentChunk.length} URLs`);
-        yield currentChunk;
+        console.log(`📦 Creating final chunk of ${currentChunk.length} URLs`);
+        chunks.push([...currentChunk]);
       }
 
-      console.log(`✅ Found total of ${this.childUrls.size} child pages`);
+      console.log(`✅ Found total of ${this.childUrls.size} child pages in ${chunks.length} chunks`);
+      return chunks;
     } catch (error) {
       throw new AppError(`Failed to find child pages: ${error.message}`, 500);
     }
@@ -467,7 +468,9 @@ export async function convertParentUrlToMarkdown(parentUrl) {
 
     // Process child URLs in chunks
     let processedPages = [parentPageResult[0]];
-    for await (const urlChunk of finder.findChildUrlsInChunks(parentUrl)) {
+    const urlChunks = await finder.findChildUrlsInChunks(parentUrl);
+    
+    for (const urlChunk of urlChunks) {
       console.log(`🔄 Processing chunk of ${urlChunk.length} URLs`);
       
       const chunkResults = await processor.processUrlsInChunks(urlChunk);
