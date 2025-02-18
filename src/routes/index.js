@@ -6,8 +6,13 @@ import { validateConversion } from './middleware/validators.js';
 import { uploadMiddleware } from './middleware/upload.js';
 import { apiKeyChecker } from './middleware/utils/apiKeyChecker.js';
 import paymentRoutes from './paymentRoutes.js';
+import path from 'path';
+import fs from 'fs';
 const router = express.Router();
 const controller = new ConversionController();
+
+// Get JobManager instance from server
+const jobManager = global.server?.getJobManager();
 
 // Debug middleware to log requests with enhanced details
 router.use((req, res, next) => {
@@ -91,5 +96,102 @@ router.use('/payment', (req, res, next) => {
     });
     next();
 }, paymentRoutes);
+
+// Job status endpoint
+router.get('/job/:jobId/status', (req, res, next) => {
+    try {
+        const { jobId } = req.params;
+        
+        if (!jobManager) {
+            throw new Error('Job manager not initialized');
+        }
+
+        const job = jobManager.jobs.get(jobId);
+        if (!job) {
+            return res.status(404).json({
+                status: 'error',
+                message: 'Job not found'
+            });
+        }
+
+        res.json({
+            status: 'success',
+            data: {
+                jobId: job.id,
+                status: job.status,
+                progress: job.progress,
+                message: job.message,
+                downloadUrl: job.downloadUrl,
+                error: job.error,
+                createdAt: job.createdAt,
+                updatedAt: job.updatedAt
+            }
+        });
+    } catch (error) {
+        console.error('❌ Job status check failed:', {
+            jobId: req.params.jobId,
+            error: error.message
+        });
+        next(error);
+    }
+});
+
+// Download endpoint for job results
+router.get('/download/:jobId/:filename', (req, res, next) => {
+    try {
+        const { jobId, filename } = req.params;
+        
+        if (!jobManager) {
+            throw new Error('Job manager not initialized');
+        }
+
+        // Get file path from job manager
+        const filePath = jobManager.getJobResultPath(jobId, filename);
+        
+        // Check if file exists
+        if (!fs.existsSync(filePath)) {
+            console.error('❌ Download file not found:', {
+                jobId,
+                filename,
+                path: filePath
+            });
+            return res.status(404).json({
+                status: 'error',
+                message: 'File not found'
+            });
+        }
+
+        console.log('📥 Serving download:', {
+            jobId,
+            filename,
+            size: fs.statSync(filePath).size
+        });
+
+        // Send file
+        res.download(filePath, filename, (err) => {
+            if (err) {
+                console.error('❌ Download failed:', {
+                    jobId,
+                    filename,
+                    error: err.message
+                });
+                // Don't send error response if headers are already sent
+                if (!res.headersSent) {
+                    res.status(500).json({
+                        status: 'error',
+                        message: 'Failed to download file'
+                    });
+                }
+            }
+        });
+    } catch (error) {
+        console.error('❌ Download error:', {
+            error: error.message,
+            jobId: req.params.jobId,
+            filename: req.params.filename
+        });
+        next(error);
+    }
+});
 
 export default router;

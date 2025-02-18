@@ -1,10 +1,12 @@
 // server.js
 
 import express from 'express';
-import fs from 'fs';  // Add fs import
+import fs from 'fs';
 import cors from 'cors';
 import helmet from 'helmet';
 import dotenv from 'dotenv';
+import { Server as SocketServer } from 'socket.io';
+import { JobManager } from './src/services/JobManager.js';
 import { config } from './src/config/default.js';
 import router from './src/routes/index.js';  // Updated path
 import proxyRoutes from './src/routes/proxyRoutes.js';  // Updated path
@@ -24,7 +26,9 @@ dotenv.config();
 class Server {
     constructor() {
         this.app = express();
-        this.server = null; // Initialize server property
+        this.server = null;
+        this.io = null;
+        this.jobManager = null;
         // Let Railway control the port
         this.port = process.env.PORT ? parseInt(process.env.PORT, 10) : 3000;
         this.env = process.env.RAILWAY_ENVIRONMENT || process.env.NODE_ENV || 'development';
@@ -165,7 +169,45 @@ class Server {
     async start() {
         try {
             return new Promise((resolve, reject) => {
+                // Create HTTP server
                 this.server = this.app.listen(this.port, () => {
+                    // Initialize Socket.IO
+                    this.io = new SocketServer(this.server, {
+                        cors: {
+                            origin: "*",
+                            methods: ["GET", "POST"]
+                        }
+                    });
+
+                    // Initialize JobManager
+                    this.jobManager = new JobManager(this.io);
+
+                    // Setup Socket.IO event handlers
+                    this.io.on('connection', (socket) => {
+                        console.log('🔌 Client connected:', socket.id);
+
+                        // Handle job subscriptions
+                        socket.on('subscribe:job', ({ jobId }) => {
+                            socket.join(`job:${jobId}`);
+                            console.log('👥 Client subscribed to job:', {
+                                socketId: socket.id,
+                                jobId
+                            });
+                        });
+
+                        socket.on('unsubscribe:job', ({ jobId }) => {
+                            socket.leave(`job:${jobId}`);
+                            console.log('👋 Client unsubscribed from job:', {
+                                socketId: socket.id,
+                                jobId
+                            });
+                        });
+
+                        socket.on('disconnect', () => {
+                            console.log('🔌 Client disconnected:', socket.id);
+                        });
+                    });
+
                     console.log(`🚀 Server is running on http://localhost:${this.port}`);
                     console.log('🚀 Server Details:');
                     console.log(`   Environment: ${this.env}`);
@@ -196,6 +238,13 @@ class Server {
     getApp() {
         return this.app;
     }
+
+    /**
+     * Get JobManager instance
+     */
+    getJobManager() {
+        return this.jobManager;
+    }
 }
 
 // Initialize and start server
@@ -205,6 +254,10 @@ async function startServer() {
     try {
         const server = new Server();
         serverInstance = await server.start();
+        
+        // Store server instance globally for access to JobManager
+        global.server = server;
+        
         return serverInstance;
     } catch (error) {
         console.error('❌ Server initialization failed:', error);
@@ -214,7 +267,19 @@ async function startServer() {
 
 // Start the server if not in test environment
 if (process.env.NODE_ENV !== 'test') {
-    startServer();
+    startServer().then(() => {
+        console.log('🔧 Server utilities:', {
+            jobManager: global.server?.jobManager ? 'initialized' : 'not initialized',
+            socketIO: global.server?.io ? 'connected' : 'not connected'
+        });
+    });
 }
+
+// Cleanup on exit
+process.on('exit', () => {
+    if (global.server?.jobManager) {
+        global.server.jobManager.cleanup();
+    }
+});
 
 export default startServer;

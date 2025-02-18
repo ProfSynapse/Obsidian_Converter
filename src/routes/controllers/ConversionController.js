@@ -9,27 +9,59 @@ export class ConversionController {
   }
 
   handleConversion = async (req, res, next) => {
-    const startTime = Date.now();
-    const initialMemory = process.memoryUsage();
-
     try {
-      const file = req.file;
-      const options = JSON.parse(req.body.options || '{}');
-
-      console.log('🚀 Starting file conversion:', {
-        fileName: file.originalname,
-        size: file.buffer.length,
-        initialMemory: Math.round(initialMemory.heapUsed / 1024 / 1024) + 'MB'
-      });
-      
-      // Run garbage collection if available and memory usage is high
-      if (global.gc && initialMemory.heapUsed > 512 * 1024 * 1024) {
-        console.log('🧹 Running initial garbage collection');
-        global.gc();
+      // Get JobManager instance
+      const jobManager = global.server?.getJobManager();
+      if (!jobManager) {
+        throw new AppError('Job manager not initialized', 500);
       }
-      
+
+      // Create new job
+      const jobId = jobManager.createJob();
+      console.log('🎯 Created new generic conversion job:', {
+        jobId,
+        filename: req.file?.originalname
+      });
+
+      // Send immediate response with job ID
+      res.json({ jobId });
+
+      // Start processing in background
+      this.#processGenericConversionInBackground(jobId, req.file, req.body.options, req.headers);
+    } catch (error) {
+      console.error('❌ Failed to start generic conversion job:', {
+        filename: req.file?.originalname,
+        error: error.message
+      });
+      next(new AppError(error.message, 500));
+    }
+  };
+
+  #processGenericConversionInBackground = async (jobId, file, rawOptions, headers) => {
+    const jobManager = global.server?.getJobManager();
+    
+    try {
+      jobManager.updateJobStatus(jobId, 'validating', 'Validating file...');
+
+      // Validate file data
+      if (!file || !Buffer.isBuffer(file.buffer)) {
+        throw new AppError('Invalid file data received', 400);
+      }
+
+      if (file.buffer.length === 0) {
+        throw new AppError('Empty file received', 400);
+      }
+
+      // Parse options
+      let options;
+      try {
+        options = rawOptions ? JSON.parse(rawOptions) : {};
+      } catch (error) {
+        throw new AppError('Invalid options format', 400);
+      }
+
       // Add API key from headers
-      const apiKey = req.headers['x-api-key'] || req.headers['authorization']?.replace('Bearer ', '');
+      const apiKey = headers['x-api-key'] || headers['authorization']?.replace('Bearer ', '');
       if (apiKey) {
         options.apiKey = apiKey;
       }
@@ -39,14 +71,7 @@ export class ConversionController {
       const fileExtension = path.extname(file.originalname).slice(1).toLowerCase();
       const fileType = this.#determineFileType(fileExtension, file.mimetype);
 
-      console.log('🔄 Processing conversion:', {
-        fileName: file.originalname,
-        fileType: fileType,
-        mimeType: file.mimetype,
-        hasApiKey: !!apiKey,
-        size: fileBuffer.length,
-        memory: Math.round(process.memoryUsage().heapUsed / 1024 / 1024) + 'MB'
-      });
+      jobManager.updateJobStatus(jobId, 'processing', 'Converting file...');
 
       const conversionData = {
         type: fileType,
@@ -55,100 +80,103 @@ export class ConversionController {
         options: {
           ...options,
           originalMimeType: file.mimetype,
-          streamProcessing: true, // Enable streaming processing
-          memoryLimit: 512 * 1024 * 1024, // 512MB memory limit
-          chunkSize: file.buffer.length > 50 * 1024 * 1024 ? 25 * 1024 * 1024 : undefined // 25MB chunks for large files
+          streamProcessing: true,
+          memoryLimit: 512 * 1024 * 1024,
+          chunkSize: file.buffer.length > 50 * 1024 * 1024 ? 25 * 1024 * 1024 : undefined,
+          onProgress: (progress) => {
+            jobManager.updateJobProgress(jobId, progress);
+          }
         },
         mimeType: file.mimetype
       };
 
       const result = await this.conversionService.convert(conversionData);
-      
+
       if (!result.buffer || !result.filename) {
         throw new Error('Invalid conversion result');
       }
 
-      const endMemory = process.memoryUsage();
-      console.log('✅ File conversion completed:', {
-        fileName: file.originalname,
-        duration: Math.round((Date.now() - startTime)/1000) + 's',
-        memoryUsed: Math.round((endMemory.heapUsed - initialMemory.heapUsed) / 1024 / 1024) + 'MB',
-        finalMemory: Math.round(endMemory.heapUsed / 1024 / 1024) + 'MB'
-      });
+      // Save result and generate download URL
+      const downloadUrl = jobManager.generateDownloadUrl(jobId, result.filename);
+      jobManager.saveJobResult(jobId, result.buffer, result.filename);
 
-      // Send response (handles both markdown and zip)
-      this.#sendZipResponse(res, result);
+      // Complete job with download URL
+      jobManager.completeJob(jobId, downloadUrl);
+
     } catch (error) {
-      console.error('❌ File conversion failed:', {
-        error: error.message,
-        duration: Math.round((Date.now() - startTime)/1000) + 's',
-        memoryUsed: Math.round((process.memoryUsage().heapUsed - initialMemory.heapUsed) / 1024 / 1024) + 'MB'
+      console.error('❌ Generic conversion failed:', {
+        jobId,
+        filename: file?.originalname,
+        error: error.message
       });
-      next(new AppError(error.message, 500));
+      jobManager.failJob(jobId, error);
     }
   };
 
     handleBatchConversion = async (req, res, next) => {
-    const startTime = Date.now();
-    const initialMemory = process.memoryUsage();
+        try {
+            // Get JobManager instance
+            const jobManager = global.server?.getJobManager();
+            if (!jobManager) {
+                throw new AppError('Job manager not initialized', 500);
+            }
 
-    try {
-        const files = req.files || {};
-        const items = JSON.parse(req.body.items || '[]');
-        
-        // Get files from both single and batch fields
-        const allFiles = [
-            ...(files.file || []),
-            ...(files.files || [])
-        ];
-        
-        console.log('🎯 Starting batch conversion:', {
-            totalFiles: allFiles.length,
-            itemsCount: items.length,
-            fileNames: allFiles.map(f => f.originalname),
-            initialMemory: Math.round(initialMemory.heapUsed / 1024 / 1024) + 'MB'
-        });
+            // Create new job
+            const jobId = jobManager.createJob();
 
-        // Run initial garbage collection if memory usage is high
-        if (global.gc && initialMemory.heapUsed > 512 * 1024 * 1024) {
-            console.log('🧹 Running initial garbage collection');
-            global.gc();
+            // Parse items and get files
+            const files = req.files || {};
+            const items = JSON.parse(req.body.items || '[]');
+            const allFiles = [...(files.file || []), ...(files.files || [])];
+
+            console.log('🎯 Created new batch conversion job:', {
+                jobId,
+                totalFiles: allFiles.length,
+                itemsCount: items.length,
+                fileNames: allFiles.map(f => f.originalname)
+            });
+
+            // Send immediate response with job ID
+            res.json({ jobId });
+
+            // Start processing in background
+            this.#processBatchInBackground(jobId, allFiles, items);
+        } catch (error) {
+            console.error('❌ Failed to start batch conversion job:', {
+                error: error.message
+            });
+            next(new AppError(error.message, 500));
         }
-        
-        // Process file uploads with proper content handling
-        const fileItems = allFiles.map(file => {
-            const fileType = this.#determineFileType(path.extname(file.originalname).slice(1), file.mimetype);
-            console.log('🎲 Processing file item:', {
-                filename: file.originalname,
-                determinedType: fileType,
-                mimeType: file.mimetype,
-                size: file.buffer.length
-            });
-            
-            return {
-                id: randomUUID(),
-                type: fileType,
-                content: file.buffer,
-                name: file.originalname,
-                mimeType: file.mimetype,
-                options: {
-                    includeImages: true,
-                    includeMeta: true,
-                    convertLinks: true,
-                    originalMimeType: file.mimetype
-                }
-            };
-        });
+    };
 
-        // Process URL items with proper content
-        const urlItems = items.map(item => {
-            console.log('🌐 Processing URL item:', {
-                url: item.url,
-                type: item.type,
-                hasOptions: !!item.options
+    #processBatchInBackground = async (jobId, files, items) => {
+        const jobManager = global.server?.getJobManager();
+        const startTime = Date.now();
+        const initialMemory = process.memoryUsage();
+        
+        try {
+            jobManager.updateJobStatus(jobId, 'preparing', 'Preparing batch conversion...');
+
+            // Process file uploads
+            const fileItems = files.map(file => {
+                const fileType = this.#determineFileType(path.extname(file.originalname).slice(1), file.mimetype);
+                return {
+                    id: randomUUID(),
+                    type: fileType,
+                    content: file.buffer,
+                    name: file.originalname,
+                    mimeType: file.mimetype,
+                    options: {
+                        includeImages: true,
+                        includeMeta: true,
+                        convertLinks: true,
+                        originalMimeType: file.mimetype
+                    }
+                };
             });
-            
-            return {
+
+            // Process URL items
+            const urlItems = items.map(item => ({
                 id: randomUUID(),
                 ...item,
                 content: item.url,
@@ -159,63 +187,98 @@ export class ConversionController {
                     convertLinks: true,
                     ...item.options
                 }
-            };
-        });
+            }));
 
-        // Combine all items with memory-optimized options
-        const allItems = [...fileItems, ...urlItems].map(item => ({
-            ...item,
-            options: {
-                ...item.options,
-                chunkSize: 50, // Process in chunks of 50
-                memoryLimit: 512 * 1024 * 1024, // 512MB memory limit
-                streamProcessing: true
-            }
-        }));
+            const allItems = [...fileItems, ...urlItems].map(item => ({
+                ...item,
+                options: {
+                    ...item.options,
+                    chunkSize: 50,
+                    memoryLimit: 512 * 1024 * 1024,
+                    streamProcessing: true,
+                    onProgress: (progress) => {
+                        // Calculate overall progress based on item's progress
+                        const itemWeight = 1 / allItems.length;
+                        const itemIndex = allItems.findIndex(i => i.id === item.id);
+                        const baseProgress = (itemIndex * itemWeight) * 100;
+                        const itemProgress = progress * itemWeight;
+                        jobManager.updateJobProgress(jobId, Math.round(baseProgress + itemProgress));
+                    }
+                }
+            }));
 
-        console.log('📦 Starting batch processing:', {
-            totalItems: allItems.length,
-            fileItems: fileItems.length,
-            urlItems: urlItems.length,
-            memory: Math.round(process.memoryUsage().heapUsed / 1024 / 1024) + 'MB'
-        });
+            jobManager.updateJobStatus(jobId, 'processing', 'Converting files...');
+            const result = await this.conversionService.convertBatch(allItems);
 
-        const result = await this.conversionService.convertBatch(allItems);
+            // Save result and generate download URL
+            const downloadUrl = jobManager.generateDownloadUrl(jobId, result.filename);
+            jobManager.saveJobResult(jobId, result.buffer, result.filename);
 
-        const endMemory = process.memoryUsage();
-        console.log('✅ Batch conversion completed:', {
-            totalItems: allItems.length,
-            duration: Math.round((Date.now() - startTime)/1000) + 's',
-            memoryUsed: Math.round((endMemory.heapUsed - initialMemory.heapUsed) / 1024 / 1024) + 'MB',
-            finalMemory: Math.round(endMemory.heapUsed / 1024 / 1024) + 'MB'
-        });
+            const endMemory = process.memoryUsage();
+            console.log('✅ Batch conversion completed:', {
+                jobId,
+                totalItems: allItems.length,
+                duration: Math.round((Date.now() - startTime)/1000) + 's',
+                memoryUsed: Math.round((endMemory.heapUsed - initialMemory.heapUsed) / 1024 / 1024) + 'MB'
+            });
 
-        this.#sendZipResponse(res, result);
+            // Complete job with download URL
+            jobManager.completeJob(jobId, downloadUrl);
 
+        } catch (error) {
+            console.error('❌ Batch conversion failed:', {
+                jobId,
+                error: error.message,
+                duration: Math.round((Date.now() - startTime)/1000) + 's'
+            });
+            jobManager.failJob(jobId, error);
+        }
+    };
+
+  handleUrlConversion = async (req, res, next) => {
+    try {
+      // Get JobManager instance
+      const jobManager = global.server?.getJobManager();
+      if (!jobManager) {
+        throw new AppError('Job manager not initialized', 500);
+      }
+
+      // Create new job
+      const jobId = jobManager.createJob();
+      console.log('🎯 Created new URL conversion job:', {
+        jobId,
+        url: req.body.url
+      });
+
+      // Send immediate response with job ID
+      res.json({ jobId });
+
+      // Start processing in background
+      this.#processUrlInBackground(jobId, req.body);
     } catch (error) {
-        console.error('❌ Batch conversion failed:', {
-            error: error.message,
-            duration: Math.round((Date.now() - startTime)/1000) + 's',
-            memoryUsed: Math.round((process.memoryUsage().heapUsed - initialMemory.heapUsed) / 1024 / 1024) + 'MB'
-        });
-        next(new AppError(
-            error.message || 'Failed to process batch conversion',
-            error.statusCode || 500
-        ));
+      console.error('❌ Failed to start URL conversion job:', {
+        url: req.body.url,
+        error: error.message
+      });
+      next(new AppError(error.message, 500));
     }
   };
 
-  handleUrlConversion = async (req, res, next) => {
+  #processUrlInBackground = async (jobId, body) => {
     const startTime = Date.now();
     const initialMemory = process.memoryUsage();
+    const jobManager = global.server?.getJobManager();
 
     try {
-      console.log('🌐 Starting URL conversion:', {
-        url: req.body.url,
+      jobManager.updateJobStatus(jobId, 'processing', 'Starting URL conversion...');
+
+      console.log('🌐 Processing URL in background:', {
+        jobId,
+        url: body.url,
         initialMemory: Math.round(initialMemory.heapUsed / 1024 / 1024) + 'MB'
       });
 
-      // Run garbage collection if available and memory usage is high
+      // Run garbage collection if available
       if (global.gc && initialMemory.heapUsed > 512 * 1024 * 1024) {
         console.log('🧹 Running initial garbage collection');
         global.gc();
@@ -223,44 +286,89 @@ export class ConversionController {
 
       const data = {
         type: 'url',
-        content: req.body.url,
-        name: new URL(req.body.url).hostname,
+        content: body.url,
+        name: new URL(body.url).hostname,
         options: {
-          ...req.body.options,
-          streamProcessing: true, // Enable streaming processing
-          memoryLimit: 512 * 1024 * 1024 // 512MB memory limit
+          ...body.options,
+          streamProcessing: true,
+          memoryLimit: 512 * 1024 * 1024,
+          onProgress: (progress) => {
+            jobManager.updateJobProgress(jobId, progress);
+          }
         }
       };
       
       const result = await this.conversionService.convert(data);
 
+      // Save result and generate download URL
+      const downloadUrl = jobManager.generateDownloadUrl(jobId, result.filename);
+      jobManager.saveJobResult(jobId, result.buffer, result.filename);
+
       const endMemory = process.memoryUsage();
       console.log('✅ URL conversion completed:', {
-        url: req.body.url,
+        jobId,
+        url: body.url,
         duration: Math.round((Date.now() - startTime)/1000) + 's',
         memoryUsed: Math.round((endMemory.heapUsed - initialMemory.heapUsed) / 1024 / 1024) + 'MB',
         finalMemory: Math.round(endMemory.heapUsed / 1024 / 1024) + 'MB'
       });
 
-      this.#sendZipResponse(res, result);
+      // Complete job with download URL
+      jobManager.completeJob(jobId, downloadUrl);
+
     } catch (error) {
       console.error('❌ URL conversion failed:', {
-        url: req.body.url,
+        jobId,
+        url: body.url,
         error: error.message,
         duration: Math.round((Date.now() - startTime)/1000) + 's',
         memoryUsed: Math.round((process.memoryUsage().heapUsed - initialMemory.heapUsed) / 1024 / 1024) + 'MB'
+      });
+
+      jobManager.failJob(jobId, error);
+    }
+  };
+
+  handleParentUrlConversion = async (req, res, next) => {
+    try {
+      // Get JobManager instance
+      const jobManager = global.server?.getJobManager();
+      if (!jobManager) {
+        throw new AppError('Job manager not initialized', 500);
+      }
+
+      // Create new job
+      const jobId = jobManager.createJob();
+      console.log('🎯 Created new parent URL conversion job:', {
+        jobId,
+        url: req.body.parenturl
+      });
+
+      // Send immediate response with job ID
+      res.json({ jobId });
+
+      // Start processing in background
+      this.#processParentUrlInBackground(jobId, req.body);
+    } catch (error) {
+      console.error('❌ Failed to start parent URL conversion job:', {
+        url: req.body.parenturl,
+        error: error.message
       });
       next(new AppError(error.message, 500));
     }
   };
 
-  handleParentUrlConversion = async (req, res, next) => {
+  #processParentUrlInBackground = async (jobId, body) => {
     const startTime = Date.now();
     const initialMemory = process.memoryUsage();
+    const jobManager = global.server?.getJobManager();
 
     try {
-      console.log('🚀 Starting parent URL conversion:', {
-        url: req.body.parenturl,
+      jobManager.updateJobStatus(jobId, 'processing', 'Starting parent URL conversion...');
+
+      console.log('🚀 Processing parent URL in background:', {
+        jobId,
+        url: body.parenturl,
         initialMemory: Math.round(initialMemory.heapUsed / 1024 / 1024) + 'MB'
       });
 
@@ -272,219 +380,220 @@ export class ConversionController {
 
       const data = {
         type: 'parenturl',
-        content: req.body.parenturl,
-        name: new URL(req.body.parenturl).hostname,
+        content: body.parenturl,
+        name: new URL(body.parenturl).hostname,
         options: {
-          ...req.body.options,
+          ...body.options,
           chunkSize: 50, // Process URLs in chunks of 50
-          memoryLimit: 512 * 1024 * 1024 // 512MB memory limit
+          memoryLimit: 512 * 1024 * 1024, // 512MB memory limit
+          onProgress: (progress) => {
+            jobManager.updateJobProgress(jobId, progress);
+          }
         }
       };
       
       const result = await this.conversionService.convert(data);
 
+      // Save result and generate download URL
+      const downloadUrl = jobManager.generateDownloadUrl(jobId, result.filename);
+      jobManager.saveJobResult(jobId, result.buffer, result.filename);
+
       const endMemory = process.memoryUsage();
       console.log('✅ Parent URL conversion completed:', {
-        url: req.body.parenturl,
+        jobId,
+        url: body.parenturl,
         duration: Math.round((Date.now() - startTime)/1000) + 's',
         memoryUsed: Math.round((endMemory.heapUsed - initialMemory.heapUsed) / 1024 / 1024) + 'MB',
         finalMemory: Math.round(endMemory.heapUsed / 1024 / 1024) + 'MB'
       });
 
-      this.#sendZipResponse(res, result);
+      // Complete job with download URL
+      jobManager.completeJob(jobId, downloadUrl);
+
     } catch (error) {
       console.error('❌ Parent URL conversion failed:', {
-        url: req.body.parenturl,
+        jobId,
+        url: body.parenturl,
         error: error.message,
         duration: Math.round((Date.now() - startTime)/1000) + 's',
         memoryUsed: Math.round((process.memoryUsage().heapUsed - initialMemory.heapUsed) / 1024 / 1024) + 'MB'
       });
 
-      next(new AppError(error.message, 500));
+      jobManager.failJob(jobId, error);
     }
   };
 
     handleFileConversion = async (req, res, next) => {
         try {
+            // Get JobManager instance
+            const jobManager = global.server?.getJobManager();
+            if (!jobManager) {
+                throw new AppError('Job manager not initialized', 500);
+            }
+
+            // Create new job
+            const jobId = jobManager.createJob();
+            
             // Enhanced request logging with file signature info
             const fileSignature = req.file?.buffer?.slice(0, 4).toString('hex');
             console.log('📝 File conversion request:', {
+                jobId,
                 headers: {
                     'content-type': req.headers['content-type'],
                     'content-length': req.headers['content-length'],
                     'authorization': req.headers['authorization'] ? 'present' : 'missing'
-                },
-                body: {
-                    hasOptions: !!req.body?.options,
-                    optionsType: typeof req.body?.options,
-                    parsedOptions: req.body?.options ? JSON.parse(req.body.options) : {}
                 },
                 file: req.file ? {
                     fieldname: req.file.fieldname,
                     originalname: req.file.originalname,
                     mimetype: req.file.mimetype,
                     size: req.file.buffer?.length,
-                    encoding: req.file.encoding,
                     signature: fileSignature,
                     extension: path.extname(req.file.originalname).slice(1).toLowerCase()
-                } : null,
-                isMultipart: req.headers['content-type']?.includes('multipart/form-data')
+                } : null
             });
 
-            // Validate request format
-            if (!req.headers['content-type']?.includes('multipart/form-data')) {
-                throw new AppError('Request must be multipart/form-data', 400);
-            }
+            // Send immediate response with job ID
+            res.json({ jobId });
 
-            // Validate file presence
-            if (!req.file) {
-                throw new AppError('No file provided in the request. Ensure you are sending a file with field name "file"', 400);
-            }
+            // Start processing in background
+            this.#processFileInBackground(jobId, req.file, req.body.options);
+        } catch (error) {
+            console.error('❌ Failed to start file conversion job:', {
+                filename: req.file?.originalname,
+                error: error.message
+            });
+            next(new AppError(error.message, 500));
+        }
+    };
+
+    #processFileInBackground = async (jobId, file, rawOptions) => {
+        const jobManager = global.server?.getJobManager();
+        
+        try {
+            jobManager.updateJobStatus(jobId, 'validating', 'Validating file...');
 
             // Validate file data
-            if (!Buffer.isBuffer(req.file.buffer)) {
-                throw new AppError('Invalid file data received. Expected a valid file buffer.', 400);
+            if (!file || !Buffer.isBuffer(file.buffer)) {
+                throw new AppError('Invalid file data received', 400);
             }
 
-            if (req.file.buffer.length === 0) {
-                throw new AppError('Empty file received. Please provide a non-empty file.', 400);
+            if (file.buffer.length === 0) {
+                throw new AppError('Empty file received', 400);
             }
 
-            // Parse options with validation
+            // Parse options
             let options;
             try {
-                options = req.body.options ? JSON.parse(req.body.options) : {};
+                options = rawOptions ? JSON.parse(rawOptions) : {};
             } catch (error) {
-                throw new AppError('Invalid options format. Expected valid JSON.', 400);
+                throw new AppError('Invalid options format', 400);
             }
 
             // Create a fresh buffer copy and validate file type
-            const fileBuffer = Buffer.from(req.file.buffer);
-            const fileExtension = path.extname(req.file.originalname).slice(1).toLowerCase();
-            const fileType = this.#determineFileType(fileExtension, req.file.mimetype);
+            const fileBuffer = Buffer.from(file.buffer);
+            const fileExtension = path.extname(file.originalname).slice(1).toLowerCase();
+            const fileType = this.#determineFileType(fileExtension, file.mimetype);
 
             if (!fileType) {
                 throw new AppError(`Unsupported file type: ${fileExtension}`, 400);
             }
 
-            // Enhanced file processing logging with signature validation
-            const signatures = {
-                docx: [0x50, 0x4B, 0x03, 0x04], // PK\x03\x04
-                pdf: [0x25, 0x50, 0x44, 0x46],  // %PDF
-                pptx: [0x50, 0x4B, 0x03, 0x04]  // PK\x03\x04 (same as docx)
-            };
-
-            const expectedSignature = signatures[fileExtension];
-            const actualSignature = fileBuffer.slice(0, 4);
-            const isValidSignature = expectedSignature ? 
-                expectedSignature.every((byte, i) => actualSignature[i] === byte) : 
-                true;
-
-            console.log('🔄 Processing file:', {
-                filename: req.file.originalname,
-                mimetype: req.file.mimetype,
-                size: fileBuffer.length,
-                extension: fileExtension,
-                type: fileType,
-                signature: {
-                    actual: actualSignature.toString('hex'),
-                    expected: expectedSignature ? Buffer.from(expectedSignature).toString('hex') : 'N/A',
-                    isValid: isValidSignature
-                },
-                hasOptions: !!options,
-                optionsKeys: Object.keys(options)
-            });
-
-            // Additional validation for known file types
-            if (expectedSignature && !isValidSignature) {
-                throw new AppError(`Invalid file format: File signature does not match expected ${fileExtension.toUpperCase()} format`, 400);
-            }
-            
+            jobManager.updateJobStatus(jobId, 'processing', 'Converting file...');
 
             const conversionData = {
                 type: fileType,
                 content: fileBuffer,
-                name: req.file.originalname,
+                name: file.originalname,
                 options: {
                     ...options,
-                    originalMimeType: req.file.mimetype,
-                    fileSignature: actualSignature.toString('hex')
+                    originalMimeType: file.mimetype,
+                    onProgress: (progress) => {
+                        jobManager.updateJobProgress(jobId, progress);
+                    }
                 },
-                mimeType: req.file.mimetype
+                mimeType: file.mimetype
             };
 
-            // Enhanced conversion preparation logging
-            console.log('📤 Preparing conversion:', {
-                type: conversionData.type,
-                filename: conversionData.name,
-                bufferLength: conversionData.content.length,
-                signature: conversionData.content.slice(0, 4).toString('hex'),
-                mimeType: conversionData.mimeType,
-                optionsIncluded: Object.keys(conversionData.options)
-            });
+            const result = await this.conversionService.convert(conversionData);
 
-        // Attempt conversion with enhanced error handling
-        let result;
-        try {
-            result = await this.conversionService.convert(conversionData);
-            
-            console.log('✅ Conversion complete:', {
-                success: !!result,
-                hasContent: !!result?.content,
-                contentLength: result?.content?.length,
-                imageCount: result?.images?.length,
-                outputType: result?.type,
-                warnings: result?.warnings?.length || 0
+            // Save result and generate download URL
+            const downloadUrl = jobManager.generateDownloadUrl(jobId, result.filename);
+            jobManager.saveJobResult(jobId, result.buffer, result.filename);
+
+            // Complete job with download URL
+            jobManager.completeJob(jobId, downloadUrl);
+
+        } catch (error) {
+            console.error('❌ File conversion failed:', {
+                jobId,
+                filename: file?.originalname,
+                error: error.message
             });
-        } catch (conversionError) {
-            console.error('❌ Conversion failed:', {
-                error: conversionError.message,
-                type: fileType,
-                filename: req.file.originalname,
-                stack: conversionError.stack
-            });
-            throw new AppError(`Conversion failed: ${conversionError.message}`, 500);
+            jobManager.failJob(jobId, error);
         }
+    };
 
-        this.#sendZipResponse(res, result);
+  handleAudioConversion = async (req, res, next) => {
+    try {
+      // Get JobManager instance
+      const jobManager = global.server?.getJobManager();
+      if (!jobManager) {
+        throw new AppError('Job manager not initialized', 500);
+      }
+
+      // Create new job
+      const jobId = jobManager.createJob();
+      console.log('🎯 Created new audio conversion job:', {
+        jobId,
+        filename: req.file?.originalname
+      });
+
+      // Send immediate response with job ID
+      res.json({ jobId });
+
+      // Start processing in background
+      this.#processAudioInBackground(jobId, req.file, req.body.options, req.headers);
     } catch (error) {
-        console.error('❌ Conversion failed:', {
-            error: error.message,
-            stack: error.stack,
-            type: 'file_conversion'
-        });
-        next(new AppError(error.message, 500));
+      console.error('❌ Failed to start audio conversion job:', {
+        filename: req.file?.originalname,
+        error: error.message
+      });
+      next(new AppError(error.message, 500));
     }
   };
 
-  handleAudioConversion = async (req, res, next) => {
-    const startTime = Date.now();
-    const initialMemory = process.memoryUsage();
-
+  #processAudioInBackground = async (jobId, file, rawOptions, headers) => {
+    const jobManager = global.server?.getJobManager();
+    
     try {
-      const file = req.file;
-      
-      console.log('🎵 Starting audio conversion:', {
-        fileName: file.originalname,
-        size: file.buffer.length,
-        initialMemory: Math.round(initialMemory.heapUsed / 1024 / 1024) + 'MB'
-      });
+      jobManager.updateJobStatus(jobId, 'validating', 'Validating audio file...');
 
-      // Run garbage collection if available and memory usage is high
-      if (global.gc && initialMemory.heapUsed > 512 * 1024 * 1024) {
-        console.log('🧹 Running initial garbage collection');
-        global.gc();
+      // Validate file data
+      if (!file || !Buffer.isBuffer(file.buffer)) {
+        throw new AppError('Invalid audio file data received', 400);
       }
 
-      const options = JSON.parse(req.body.options || '{}');
-      
+      if (file.buffer.length === 0) {
+        throw new AppError('Empty audio file received', 400);
+      }
+
+      // Parse options
+      let options;
+      try {
+        options = rawOptions ? JSON.parse(rawOptions) : {};
+      } catch (error) {
+        throw new AppError('Invalid options format', 400);
+      }
+
       // Ensure API key is present
-      const apiKey = req.headers['x-api-key'] || req.headers['authorization']?.replace('Bearer ', '');
+      const apiKey = headers['x-api-key'] || headers['authorization']?.replace('Bearer ', '');
       if (!apiKey) {
         throw new AppError('API key is required for audio conversion', 401);
       }
 
-      // Create conversion data object with proper buffer
+      jobManager.updateJobStatus(jobId, 'processing', 'Converting audio...');
+
       const conversionData = {
         type: 'audio',
         content: file.buffer,
@@ -493,95 +602,127 @@ export class ConversionController {
         apiKey,
         options: {
           ...options,
-          streamProcessing: true, // Enable streaming processing
-          memoryLimit: 512 * 1024 * 1024, // 512MB memory limit
-          chunkSize: file.buffer.length > 50 * 1024 * 1024 ? 25 * 1024 * 1024 : undefined // 25MB chunks for large files
+          streamProcessing: true,
+          memoryLimit: 512 * 1024 * 1024,
+          chunkSize: file.buffer.length > 50 * 1024 * 1024 ? 25 * 1024 * 1024 : undefined,
+          onProgress: (progress) => {
+            jobManager.updateJobProgress(jobId, progress);
+          }
         }
       };
 
       const result = await this.conversionService.convert(conversionData);
 
-      const endMemory = process.memoryUsage();
-      console.log('✅ Audio conversion completed:', {
-        fileName: file.originalname,
-        duration: Math.round((Date.now() - startTime)/1000) + 's',
-        memoryUsed: Math.round((endMemory.heapUsed - initialMemory.heapUsed) / 1024 / 1024) + 'MB',
-        finalMemory: Math.round(endMemory.heapUsed / 1024 / 1024) + 'MB'
-      });
+      // Save result and generate download URL
+      const downloadUrl = jobManager.generateDownloadUrl(jobId, result.filename);
+      jobManager.saveJobResult(jobId, result.buffer, result.filename);
 
-      this.#sendZipResponse(res, result);
+      // Complete job with download URL
+      jobManager.completeJob(jobId, downloadUrl);
 
     } catch (error) {
       console.error('❌ Audio conversion failed:', {
-        error: error.message,
-        duration: Math.round((Date.now() - startTime)/1000) + 's',
-        memoryUsed: Math.round((process.memoryUsage().heapUsed - initialMemory.heapUsed) / 1024 / 1024) + 'MB'
+        jobId,
+        filename: file?.originalname,
+        error: error.message
       });
-      next(new AppError(error.message, error.statusCode || 500));
+      jobManager.failJob(jobId, error);
     }
   };
 
   handleVideoConversion = async (req, res, next) => {
-    const startTime = Date.now();
-    const initialMemory = process.memoryUsage();
-
     try {
-      const file = req.file;
-      if (!file) {
-        throw new AppError('No video file provided', 400);
+      // Get JobManager instance
+      const jobManager = global.server?.getJobManager();
+      if (!jobManager) {
+        throw new AppError('Job manager not initialized', 500);
       }
 
-      console.log('🎥 Starting video conversion:', {
-        fileName: file.originalname,
-        size: file.buffer.length,
-        initialMemory: Math.round(initialMemory.heapUsed / 1024 / 1024) + 'MB'
+      // Create new job
+      const jobId = jobManager.createJob();
+      console.log('🎯 Created new video conversion job:', {
+        jobId,
+        filename: req.file?.originalname
       });
 
-      // Run garbage collection if available and memory usage is high
-      if (global.gc && initialMemory.heapUsed > 512 * 1024 * 1024) {
-        console.log('🧹 Running initial garbage collection');
-        global.gc();
+      // Send immediate response with job ID
+      res.json({ jobId });
+
+      // Start processing in background
+      this.#processVideoInBackground(jobId, req.file, req.body.options, req.headers);
+    } catch (error) {
+      console.error('❌ Failed to start video conversion job:', {
+        filename: req.file?.originalname,
+        error: error.message
+      });
+      next(new AppError(error.message, 500));
+    }
+  };
+
+  #processVideoInBackground = async (jobId, file, rawOptions, headers) => {
+    const jobManager = global.server?.getJobManager();
+    
+    try {
+      jobManager.updateJobStatus(jobId, 'validating', 'Validating video file...');
+
+      // Validate file data
+      if (!file || !Buffer.isBuffer(file.buffer)) {
+        throw new AppError('Invalid video file data received', 400);
       }
 
-      const options = JSON.parse(req.body.options || '{}');
-      const apiKey = req.headers['x-api-key'] || req.headers['authorization']?.replace('Bearer ', '');
-      
+      if (file.buffer.length === 0) {
+        throw new AppError('Empty video file received', 400);
+      }
+
+      // Parse options
+      let options;
+      try {
+        options = rawOptions ? JSON.parse(rawOptions) : {};
+      } catch (error) {
+        throw new AppError('Invalid options format', 400);
+      }
+
+      // Ensure API key is present
+      const apiKey = headers['x-api-key'] || headers['authorization']?.replace('Bearer ', '');
       if (!apiKey) {
         throw new AppError('API key is required for video conversion', 401);
       }
 
+      jobManager.updateJobStatus(jobId, 'processing', 'Converting video...');
+
       const conversionData = {
         type: 'video',
         content: file.buffer,
+        mimeType: file.mimetype,
         name: file.originalname,
         apiKey,
-        mimeType: file.mimetype,
         options: {
           ...options,
-          streamProcessing: true, // Enable streaming processing
-          memoryLimit: 512 * 1024 * 1024, // 512MB memory limit
-          chunkSize: file.buffer.length > 50 * 1024 * 1024 ? 25 * 1024 * 1024 : undefined // 25MB chunks for large files
+          streamProcessing: true,
+          memoryLimit: 512 * 1024 * 1024,
+          chunkSize: file.buffer.length > 50 * 1024 * 1024 ? 25 * 1024 * 1024 : undefined,
+          onProgress: (progress) => {
+            jobManager.updateJobProgress(jobId, progress);
+          }
         }
       };
 
       const result = await this.conversionService.convert(conversionData);
 
-      const endMemory = process.memoryUsage();
-      console.log('✅ Video conversion completed:', {
-        fileName: file.originalname,
-        duration: Math.round((Date.now() - startTime)/1000) + 's',
-        memoryUsed: Math.round((endMemory.heapUsed - initialMemory.heapUsed) / 1024 / 1024) + 'MB',
-        finalMemory: Math.round(endMemory.heapUsed / 1024 / 1024) + 'MB'
-      });
+      // Save result and generate download URL
+      const downloadUrl = jobManager.generateDownloadUrl(jobId, result.filename);
+      jobManager.saveJobResult(jobId, result.buffer, result.filename);
 
-      this.#sendZipResponse(res, result);
+      // Complete job with download URL
+      jobManager.completeJob(jobId, downloadUrl);
+
     } catch (error) {
       console.error('❌ Video conversion failed:', {
-        error: error.message,
-        duration: Math.round((Date.now() - startTime)/1000) + 's',
-        memoryUsed: Math.round((process.memoryUsage().heapUsed - initialMemory.heapUsed) / 1024 / 1024) + 'MB'
+        jobId,
+        filename: file?.originalname,
+        error: error.message
       });
-      next(new AppError(error.message, error.statusCode || 500, error.details));
+      jobManager.failJob(jobId, error);
     }
   };
 
