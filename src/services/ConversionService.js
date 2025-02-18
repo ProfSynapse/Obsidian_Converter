@@ -237,11 +237,10 @@ export class ConversionService {
           }
         });
 
-        // Check if we can skip ZIP creation (single file without attachments)
-        const shouldCreateZip = 
-          category === 'web' || // Web scrapes have complex structure
-          (result.images && result.images.length > 0) || // Has attachments
-          type === 'parenturl'; // Parent URL always creates multiple files
+// Check if we need ZIP creation
+const shouldCreateZip = 
+  type === 'parenturl' || // Parent URLs create multiple files
+  (result.images && result.images.length > 0 && !['url', 'parenturl'].includes(type)); // Only ZIP if there are actual attachments (not URL conversions)
 
         if (!shouldCreateZip) {
           const baseName = path.basename(name, path.extname(name));

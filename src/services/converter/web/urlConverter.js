@@ -19,7 +19,7 @@ class UrlConversionError extends Error {
 }
 
 /**
- * Configuration for URL conversion settings
+ * Configuration for HTTP requests
  */
 const CONFIG = {
   http: {
@@ -43,23 +43,6 @@ const CONFIG = {
     followRedirect: true,
     decompress: true,
     responseType: 'text'
-  },
-  conversion: {
-    imageTypes: ['jpg', 'jpeg', 'png', 'gif', 'webp', 'svg', 'ico'],
-    excludePatterns: [
-      /\/(analytics|tracking|pixel|beacon|ad)\//i,
-      /\.(analytics|tracking)\./i,
-      /\b(ga|gtm|pixel|fb)\b/i,
-      /\b(doubleclick|adsense)\b/i
-    ],
-    lazyLoadAttrs: [
-      'data-src',
-      'data-original',
-      'data-lazy',
-      'data-srcset',
-      'loading-src',
-      'lazy-src'
-    ]
   }
 };
 
@@ -78,36 +61,46 @@ class UrlConverter {
   }
 
   addBasicRules() {
+    // Keep table structure
     this.turndownService.addRule('tables', {
       filter: ['table'],
       replacement: (content) => content
     });
 
+    // Format code blocks
     this.turndownService.addRule('codeBlocks', {
       filter: ['pre'],
       replacement: (content) => `\n\`\`\`\n${content}\n\`\`\`\n`
     });
 
+    // Convert line breaks
     this.turndownService.addRule('lineBreaks', {
       filter: ['br'],
       replacement: () => '\n'
     });
   }
 
+  sanitizeImage(markdown) {
+    // Remove escaping from markdown image syntax
+    return markdown
+      .replace(/!\\\[/g, '![')  // Fix escaped opening brackets
+      .replace(/\\\]/g, ']');   // Fix escaped closing brackets
+  }
+
   async convertToMarkdown(url, options = {}) {
     try {
-      const gotOptions = {
+      const response = await got(url, {
         ...CONFIG.http,
         ...options.got,
         headers: {
           ...CONFIG.http.headers,
           ...(options.got?.headers || {})
         }
-      };
+      });
 
-      const response = await got(url, gotOptions);
       const $ = cheerio.load(response.body);
 
+      // Remove unnecessary elements
       const removeSelectors = [
         'script', 'style', 'iframe', 'noscript',
         'header nav', 'footer nav', 'aside',
@@ -119,129 +112,43 @@ class UrlConverter {
         $(selector).remove();
       });
 
+      // Find main content
       const contentSelectors = [
         'article', 'main', '[role="main"]',
         '.post-content', '.entry-content', '.article-content',
-        '.content', '#content', '#main'
+        '.content', '#content', '#main', 'body'
       ];
 
       let $content = null;
       for (const selector of contentSelectors) {
-        const $found = $(selector).first();
+        const $found = $(selector);
         if ($found.length) {
           $content = $found;
           break;
         }
       }
-
       $content = $content || $('body');
 
-      const imageRefs = [];
-      const processedUrls = new Set();
+      // Replace all img tags with markdown syntax
+      $content.find('img').each((_, img) => {
+        const $img = $(img);
+        const src = $img.attr('src');
+        if (src) {
+          const alt = $img.attr('alt') || '';
+          const markdown = `\n![${alt}](${src})\n`;
+          $img.replaceWith(markdown);
+        }
+      });
 
-      if (options.includeImages !== false) {
-        const normalizeUrl = (src, baseUrl) => {
-          if (!src) return null;
-          try {
-            const imgUrl = src.trim();
-            if (imgUrl.startsWith('data:')) return null;
-
-            // Convert protocol-relative URLs
-            const fullUrl = imgUrl.startsWith('//') ? `https:${imgUrl}` : imgUrl;
-            
-            // Parse URL and remove query/hash but preserve encoded characters
-            const urlObj = new URL(fullUrl, baseUrl);
-            urlObj.search = '';
-            urlObj.hash = '';
-            
-            // Keep the encoded URL to preserve spaces
-            return urlObj.href;
-          } catch (error) {
-            console.error('URL normalization error:', error);
-            return null;
-          }
-        };
-
-        const processImageUrl = (imgUrl, altText = '', parentUrl = null) => {
-          if (!imgUrl) return null;
-          
-          try {
-            const normalizedUrl = normalizeUrl(imgUrl, url);
-            if (!normalizedUrl || processedUrls.has(normalizedUrl)) return null;
-
-            const ext = normalizedUrl.split('.').pop()?.toLowerCase() || '';
-            if (!ext || !CONFIG.conversion.imageTypes.includes(ext)) return null;
-
-            if (CONFIG.conversion.excludePatterns.some(pattern => pattern.test(normalizedUrl))) {
-              return null;
-            }
-
-            processedUrls.add(normalizedUrl);
-            return {
-              url: normalizedUrl,
-              alt: altText || '',
-              linkedTo: parentUrl,
-              referenceUrl: url,
-              addedAt: new Date().toISOString()
-            };
-          } catch (error) {
-            console.error('Image processing error:', error);
-            return null;
-          }
-        };
-
-        $content.find('img').each((_, img) => {
-          const $img = $(img);
-          const srcs = [
-            $img.attr('src'),
-            ...CONFIG.conversion.lazyLoadAttrs.map(attr => $img.attr(attr))
-          ].filter(Boolean);
-
-          for (const src of srcs) {
-            const imageData = processImageUrl(src, $img.attr('alt') || '');
-            if (imageData) {
-              const isLinked = $img.parent('a').length > 0;
-              // Create text node to prevent HTML escaping
-              const createMarkdown = (alt, url, href = null) => {
-                if (href && href !== url) {
-                  return $.text(`[![${alt}](${url})](${href})`);
-                }
-                return $.text(`![${alt}](${url})`);
-              };
-
-              if (isLinked) {
-                const $link = $img.parent('a');
-                const href = $link.attr('href');
-                $link.replaceWith(createMarkdown(imageData.alt, imageData.url, href));
-              } else {
-                $img.replaceWith(createMarkdown(imageData.alt, imageData.url));
-              }
-              imageRefs.push(imageData);
-              break;
-            }
-          }
-        });
-
-        $content.find('[style*="background"]').each((_, el) => {
-          const $el = $(el);
-          const style = $el.attr('style') || '';
-          const match = style.match(/background(?:-image)?\s*:\s*url\(['"]?([^'"]+)['"]?\)/i);
-          
-          if (match) {
-            const imageData = processImageUrl(match[1]);
-            if (imageData) {
-              $el.before($.text(`\n\n![${imageData.alt}](${imageData.url})\n\n`));
-              $el.removeAttr('style');
-              imageRefs.push(imageData);
-            }
-          }
-        });
-      }
-
+      // Convert HTML to Markdown
       const markdown = this.turndownService.turndown($content.html())
-        .replace(/\n{3,}/g, '\n\n')
+        .replace(/\n{3,}/g, '\n\n')  // Remove extra newlines
         .trim();
 
+      // Clean up markdown image syntax
+      const cleanedMarkdown = this.sanitizeImage(markdown);
+
+      // Extract metadata
       let metadata = null;
       if (options.includeMeta !== false) {
         try {
@@ -251,6 +158,7 @@ class UrlConverter {
         }
       }
 
+      // Combine metadata and markdown
       const content = [
         metadata ? [
           '---',
@@ -259,12 +167,11 @@ class UrlConverter {
             .join('\n'),
           '---'
         ].join('\n') : null,
-        markdown
+        cleanedMarkdown
       ].filter(Boolean).join('\n\n');
 
       return {
         content,
-        images: imageRefs,
         success: true,
         name: options.originalName || new URL(url).hostname,
         metadata,

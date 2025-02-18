@@ -51,7 +51,19 @@ const ALLOWED_TYPES = {
     'audio/mpeg': { name: 'MP3' },
     'audio/wav': { name: 'WAV' },
     'video/mp4': { name: 'MP4' },
-    'video/quicktime': { name: 'MOV' }
+    'video/quicktime': { name: 'MOV' },
+    'audio/x-m4a': { name: 'M4A' },
+    // Additional audio formats
+    'audio/webm': { name: 'WEBM' },
+    'audio/mpeg': { name: 'MPGA' },
+    'audio/ogg': { name: 'OGG' },
+    'audio/aac': { name: 'AAC' },
+    'audio/flac': { name: 'FLAC' },
+    // Additional video formats
+    'video/webm': { name: 'WEBM' },
+    'video/x-msvideo': { name: 'AVI' },
+    'video/x-matroska': { name: 'MKV' },
+    'video/x-ms-wmv': { name: 'WMV' }
 };
 
 // Configure multer storage with memory management
@@ -109,7 +121,7 @@ const fileFilter = async (req, file, cb) => {
 
         // Check file size early with different limits for video files
         const contentLength = parseInt(req.headers['content-length'] || '0');
-        const isVideoFile = ['video/mp4', 'video/quicktime', 'video/webm'].includes(file.mimetype);
+        const isVideoFile = ['video/mp4', 'video/quicktime', 'video/webm', 'video/x-msvideo', 'video/x-matroska', 'video/x-ms-wmv'].includes(file.mimetype);
         const maxSize = isVideoFile ? 
             (config.conversion.maxVideoFileSize || 500 * 1024 * 1024) : 
             (config.conversion.maxFileSize || 50 * 1024 * 1024);
