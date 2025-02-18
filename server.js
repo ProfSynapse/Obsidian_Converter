@@ -33,19 +33,39 @@ class Server {
         // Updated CORS configuration using config
         this.corsOptions = {
             origin: (origin, callback) => {
-                if (!origin || config.CORS.ORIGIN.includes(origin)) {
+                const allowedOrigins = config.CORS.ORIGIN;
+                if (!origin) {
+                    callback(null, true);
+                    return;
+                }
+                
+                const isAllowed = allowedOrigins.some(allowed => 
+                    origin.includes(allowed.replace('http://', '').replace('https://', ''))
+                );
+                
+                if (isAllowed) {
                     callback(null, true);
                 } else {
-                    console.warn('Rejected Origin:', origin);
+                    console.warn('Rejected Origin:', origin, 'Allowed:', allowedOrigins);
                     callback(new Error('Not allowed by CORS'));
                 }
             },
             methods: config.CORS.METHODS,
-            allowedHeaders: config.CORS.ALLOWED_HEADERS,
-            exposedHeaders: config.CORS.EXPOSED_HEADERS,
+            allowedHeaders: [
+                ...config.CORS.ALLOWED_HEADERS,
+                'Content-Length',
+                'Transfer-Encoding'
+            ],
+            exposedHeaders: [
+                ...config.CORS.EXPOSED_HEADERS,
+                'Content-Length',
+                'X-Content-Type-Options',
+                'Transfer-Encoding'
+            ],
             credentials: true,
             preflightContinue: false,
-            optionsSuccessStatus: 204
+            optionsSuccessStatus: 204,
+            maxAge: 86400 // 24 hours
         };
 
         // Initialize server
@@ -59,30 +79,49 @@ class Server {
      */
     initializeMiddleware() {
         // Apply CORS with proper preflight handling
-        this.app.use(cors({
-            ...this.corsOptions,
-            maxAge: 86400, // 24 hours
-            credentials: true,
-            exposedHeaders: ['Content-Disposition', 'Content-Length']
-        }));
+        this.app.use(cors(this.corsOptions));
         
-        // Handle OPTIONS preflight requests
+        // Handle OPTIONS preflight requests for all routes
         this.app.options('*', cors(this.corsOptions));
 
-        // Update security headers
+        // Add CORS headers to all responses
+        this.app.use((req, res, next) => {
+            res.setHeader('Access-Control-Allow-Origin', req.headers.origin || '*');
+            res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+            res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, Accept');
+            res.setHeader('Access-Control-Allow-Credentials', 'true');
+            next();
+        });
+
+        // Update security headers with permissive CORS
         this.app.use(helmet({
             crossOriginResourcePolicy: { policy: "cross-origin" },
+            crossOriginEmbedderPolicy: false,
             contentSecurityPolicy: {
                 directives: {
-                    defaultSrc: ["'self'"],
-                    connectSrc: ["'self'", ...config.CORS.ORIGIN],
-                    imgSrc: ["'self'", "data:", "blob:"],
-                    styleSrc: ["'self'", "'unsafe-inline'"],
-                    scriptSrc: ["'self'"],
-                    formAction: ["'self'"]
+                    defaultSrc: ["'self'", "https:", "http:"],
+                    connectSrc: ["'self'", "https:", "http:"],
+                    imgSrc: ["'self'", "data:", "blob:", "https:", "http:"],
+                    styleSrc: ["'self'", "'unsafe-inline'", "https:", "http:"],
+                    scriptSrc: ["'self'", "https:", "http:"],
+                    formAction: ["'self'", "https:", "http:"],
+                    workerSrc: ["'self'", "blob:"]
                 }
             }
         }));
+
+        // Add CORS debug logging
+        this.app.use((req, res, next) => {
+            if (process.env.NODE_ENV === 'development') {
+                console.log('🔒 CORS Debug:', {
+                    origin: req.headers.origin,
+                    method: req.method,
+                    path: req.path,
+                    headers: req.headers
+                });
+            }
+            next();
+        });
 
         // Configure response timeouts
         this.app.use((req, res, next) => {
