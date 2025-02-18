@@ -10,7 +10,7 @@ import { AppError } from '../../../utils/errorHandler.js';
  * Configuration for URL conversion
  */
 const CONFIG = {
-  concurrentLimit: 5,
+  concurrentLimit: 50,
   validProtocols: ['http:', 'https:'],
   excludePatterns: [
     // Assets to exclude
