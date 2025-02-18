@@ -3,6 +3,7 @@
 import got from 'got';
 import pLimit from 'p-limit';
 import * as cheerio from 'cheerio';
+import fs from 'fs';
 import { convertUrlToMarkdown } from './urlConverter.js';
 import { AppError } from '../../../utils/errorHandler.js';
 
@@ -177,51 +178,87 @@ class UrlFinder {
  * URL Processor class to handle conversion of discovered URLs
  */
 class UrlProcessor {
+  constructor() {
+    this.tempDir = `${process.env.TEMP || '/tmp'}/obsidian-converter/temp-${Date.now()}`;
+  }
+
   async processUrls(urls, options = {}) {
     const limit = pLimit(CONFIG.concurrentLimit);
-    console.log(`\nConverting ${urls.size} pages to Markdown...\n`);
+    const batchSize = 20; // Process 20 pages at a time
+    const urlArray = Array.from(urls);
+    const totalUrls = urlArray.length;
+    
+    console.log(`\n🔄 Converting ${totalUrls} pages to Markdown in batches of ${batchSize}...\n`);
 
-    const tasks = Array.from(urls).map(url =>
-      limit(async () => {
-        try {
-          // Create clean options object for URL conversion
-          const conversionOptions = {
-            ...options,
-            includeImages: true,
-            includeMeta: true,
-            got: {
-              retry: CONFIG.http.retry,
-              timeout: CONFIG.http.timeout,
-              headers: CONFIG.http.headers,
-              decompress: CONFIG.http.decompress,
-              followRedirect: true,
-              throwHttpErrors: false,
-              responseType: 'text'
-            },
-            spa: CONFIG.http.spa
-          };
+    // Create temp directory for batch processing
+    await fs.promises.mkdir(this.tempDir, { recursive: true });
+    console.log(`📁 Created temp directory: ${this.tempDir}`);
 
-          const result = await convertUrlToMarkdown(url, conversionOptions);
+    const results = [];
+    let processedCount = 0;
 
-          const urlPath = new URL(url).pathname || '/';
-          const name = this.sanitizeFilename(urlPath);
-          console.log(`✓ Converted: ${url} -> ${name}`);
-          return {
-            success: true,
-            name: `${name}.md`,
-            content: result.content,
-            images: result.images || [],
-            url,
-            metadata: result.metadata
-          };
-        } catch (error) {
-          console.log(`❌ Failed to convert: ${url}`);
-          return { success: false, url, error: error.message };
-        }
-      })
-    );
+    // Process URLs in batches
+    for (let i = 0; i < urlArray.length; i += batchSize) {
+      const batch = urlArray.slice(i, i + batchSize);
+      console.log(`\n📦 Processing batch ${Math.floor(i/batchSize) + 1} of ${Math.ceil(totalUrls/batchSize)}`);
 
-    return await Promise.all(tasks);
+      const batchTasks = batch.map(url =>
+        limit(async () => {
+          try {
+            const conversionOptions = {
+              ...options,
+              includeImages: true,
+              includeMeta: true,
+              got: {
+                retry: CONFIG.http.retry,
+                timeout: CONFIG.http.timeout,
+                headers: CONFIG.http.headers,
+                decompress: CONFIG.http.decompress,
+                followRedirect: true,
+                throwHttpErrors: false,
+                responseType: 'text'
+              },
+              spa: CONFIG.http.spa
+            };
+
+            const result = await convertUrlToMarkdown(url, conversionOptions);
+            const urlPath = new URL(url).pathname || '/';
+            const name = this.sanitizeFilename(urlPath);
+            
+            // Write markdown file to disk
+            const filePath = `${this.tempDir}/${name}.md`;
+            await fs.promises.writeFile(filePath, result.content, 'utf8');
+
+            processedCount++;
+            console.log(`✓ Converted (${processedCount}/${totalUrls}): ${url} -> ${name}`);
+            
+            return {
+              success: true,
+              name: `${name}.md`,
+              path: filePath,
+              url,
+              metadata: result.metadata,
+              images: result.images || []
+            };
+          } catch (error) {
+            console.log(`❌ Failed to convert: ${url}`);
+            return { success: false, url, error: error.message };
+          }
+        })
+      );
+
+      const batchResults = await Promise.all(batchTasks);
+      results.push(...batchResults);
+
+      // Force garbage collection if available
+      if (global.gc) {
+        console.log('🧹 Running garbage collection after batch');
+        global.gc();
+      }
+    }
+
+    console.log(`\n✅ All batches processed. Total pages: ${processedCount}`);
+    return results;
   }
 
   sanitizeFilename(input) {
@@ -381,7 +418,6 @@ class UrlProcessor {
  */
 export async function convertParentUrlToMarkdown(parentUrl) {
   const finder = new UrlFinder();
-  const processor = new UrlProcessor();
 
   try {
     // Basic URL validation
@@ -395,55 +431,74 @@ export async function convertParentUrlToMarkdown(parentUrl) {
     const hostname = urlObj.hostname;
     console.log(`Starting conversion of ${parentUrl}`);
 
-    // Get all child pages
-    const childUrls = await finder.findChildUrls(parentUrl);
-    if (childUrls.length === 0) {
-      console.log('No child pages found, converting parent URL only');
-    }
+    const processor = new UrlProcessor();
 
-    // Include parent URL in pages to convert
-    const allUrls = new Set([parentUrl, ...childUrls]);
-    console.log(`Processing ${allUrls.size} total pages`);
+    try {
+      // Get all child pages
+      const childUrls = await finder.findChildUrls(parentUrl);
+      if (childUrls.length === 0) {
+        console.log('No child pages found, converting parent URL only');
+      }
 
-    // Convert all pages to markdown
-    const processedPages = await processor.processUrls(allUrls);
+      // Include parent URL in pages to convert
+      const allUrls = new Set([parentUrl, ...childUrls]);
+      console.log(`Processing ${allUrls.size} total pages`);
 
-    // Collect image references
-    const imageRefs = processor.collectImageReferences(processedPages);
+      // Convert all pages to markdown with disk streaming
+      const processedPages = await processor.processUrls(allUrls);
 
-    // Generate index with image references
-    const index = processor.generateIndex(parentUrl, processedPages, { images: imageRefs });
+      // Collect image references
+      const imageRefs = processor.collectImageReferences(processedPages);
 
-    // Create files array with markdown content
-    const files = [
-      {
-        name: `web/${hostname}/index.md`,
-        content: index,
-        type: 'text'
-      },
-      ...processedPages
-        .filter(p => p.success)
-        .map(({ name, content }) => ({
-          name: `web/${hostname}/pages/${name}`,
+      // Generate index with image references
+      const index = processor.generateIndex(parentUrl, processedPages, { images: imageRefs });
+
+      // Create files array from disk files
+      const files = [
+        {
+          name: `web/${hostname}/index.md`,
+          content: index,
+          type: 'text'
+        }
+      ];
+
+      // Add processed pages from disk
+      for (const page of processedPages.filter(p => p.success)) {
+        const content = await fs.promises.readFile(page.path, 'utf8');
+        files.push({
+          name: `web/${hostname}/pages/${page.name}`,
           content,
           type: 'text'
-        }))
-    ];
-
-    return {
-      url: parentUrl,
-      type: 'parenturl',
-      content: index,
-      name: hostname,
-      files,
-      success: true,
-      stats: {
-        totalPages: processedPages.length,
-        successfulPages: processedPages.filter(p => p.success).length,
-        failedPages: processedPages.filter(p => !p.success).length,
-        totalImages: imageRefs.length
+        });
       }
-    };
+
+      // Clean up temp directory
+      await fs.promises.rm(processor.tempDir, { recursive: true, force: true });
+      console.log(`🧹 Cleaned up temp directory: ${processor.tempDir}`);
+
+      return {
+        url: parentUrl,
+        type: 'parenturl',
+        content: index,
+        name: hostname,
+        files,
+        success: true,
+        stats: {
+          totalPages: processedPages.length,
+          successfulPages: processedPages.filter(p => p.success).length,
+          failedPages: processedPages.filter(p => !p.success).length,
+          totalImages: imageRefs.length
+        }
+      };
+    } finally {
+      // Ensure temp directory is cleaned up even on error
+      try {
+        await fs.promises.rm(processor.tempDir, { recursive: true, force: true });
+        console.log(`🧹 Cleaned up temp directory: ${processor.tempDir}`);
+      } catch (cleanupError) {
+        console.error('Failed to clean up temp directory:', cleanupError);
+      }
+    }
   } catch (error) {
     console.error('URL conversion failed:', error);
     throw new AppError(
