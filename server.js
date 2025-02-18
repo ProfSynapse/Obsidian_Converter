@@ -5,7 +5,6 @@ import fs from 'fs';  // Add fs import
 import cors from 'cors';
 import helmet from 'helmet';
 import dotenv from 'dotenv';
-import compression from 'express-compression';
 import { config } from './src/config/default.js';
 import router from './src/routes/index.js';  // Updated path
 import proxyRoutes from './src/routes/proxyRoutes.js';  // Updated path
@@ -33,39 +32,19 @@ class Server {
         // Updated CORS configuration using config
         this.corsOptions = {
             origin: (origin, callback) => {
-                const allowedOrigins = config.CORS.ORIGIN;
-                if (!origin) {
-                    callback(null, true);
-                    return;
-                }
-                
-                const isAllowed = allowedOrigins.some(allowed => 
-                    origin.includes(allowed.replace('http://', '').replace('https://', ''))
-                );
-                
-                if (isAllowed) {
+                if (!origin || config.CORS.ORIGIN.includes(origin)) {
                     callback(null, true);
                 } else {
-                    console.warn('Rejected Origin:', origin, 'Allowed:', allowedOrigins);
+                    console.warn('Rejected Origin:', origin);
                     callback(new Error('Not allowed by CORS'));
                 }
             },
             methods: config.CORS.METHODS,
-            allowedHeaders: [
-                ...config.CORS.ALLOWED_HEADERS,
-                'Content-Length',
-                'Transfer-Encoding'
-            ],
-            exposedHeaders: [
-                ...config.CORS.EXPOSED_HEADERS,
-                'Content-Length',
-                'X-Content-Type-Options',
-                'Transfer-Encoding'
-            ],
+            allowedHeaders: config.CORS.ALLOWED_HEADERS,
+            exposedHeaders: config.CORS.EXPOSED_HEADERS,
             credentials: true,
             preflightContinue: false,
-            optionsSuccessStatus: 204,
-            maxAge: 86400 // 24 hours
+            optionsSuccessStatus: 204
         };
 
         // Initialize server
@@ -79,89 +58,41 @@ class Server {
      */
     initializeMiddleware() {
         // Apply CORS with proper preflight handling
-        this.app.use(cors(this.corsOptions));
+        this.app.use(cors({
+            ...this.corsOptions,
+            maxAge: 86400, // 24 hours
+            credentials: true,
+            exposedHeaders: ['Content-Disposition', 'Content-Length']
+        }));
         
-        // Handle OPTIONS preflight requests for all routes
+        // Handle OPTIONS preflight requests
         this.app.options('*', cors(this.corsOptions));
 
-        // Add CORS headers to all responses
-        this.app.use((req, res, next) => {
-            res.setHeader('Access-Control-Allow-Origin', req.headers.origin || '*');
-            res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
-            res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, Accept');
-            res.setHeader('Access-Control-Allow-Credentials', 'true');
-            next();
-        });
-
-        // Update security headers with permissive CORS
+        // Update security headers
         this.app.use(helmet({
             crossOriginResourcePolicy: { policy: "cross-origin" },
-            crossOriginEmbedderPolicy: false,
             contentSecurityPolicy: {
                 directives: {
-                    defaultSrc: ["'self'", "https:", "http:"],
-                    connectSrc: ["'self'", "https:", "http:"],
-                    imgSrc: ["'self'", "data:", "blob:", "https:", "http:"],
-                    styleSrc: ["'self'", "'unsafe-inline'", "https:", "http:"],
-                    scriptSrc: ["'self'", "https:", "http:"],
-                    formAction: ["'self'", "https:", "http:"],
-                    workerSrc: ["'self'", "blob:"]
+                    defaultSrc: ["'self'"],
+                    connectSrc: ["'self'", ...config.CORS.ORIGIN],
+                    imgSrc: ["'self'", "data:", "blob:"],
+                    styleSrc: ["'self'", "'unsafe-inline'"],
+                    scriptSrc: ["'self'"],
+                    formAction: ["'self'"]
                 }
             }
         }));
 
-        // Add CORS debug logging
+        // Simple body parsing strategy
         this.app.use((req, res, next) => {
-            if (process.env.NODE_ENV === 'development') {
-                console.log('🔒 CORS Debug:', {
-                    origin: req.headers.origin,
-                    method: req.method,
-                    path: req.path,
-                    headers: req.headers
-                });
-            }
-            next();
-        });
-
-        // Configure response timeouts
-        this.app.use((req, res, next) => {
-            // Set higher timeout for parent URL conversions
-            if (req.path.includes('/parent-url')) {
-                req.setTimeout(600000); // 10 minutes
-                res.setTimeout(600000); // 10 minutes
-            }
-            next();
-        });
-
-        // Enhanced body parsing strategy with streaming support
-        this.app.use((req, res, next) => {
-            // Skip body parsing for streaming responses
-            if (req.headers['transfer-encoding'] === 'chunked') {
-                return next();
-            }
-
             if (!req.headers['content-type']?.includes('multipart/form-data')) {
                 express.json({
-                    limit: config.conversion.maxFileSize || '500mb',
-                    strict: false
+                    limit: config.conversion.maxFileSize || '50mb'
                 })(req, res, next);
             } else {
                 // Let multer handle multipart
                 next();
             }
-        });
-
-        // Enable response compression
-        this.app.use(compression({
-            level: 6,
-            threshold: '1mb'
-        }));
-
-        // Add streaming support headers
-        this.app.use((req, res, next) => {
-            res.setHeader('X-Content-Type-Options', 'nosniff');
-            res.setHeader('Cache-Control', 'no-cache');
-            next();
         });
 
         // Request timestamp and logging
