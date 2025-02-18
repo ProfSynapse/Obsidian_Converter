@@ -155,7 +155,8 @@ export async function createBatchZip(items) {
   const initialMemory = process.memoryUsage().heapUsed;
   let currentBatch = [];
   let batchSize = 0;
-  const MAX_BATCH_SIZE = 50 * 1024 * 1024; // 50MB batch size
+  const MAX_BATCH_SIZE = 25 * 1024 * 1024; // 25MB batch size
+const MAX_MEMORY_USAGE = 512 * 1024 * 1024; // 512MB memory threshold
 
   // Process items in batches to manage memory
   for (const item of items) {
@@ -209,12 +210,45 @@ export async function createBatchZip(items) {
   });
 
   // Generate ZIP with streaming support
-  return zip.generateAsync({
+  // Final garbage collection before ZIP generation
+  if (global.gc) {
+    console.log('🧹 Final garbage collection before ZIP generation');
+    global.gc();
+  }
+
+  console.log('📦 Starting ZIP file generation');
+  const startTime = Date.now();
+
+  // Use lower compression level for better memory usage
+  const result = await zip.generateAsync({
     type: 'nodebuffer',
     compression: 'DEFLATE',
-    compressionOptions: { level: 9 },
-    streamFiles: true
+    compressionOptions: { level: 6 }, // Lower compression level for better performance
+    streamFiles: true,
+    comment: `Generated at ${new Date().toISOString()}`,
+  }, (metadata) => {
+    if (metadata.percent % 10 === 0) { // Log every 10%
+      const elapsedTime = Date.now() - startTime;
+      const estimatedTotalTime = (elapsedTime / metadata.percent) * 100;
+      const remainingTime = estimatedTotalTime - elapsedTime;
+      
+      console.log(`📊 ZIP Generation Progress:`, {
+        percent: Math.round(metadata.percent) + '%',
+        currentFile: metadata.currentFile,
+        elapsedTime: Math.round(elapsedTime/1000) + 's',
+        estimatedRemaining: Math.round(remainingTime/1000) + 's',
+        memory: Math.round(process.memoryUsage().heapUsed / 1024 / 1024) + 'MB'
+      });
+    }
   });
+
+  console.log('✅ ZIP generation completed:', {
+    duration: Math.round((Date.now() - startTime)/1000) + 's',
+    finalSize: Math.round(result.length / 1024 / 1024) + 'MB',
+    memory: Math.round(process.memoryUsage().heapUsed / 1024 / 1024) + 'MB'
+  });
+
+  return result;
 }
 
 /**
@@ -250,6 +284,8 @@ function calculateItemSize(item) {
  * @param {Map} categories - Categories map
  */
 async function processBatch(zip, batch, categories) {
+  const batchStartTime = Date.now();
+  const batchStartMemory = process.memoryUsage().heapUsed;
   for (const item of batch) {
     const { content, images = [], name, type = 'unknown' } = item;
     const category = item.category || getCategory(type);
@@ -261,15 +297,40 @@ async function processBatch(zip, batch, categories) {
     const baseName = path.basename(name, path.extname(name));
 
     try {
+      // Check memory usage before processing each item
+      const currentMemory = process.memoryUsage().heapUsed;
+      if (currentMemory > MAX_MEMORY_USAGE) {
+        console.log('⚠️ Memory threshold reached:', Math.round(currentMemory / 1024 / 1024) + 'MB');
+        if (global.gc) {
+          console.log('🧹 Forcing garbage collection');
+          global.gc();
+          
+          // If memory is still high after GC, wait a bit
+          if (process.memoryUsage().heapUsed > MAX_MEMORY_USAGE) {
+            console.log('⏳ Waiting for memory to settle...');
+            await new Promise(resolve => setTimeout(resolve, 1000));
+          }
+        }
+      }
+
       if (category === 'web') {
         await processWebContent(categoryFolder, baseName, content, images, item);
       } else {
         await processRegularContent(categoryFolder, category, baseName, content, images);
       }
     } catch (error) {
-      console.error(`Error processing item ${name}:`, error);
+      console.error(`❌ Error processing item ${name}:`, error);
     }
   }
+
+  const batchEndMemory = process.memoryUsage().heapUsed;
+  const batchDuration = Date.now() - batchStartTime;
+  console.log('📊 Batch processing completed:', {
+    itemCount: batch.length,
+    duration: Math.round(batchDuration/1000) + 's',
+    memoryDelta: Math.round((batchEndMemory - batchStartMemory) / 1024 / 1024) + 'MB',
+    currentMemory: Math.round(batchEndMemory / 1024 / 1024) + 'MB'
+  });
 }
 
 /**

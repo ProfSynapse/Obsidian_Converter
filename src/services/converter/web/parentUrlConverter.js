@@ -106,9 +106,9 @@ class UrlFinder {
     this.childUrls = new Set();
   }
 
-  async findChildUrls(parentUrl) {
+  async *findChildUrlsInChunks(parentUrl, chunkSize = 50) {
     try {
-      console.log(`Finding child pages for: ${parentUrl}`);
+      console.log(`🔍 Finding child pages for: ${parentUrl}`);
       
       const response = await got(parentUrl, {
         retry: {
@@ -135,6 +135,8 @@ class UrlFinder {
       const $ = cheerio.load(response.body);
       const parentUrlObj = new URL(parentUrl);
       
+      let currentChunk = [];
+      
       // Find all <a> tags with href
       $('a[href]').each((_, element) => {
         try {
@@ -158,15 +160,36 @@ class UrlFinder {
           // Only include URLs from same domain and not excluded
           if (urlObj.hostname === parentUrlObj.hostname &&
               !CONFIG.excludePatterns.some(pattern => pattern.test(absoluteUrl))) {
-            this.childUrls.add(absoluteUrl);
+            if (!this.childUrls.has(absoluteUrl)) {
+              this.childUrls.add(absoluteUrl);
+              currentChunk.push(absoluteUrl);
+              
+              // When chunk is full, yield it and start a new one
+              if (currentChunk.length >= chunkSize) {
+                console.log(`📦 Yielding chunk of ${currentChunk.length} URLs`);
+                yield currentChunk;
+                currentChunk = [];
+                
+                // Force garbage collection if available
+                if (global.gc) {
+                  console.log('🧹 Running garbage collection after chunk');
+                  global.gc();
+                }
+              }
+            }
           }
         } catch (error) {
           console.log(`⚠️ Skipping invalid URL: ${error.message}`);
         }
       });
 
-      console.log(`Found ${this.childUrls.size} child pages`);
-      return Array.from(this.childUrls);
+      // Yield any remaining URLs
+      if (currentChunk.length > 0) {
+        console.log(`📦 Yielding final chunk of ${currentChunk.length} URLs`);
+        yield currentChunk;
+      }
+
+      console.log(`✅ Found total of ${this.childUrls.size} child pages`);
     } catch (error) {
       throw new AppError(`Failed to find child pages: ${error.message}`, 500);
     }
@@ -177,51 +200,73 @@ class UrlFinder {
  * URL Processor class to handle conversion of discovered URLs
  */
 class UrlProcessor {
-  async processUrls(urls, options = {}) {
+  async processUrlsInChunks(urls, options = {}) {
     const limit = pLimit(CONFIG.concurrentLimit);
-    console.log(`\nConverting ${urls.size} pages to Markdown...\n`);
+    const results = [];
+    let totalMemoryStart = process.memoryUsage().heapUsed;
 
-    const tasks = Array.from(urls).map(url =>
-      limit(async () => {
-        try {
-          // Create clean options object for URL conversion
-          const conversionOptions = {
-            ...options,
-            includeImages: true,
-            includeMeta: true,
-            got: {
-              retry: CONFIG.http.retry,
-              timeout: CONFIG.http.timeout,
-              headers: CONFIG.http.headers,
-              decompress: CONFIG.http.decompress,
-              followRedirect: true,
-              throwHttpErrors: false,
-              responseType: 'text'
-            },
-            spa: CONFIG.http.spa
-          };
+    console.log(`🔄 Starting conversion with memory usage: ${Math.round(totalMemoryStart / 1024 / 1024)}MB`);
 
-          const result = await convertUrlToMarkdown(url, conversionOptions);
+    for (const url of urls) {
+      try {
+        // Create clean options object for URL conversion
+        const conversionOptions = {
+          ...options,
+          includeImages: true,
+          includeMeta: true,
+          got: {
+            retry: CONFIG.http.retry,
+            timeout: CONFIG.http.timeout,
+            headers: CONFIG.http.headers,
+            decompress: CONFIG.http.decompress,
+            followRedirect: true,
+            throwHttpErrors: false,
+            responseType: 'text'
+          },
+          spa: CONFIG.http.spa
+        };
 
+        const result = await limit(async () => {
+          const convertResult = await convertUrlToMarkdown(url, conversionOptions);
           const urlPath = new URL(url).pathname || '/';
           const name = this.sanitizeFilename(urlPath);
-          console.log(`✓ Converted: ${url} -> ${name}`);
+          console.log(`✅ Converted: ${url} -> ${name}`);
+          
           return {
             success: true,
             name: `${name}.md`,
-            content: result.content,
-            images: result.images || [],
+            content: convertResult.content,
+            images: convertResult.images || [],
             url,
-            metadata: result.metadata
+            metadata: convertResult.metadata
           };
-        } catch (error) {
-          console.log(`❌ Failed to convert: ${url}`);
-          return { success: false, url, error: error.message };
-        }
-      })
-    );
+        });
 
-    return await Promise.all(tasks);
+        results.push(result);
+
+        // Check memory usage and run GC if needed
+        const currentMemory = process.memoryUsage().heapUsed;
+        const memoryUsageMB = Math.round(currentMemory / 1024 / 1024);
+        console.log(`📊 Current memory usage: ${memoryUsageMB}MB`);
+
+        if (global.gc && memoryUsageMB > 512) { // Trigger GC if memory exceeds 512MB
+          console.log('🧹 Running garbage collection...');
+          global.gc();
+          const afterGC = Math.round(process.memoryUsage().heapUsed / 1024 / 1024);
+          console.log(`📊 Memory after GC: ${afterGC}MB`);
+        }
+
+      } catch (error) {
+        console.log(`❌ Failed to convert: ${url}`);
+        results.push({ success: false, url, error: error.message });
+      }
+    }
+
+    const totalMemoryEnd = process.memoryUsage().heapUsed;
+    const memoryDiffMB = Math.round((totalMemoryEnd - totalMemoryStart) / 1024 / 1024);
+    console.log(`📊 Total memory change: ${memoryDiffMB}MB`);
+
+    return results;
   }
 
   sanitizeFilename(input) {
@@ -393,25 +438,67 @@ export async function convertParentUrlToMarkdown(parentUrl) {
     }
     
     const hostname = urlObj.hostname;
-    console.log(`Starting conversion of ${parentUrl}`);
+    console.log(`🚀 Starting conversion of ${parentUrl}`);
 
-    // Get all child pages
-    const childUrls = await finder.findChildUrls(parentUrl);
-    if (childUrls.length === 0) {
-      console.log('No child pages found, converting parent URL only');
+    // Initialize the result structure
+    const result = {
+      url: parentUrl,
+      type: 'parenturl',
+      name: hostname,
+      files: [],
+      stats: {
+        totalPages: 0,
+        successfulPages: 0,
+        failedPages: 0,
+        totalImages: 0
+      }
+    };
+
+    // Process parent URL first
+    console.log(`📄 Processing parent URL`);
+    const parentPageResult = await processor.processUrlsInChunks([parentUrl]);
+    if (parentPageResult[0].success) {
+      result.files.push({
+        name: `web/${hostname}/pages/${parentPageResult[0].name}`,
+        content: parentPageResult[0].content,
+        type: 'text'
+      });
     }
 
-    // Include parent URL in pages to convert
-    const allUrls = new Set([parentUrl, ...childUrls]);
-    console.log(`Processing ${allUrls.size} total pages`);
+    // Process child URLs in chunks
+    let processedPages = [parentPageResult[0]];
+    for await (const urlChunk of finder.findChildUrlsInChunks(parentUrl)) {
+      console.log(`🔄 Processing chunk of ${urlChunk.length} URLs`);
+      
+      const chunkResults = await processor.processUrlsInChunks(urlChunk);
+      
+      // Update stats
+      result.stats.totalPages += chunkResults.length;
+      result.stats.successfulPages += chunkResults.filter(p => p.success).length;
+      result.stats.failedPages += chunkResults.filter(p => !p.success).length;
+      
+      // Add successful conversions to files
+      const chunkFiles = chunkResults
+        .filter(p => p.success)
+        .map(({ name, content }) => ({
+          name: `web/${hostname}/pages/${name}`,
+          content,
+          type: 'text'
+        }));
+      
+      result.files.push(...chunkFiles);
+      processedPages.push(...chunkResults);
+      
+      // Force garbage collection after each chunk if available
+      if (global.gc) {
+        console.log('🧹 Running garbage collection after chunk processing');
+        global.gc();
+      }
+    }
 
-    // Convert all pages to markdown
-    const processedPages = await processor.processUrls(allUrls);
-
-    // Collect image references
+    // Collect image references and generate index
+    console.log(`📊 Collecting image references and generating index`);
     const imageRefs = processor.collectImageReferences(processedPages);
-
-    // Generate index with image references
     const index = processor.generateIndex(parentUrl, processedPages, { images: imageRefs });
 
     // Create files array with markdown content

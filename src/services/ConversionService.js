@@ -310,15 +310,28 @@ const shouldCreateZip =
   }
 
   async convertBatch(items) {
+    const startTime = Date.now();
+    const initialMemory = process.memoryUsage();
+    const CHUNK_SIZE = 10; // Process 10 items at a time
+
     if (!Array.isArray(items) || items.length === 0) {
       throw new Error('No items provided for batch conversion');
     }
 
     try {
-      console.log('Starting batch conversion of', items.length, 'items');
-      
-      const results = await Promise.all(
-        items.map(async (item) => {
+      console.log('🎯 Starting batch conversion:', {
+        totalItems: items.length,
+        initialMemory: Math.round(initialMemory.heapUsed / 1024 / 1024) + 'MB'
+      });
+
+      // Process items in chunks to manage memory
+      const results = [];
+      for (let i = 0; i < items.length; i += CHUNK_SIZE) {
+        const chunk = items.slice(i, i + CHUNK_SIZE);
+        console.log(`📦 Processing chunk ${Math.floor(i/CHUNK_SIZE) + 1}/${Math.ceil(items.length/CHUNK_SIZE)}`);
+
+        const chunkResults = await Promise.all(
+          chunk.map(async (item) => {
           try {
             if (!item) return null;
             
@@ -355,15 +368,46 @@ const shouldCreateZip =
         })
       );
 
+      // Run GC between chunks if memory usage is high
+      if (global.gc && process.memoryUsage().heapUsed > 512 * 1024 * 1024) {
+        console.log('🧹 Running garbage collection between chunks');
+        global.gc();
+      }
+
+      results.push(...chunkResults);
+    }
+
       // Filter out null results
       const validResults = results.filter(Boolean);
+
+      console.log('📊 Batch processing completed:', {
+        totalItems: items.length,
+        successfulItems: validResults.filter(r => r.success).length,
+        failedItems: validResults.filter(r => !r.success).length,
+        duration: Math.round((Date.now() - startTime)/1000) + 's',
+        memoryUsed: Math.round((process.memoryUsage().heapUsed - initialMemory.heapUsed) / 1024 / 1024) + 'MB'
+      });
       
       // Create zip with all results
+      console.log('📦 Creating batch ZIP archive');
       const zipBuffer = await createBatchZip(validResults);
       
+      const endMemory = process.memoryUsage();
+      console.log('✅ Batch conversion completed:', {
+        duration: Math.round((Date.now() - startTime)/1000) + 's',
+        memoryUsed: Math.round((endMemory.heapUsed - initialMemory.heapUsed) / 1024 / 1024) + 'MB',
+        finalMemory: Math.round(endMemory.heapUsed / 1024 / 1024) + 'MB'
+      });
+
       return {
         buffer: zipBuffer,
-        filename: this.generateFilename()
+        filename: this.generateFilename(),
+        stats: {
+          totalItems: items.length,
+          successfulItems: validResults.filter(r => r.success).length,
+          failedItems: validResults.filter(r => !r.success).length,
+          duration: Date.now() - startTime
+        }
       };
     } catch (error) {
       console.error('Batch conversion failed:', error);
@@ -372,93 +416,280 @@ const shouldCreateZip =
   }
 
   async processItem(item) {
-    const { type, content, name, options = {} } = item;
+    const startTime = Date.now();
+    const initialMemory = process.memoryUsage();
     
-    const fileType = path.extname(name).slice(1).toLowerCase();
-    const category = determineCategory(type, fileType);
-    const converterType = this.getConverterType(type, fileType);
+    try {
+      const { type, content, name, options = {} } = item;
+      const fileType = path.extname(name).slice(1).toLowerCase();
+      const category = determineCategory(type, fileType);
+      const converterType = this.getConverterType(type, fileType);
 
-    // Add specific handling for data files (CSV, XLSX)
-    if (fileType === 'csv' || fileType === 'xlsx') {
-      console.log('Processing data file:', { name, category, type: fileType });
-      return this.handleDataFileConversion(fileType, content, name, options);
-    }
+      console.log('🔄 Processing item:', {
+        name,
+        type,
+        category,
+        size: content?.length,
+        initialMemory: Math.round(initialMemory.heapUsed / 1024 / 1024) + 'MB'
+      });
 
-    switch (type) {
-      case 'parenturl':
-        return this.handleParentUrlConversion(content, name);
-      case 'url':
-        return this.handleUrlConversion(content, name);
-      default:
-        return this.handleFileConversion(converterType, content, name, options);
+      // Run garbage collection if available and memory usage is high
+      if (global.gc && initialMemory.heapUsed > 512 * 1024 * 1024) {
+        console.log('🧹 Running garbage collection');
+        global.gc();
+      }
+
+      // Add memory management options
+      const processOptions = {
+        ...options,
+        streamProcessing: true,
+        memoryLimit: 512 * 1024 * 1024,
+        chunkSize: content?.length > 50 * 1024 * 1024 ? 25 * 1024 * 1024 : undefined
+      };
+
+      // Add specific handling for data files (CSV, XLSX)
+      if (fileType === 'csv' || fileType === 'xlsx') {
+        console.log('📊 Processing data file:', { name, category, type: fileType });
+        return this.handleDataFileConversion(fileType, content, name, processOptions);
+      }
+
+      let result;
+      switch (type) {
+        case 'parenturl':
+          result = await this.handleParentUrlConversion(content, name);
+          break;
+        case 'url':
+          result = await this.handleUrlConversion(content, name);
+          break;
+        default:
+          result = await this.handleFileConversion(converterType, content, name, processOptions);
+      }
+
+      const endMemory = process.memoryUsage();
+      console.log('✅ Item processed:', {
+        name,
+        type,
+        duration: Math.round((Date.now() - startTime)/1000) + 's',
+        memoryUsed: Math.round((endMemory.heapUsed - initialMemory.heapUsed) / 1024 / 1024) + 'MB'
+      });
+
+      return result;
+    } catch (error) {
+      console.error('❌ Item processing failed:', {
+        name: item?.name,
+        type: item?.type,
+        error: error.message,
+        duration: Math.round((Date.now() - startTime)/1000) + 's',
+        memoryUsed: Math.round((process.memoryUsage().heapUsed - initialMemory.heapUsed) / 1024 / 1024) + 'MB'
+      });
+      throw error;
     }
   }
 
-  async handleParentUrlConversion(url, name) {
-    const result = await textConverterFactory.convertToMarkdown('parenturl', url, name);
-    return {
-      ...result,
-      type: 'parenturl',
-      category: 'web',
-      name
-    };
+  async handleParentUrlConversion(url, name, options = {}) {
+    const startTime = Date.now();
+    const initialMemory = process.memoryUsage();
+
+    try {
+      console.log('🌐 Processing parent URL:', {
+        url,
+        name,
+        initialMemory: Math.round(initialMemory.heapUsed / 1024 / 1024) + 'MB'
+      });
+
+      // Run garbage collection if available and memory usage is high
+      if (global.gc && initialMemory.heapUsed > 512 * 1024 * 1024) {
+        console.log('🧹 Running garbage collection');
+        global.gc();
+      }
+
+      const result = await textConverterFactory.convertToMarkdown('parenturl', url, {
+        name,
+        ...options,
+        streamProcessing: true,
+        memoryLimit: 512 * 1024 * 1024,
+        chunkSize: 50 // Process URLs in chunks of 50
+      });
+
+      const endMemory = process.memoryUsage();
+      console.log('✅ Parent URL processed:', {
+        url,
+        duration: Math.round((Date.now() - startTime)/1000) + 's',
+        memoryUsed: Math.round((endMemory.heapUsed - initialMemory.heapUsed) / 1024 / 1024) + 'MB'
+      });
+
+      return {
+        ...result,
+        type: 'parenturl',
+        category: 'web',
+        name,
+        success: true
+      };
+    } catch (error) {
+      console.error('❌ Parent URL processing failed:', {
+        url,
+        error: error.message,
+        duration: Math.round((Date.now() - startTime)/1000) + 's',
+        memoryUsed: Math.round((process.memoryUsage().heapUsed - initialMemory.heapUsed) / 1024 / 1024) + 'MB'
+      });
+      throw error;
+    }
   }
 
-  async handleUrlConversion(url, name) {
-    const result = await textConverterFactory.convertToMarkdown('url', url, name);
-    return {
-      ...result,
-      type: 'url',
-      category: 'web',
-      name
-    };
+  async handleUrlConversion(url, name, options = {}) {
+    const startTime = Date.now();
+    const initialMemory = process.memoryUsage();
+
+    try {
+      console.log('🌐 Processing URL:', {
+        url,
+        name,
+        initialMemory: Math.round(initialMemory.heapUsed / 1024 / 1024) + 'MB'
+      });
+
+      // Run garbage collection if available and memory usage is high
+      if (global.gc && initialMemory.heapUsed > 512 * 1024 * 1024) {
+        console.log('🧹 Running garbage collection');
+        global.gc();
+      }
+
+      const result = await textConverterFactory.convertToMarkdown('url', url, {
+        name,
+        ...options,
+        streamProcessing: true,
+        memoryLimit: 512 * 1024 * 1024
+      });
+
+      const endMemory = process.memoryUsage();
+      console.log('✅ URL processed:', {
+        url,
+        duration: Math.round((Date.now() - startTime)/1000) + 's',
+        memoryUsed: Math.round((endMemory.heapUsed - initialMemory.heapUsed) / 1024 / 1024) + 'MB'
+      });
+
+      return {
+        ...result,
+        type: 'url',
+        category: 'web',
+        name,
+        success: true
+      };
+    } catch (error) {
+      console.error('❌ URL processing failed:', {
+        url,
+        error: error.message,
+        duration: Math.round((Date.now() - startTime)/1000) + 's',
+        memoryUsed: Math.round((process.memoryUsage().heapUsed - initialMemory.heapUsed) / 1024 / 1024) + 'MB'
+      });
+      throw error;
+    }
   }
 
   async handleFileConversion(type, content, name, options) {
+    const startTime = Date.now();
+    const initialMemory = process.memoryUsage();
+
     try {
-        if (!content) {
-            throw new Error(`No content provided for file conversion: ${name}`);
-        }
+      if (!content) {
+        throw new Error(`No content provided for file conversion: ${name}`);
+      }
 
-        const result = await this.converter.convertToMarkdown(type, content, {
-            name,
-            ...options
-        });
+      console.log('📄 Processing file:', {
+        name,
+        type,
+        size: content?.length,
+        initialMemory: Math.round(initialMemory.heapUsed / 1024 / 1024) + 'MB'
+      });
 
-        const category = determineCategory(type, path.extname(name).slice(1));
-        
-        return {
-            ...result,
-            success: true,
-            type,
-            category,
-            name,
-            options,
-            contentLength: result.content?.length || 0,
-            imageCount: result.images?.length || 0
-        };
+      // Run garbage collection if available and memory usage is high
+      if (global.gc && initialMemory.heapUsed > 512 * 1024 * 1024) {
+        console.log('🧹 Running garbage collection');
+        global.gc();
+      }
+
+      const result = await this.converter.convertToMarkdown(type, content, {
+        name,
+        ...options,
+        streamProcessing: true,
+        memoryLimit: 512 * 1024 * 1024,
+        chunkSize: content?.length > 50 * 1024 * 1024 ? 25 * 1024 * 1024 : undefined
+      });
+
+      const category = determineCategory(type, path.extname(name).slice(1));
+      
+      const endMemory = process.memoryUsage();
+      console.log('✅ File processed:', {
+        name,
+        type,
+        duration: Math.round((Date.now() - startTime)/1000) + 's',
+        memoryUsed: Math.round((endMemory.heapUsed - initialMemory.heapUsed) / 1024 / 1024) + 'MB'
+      });
+
+      return {
+        ...result,
+        success: true,
+        type,
+        category,
+        name,
+        options,
+        contentLength: result.content?.length || 0,
+        imageCount: result.images?.length || 0
+      };
     } catch (error) {
-        console.error('File conversion error:', error);
-        return {
-            success: false,
-            error: error.message,
-            type,
-            name,
-            content: `# Conversion Error\n\nFailed to convert ${name}\nError: ${error.message}`
-        };
+      console.error('❌ File conversion failed:', {
+        name,
+        type,
+        error: error.message,
+        duration: Math.round((Date.now() - startTime)/1000) + 's',
+        memoryUsed: Math.round((process.memoryUsage().heapUsed - initialMemory.heapUsed) / 1024 / 1024) + 'MB'
+      });
+      return {
+        success: false,
+        error: error.message,
+        type,
+        name,
+        content: `# Conversion Error\n\nFailed to convert ${name}\nError: ${error.message}`
+      };
     }
   }
 
   async handleDataFileConversion(type, content, name, options) {
+    const startTime = Date.now();
+    const initialMemory = process.memoryUsage();
+
     try {
+      console.log('📊 Processing data file:', {
+        name,
+        type,
+        size: content?.length,
+        initialMemory: Math.round(initialMemory.heapUsed / 1024 / 1024) + 'MB'
+      });
+
+      // Run garbage collection if available and memory usage is high
+      if (global.gc && initialMemory.heapUsed > 512 * 1024 * 1024) {
+        console.log('🧹 Running garbage collection');
+        global.gc();
+      }
+
       const result = await this.converter.convertToMarkdown(
         type,
         content,
         {
           name,
-          ...options
+          ...options,
+          streamProcessing: true,
+          memoryLimit: 512 * 1024 * 1024,
+          chunkSize: content?.length > 50 * 1024 * 1024 ? 25 * 1024 * 1024 : undefined
         }
       );
+
+      const endMemory = process.memoryUsage();
+      console.log('✅ Data file processed:', {
+        name,
+        type,
+        duration: Math.round((Date.now() - startTime)/1000) + 's',
+        memoryUsed: Math.round((endMemory.heapUsed - initialMemory.heapUsed) / 1024 / 1024) + 'MB'
+      });
 
       return {
         ...result,
@@ -469,7 +700,13 @@ const shouldCreateZip =
         options
       };
     } catch (error) {
-      console.error('Data file conversion error:', error);
+      console.error('❌ Data file conversion failed:', {
+        name,
+        type,
+        error: error.message,
+        duration: Math.round((Date.now() - startTime)/1000) + 's',
+        memoryUsed: Math.round((process.memoryUsage().heapUsed - initialMemory.heapUsed) / 1024 / 1024) + 'MB'
+      });
       return {
         success: false,
         error: error.message,
