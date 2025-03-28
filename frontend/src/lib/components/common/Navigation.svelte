@@ -2,6 +2,7 @@
 <script>
   import { page } from '$app/stores';
   import { onMount } from 'svelte';
+  import Logo from './Logo.svelte';
   
   // Check if we're running in Electron
   let isElectron = false;
@@ -14,7 +15,9 @@
 
 <nav class="navigation">
   <div class="nav-brand">
-    <a href="/" class="brand-link">mdCode</a>
+    <a href="/" class="brand-link">
+      <Logo size="medium" />
+    </a>
   </div>
   
   <div class="nav-links">
@@ -23,7 +26,15 @@
       class="nav-link" 
       class:active={$page.url.pathname === '/'}
     >
-      Home
+      Convert
+    </a>
+    
+    <a 
+      href="/help" 
+      class="nav-link" 
+      class:active={$page.url.pathname === '/help'}
+    >
+      Help
     </a>
     
     {#if isElectron}
@@ -50,13 +61,19 @@
   }
   
   .nav-brand {
-    font-weight: 700;
-    font-size: 1.5rem;
+    display: flex;
+    align-items: center;
   }
   
   .brand-link {
-    color: var(--color-prime);
     text-decoration: none;
+    display: flex;
+    align-items: center;
+    transition: transform 0.2s ease;
+  }
+  
+  .brand-link:hover {
+    transform: scale(1.05);
   }
   
   .nav-links {

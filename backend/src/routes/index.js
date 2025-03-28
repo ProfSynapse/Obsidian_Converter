@@ -5,7 +5,6 @@ import { ConversionController } from './controllers/ConversionController.js';
 import { validateConversion } from './middleware/validators.js';
 import { uploadMiddleware } from './middleware/upload.js';
 import { apiKeyChecker } from './middleware/utils/apiKeyChecker.js';
-import paymentRoutes from './paymentRoutes.js';
 import path from 'path';
 import fs from 'fs';
 const router = express.Router();
@@ -87,15 +86,6 @@ router.post('/batch',
     controller.handleBatchConversion
 );
 
-// Payment endpoints
-router.use('/payment', (req, res, next) => {
-    console.log('💰 Payment request:', {
-        method: req.method,
-        path: req.path,
-        amount: req.body?.amount
-    });
-    next();
-}, paymentRoutes);
 
 // Job status endpoint
 router.get('/job/:jobId/status', (req, res, next) => {

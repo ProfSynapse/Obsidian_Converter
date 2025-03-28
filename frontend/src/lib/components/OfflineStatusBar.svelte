@@ -99,7 +99,15 @@
 </script>
 
 <div class="offline-status-bar" class:expanded>
-  <div class="status-indicator" on:click={toggleExpanded}>
+  <button 
+    class="status-indicator" 
+    on:click={toggleExpanded}
+    on:keydown={(e) => e.key === 'Enter' && toggleExpanded()}
+    aria-expanded={expanded}
+    aria-controls="offline-expanded-content"
+    role="button"
+    tabindex="0"
+  >
     <div class="status-icon" class:online={$offlineStore.online}>
       {#if $offlineStore.online}
         <span class="icon">🟢</span>
@@ -113,10 +121,10 @@
     <div class="expand-icon">
       {expanded ? '▲' : '▼'}
     </div>
-  </div>
+  </button>
   
   {#if expanded}
-    <div class="expanded-content" transition:slide={{ duration: 300 }}>
+    <div id="offline-expanded-content" class="expanded-content" transition:slide={{ duration: 300 }}>
       <div class="api-status">
         <h4>API Status</h4>
         <ul>
@@ -167,30 +175,50 @@
     bottom: 0;
     left: 0;
     right: 0;
-    background-color: #f5f5f5;
-    border-top: 1px solid #ddd;
+    background: var(--color-surface);
+    border-top: 1px solid var(--color-border);
+    box-shadow: 0 -2px 10px rgba(0, 0, 0, 0.05);
     z-index: 1000;
-    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, 'Open Sans', 'Helvetica Neue', sans-serif;
+    font-family: var(--font-family);
+    transition: all 0.3s ease;
   }
   
   .status-indicator {
     display: flex;
     align-items: center;
-    padding: 8px 16px;
+    width: 100%;
+    padding: 10px 20px;
     cursor: pointer;
     user-select: none;
+    background: none;
+    border: none;
+    text-align: left;
+    transition: background-color 0.2s ease;
+  }
+  
+  .status-indicator:hover {
+    background-color: var(--color-background);
+  }
+  
+  .status-indicator:focus {
+    outline: 2px solid var(--color-prime);
+    outline-offset: -2px;
   }
   
   .status-icon {
-    width: 12px;
-    height: 12px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 16px;
+    height: 16px;
     border-radius: 50%;
-    margin-right: 8px;
-    background-color: #ff3e3e;
+    margin-right: 10px;
+    background-color: var(--color-error);
+    transition: all 0.3s ease;
   }
   
   .status-icon.online {
-    background-color: #4caf50;
+    background-color: var(--color-success, #4caf50);
   }
   
   .icon {
@@ -200,18 +228,24 @@
   .status-text {
     flex-grow: 1;
     font-size: 14px;
-    font-weight: 500;
+    font-weight: 600;
+    color: var(--color-text);
   }
   
   .expand-icon {
     font-size: 12px;
-    color: #666;
+    color: var(--color-text-light);
+    transition: transform 0.3s ease;
+  }
+  
+  .expanded .expand-icon {
+    transform: rotate(180deg);
   }
   
   .expanded-content {
-    padding: 16px;
-    border-top: 1px solid #ddd;
-    background-color: #fff;
+    padding: 16px 20px;
+    border-top: 1px solid var(--color-border);
+    background-color: var(--color-surface);
   }
   
   .api-status h4, .queued-operations h4 {
@@ -249,21 +283,30 @@
   
   .offline-controls {
     display: flex;
-    gap: 8px;
+    gap: 12px;
     margin: 16px 0;
   }
   
   .control-button {
-    padding: 6px 12px;
-    background-color: #f0f0f0;
-    border: 1px solid #ddd;
-    border-radius: 4px;
-    font-size: 13px;
+    padding: 8px 16px;
+    background-color: var(--color-background);
+    color: var(--color-text);
+    border: 1px solid var(--color-border);
+    border-radius: var(--rounded-md);
+    font-size: 14px;
+    font-weight: 500;
     cursor: pointer;
+    transition: all 0.2s ease;
   }
   
   .control-button:hover {
-    background-color: #e0e0e0;
+    background-color: var(--color-background-hover);
+    border-color: var(--color-prime);
+  }
+  
+  .control-button:focus {
+    outline: 2px solid var(--color-prime);
+    outline-offset: 2px;
   }
   
   .queued-operations {

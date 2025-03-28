@@ -1,8 +1,6 @@
 <script>
   import FileUploader from './FileUploader.svelte';
-  import Instructions from './Instructions.svelte';
   import ProfessorSynapseAd from './ProfessorSynapseAd.svelte';
-  import PaymentInput from './common/PaymentInput.svelte';
   import Button from './common/Button.svelte';
 import { files } from '$lib/stores/files.js';
 import { startConversion, triggerDownload } from '$lib/utils/conversionManager.js';
@@ -16,18 +14,13 @@ function scrollToTop() {
   window.scrollTo({ top: 0, behavior: 'smooth' });
 }
 
-let mode = 'upload'; // 'upload', 'payment', 'converting', or 'converted'
+let mode = 'upload'; // 'upload', 'converting', or 'converted'
 
 function handleStartConversion() {
-  mode = 'payment';
+  mode = 'converting';
   scrollToTop();
   // Clear any previous conversion result
   conversionResult.clearResult();
-}
-
-function handlePaymentComplete() {
-  mode = 'converting';
-  scrollToTop();
   showAd();
   startConversion().then(() => {
     if ($conversionStatus.status === 'completed') {
@@ -46,7 +39,11 @@ function handlePaymentComplete() {
 <div class="app-container">
   <div class="converter-app">
     {#if mode === 'upload'}
-      <Instructions />
+      <div class="welcome-message">
+        <h1>Convert to Markdown for Obsidian</h1>
+        <p>Upload files or enter a URL to convert your content to Markdown format optimized for Obsidian.</p>
+        <p class="help-link">Need help? Check out our <a href="/help">detailed instructions</a>.</p>
+      </div>
       <FileUploader />
       {#if $files.length > 0}
         <div class="button-container">
@@ -60,12 +57,6 @@ function handlePaymentComplete() {
           </Button>
         </div>
       {/if}
-    {:else if mode === 'payment'}
-      <PaymentInput 
-        showPayment={true}
-        on:payment={handlePaymentComplete}
-        on:skip={handlePaymentComplete}
-      />
     {:else if mode === 'converting'}
       <ResultDisplay />
     {:else if mode === 'converted'}
@@ -94,6 +85,45 @@ function handlePaymentComplete() {
     display: flex;
     justify-content: center;
     padding: var(--spacing-sm);
+  }
+  
+  .welcome-message {
+    text-align: center;
+    margin-bottom: var(--spacing-md);
+    padding: var(--spacing-md);
+    background: rgba(var(--color-prime-rgb), 0.05);
+    border-radius: var(--rounded-md);
+  }
+  
+  .welcome-message h1 {
+    font-size: var(--font-size-xl);
+    font-weight: 700;
+    margin-bottom: var(--spacing-sm);
+    color: var(--color-text);
+  }
+  
+  .welcome-message p {
+    font-size: var(--font-size-base);
+    line-height: 1.6;
+    color: var(--color-text);
+    margin-bottom: var(--spacing-xs);
+  }
+  
+  .welcome-message .help-link {
+    font-size: var(--font-size-sm);
+    margin-top: var(--spacing-sm);
+  }
+  
+  .welcome-message a {
+    color: var(--color-prime);
+    text-decoration: none;
+    border-bottom: 1px solid var(--color-prime);
+    transition: all 0.2s ease;
+  }
+  
+  .welcome-message a:hover {
+    color: var(--color-second);
+    border-color: var(--color-second);
   }
 
   .converter-app {

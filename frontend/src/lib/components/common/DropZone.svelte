@@ -104,8 +104,8 @@
           <span class="icon">📂</span>
         </div>
         <div class="text-content">
-          <p class="primary-text">Drag and drop files here</p>
-          <p class="secondary-text">or click to select files</p>
+          <p class="primary-text">Drag and drop files or folders here</p>
+          <p class="secondary-text">or click to browse your computer</p>
           <p class="file-types">
             Supported formats: {displayTypes}
             <br>

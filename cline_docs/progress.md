@@ -184,17 +184,17 @@
    - Asset Creation
      - Create proper tray icon (currently using placeholder)
      - Create notification icons for different notification types
-     - Add a header and logo
+     - [✓] Add a header and logo
 
    - UI Improvements
-     - Fix and make better styled online indicator status bar
-     - Fix clickability issues (nothing is currently clickable)
-     - Put instruction on own page in help
+     - [✓] Fix and make better styled online indicator status bar
+     - [✓] Fix clickability issues (nothing is currently clickable)
+     - [✓] Put instruction on own page in help
 
    - Backend Refactoring
-     - Remove strip functionality
-     - Remove socket connection
-     - Figure out API key input implementation
+     - [✓] Remove strip functionality
+     - [✓] Remove socket connection
+     - [✓] Figure out API key input implementation
 
 2. **Medium Priority Tasks**
    - File Associations

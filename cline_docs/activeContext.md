@@ -4,6 +4,16 @@
 Transitioning to Phase 4: Desktop Features - Implementing system tray integration, native notifications, file associations, and auto-updates while enhancing frontend components for native file operations and completing the IPC implementation for all conversion types.
 
 ## Recent Changes
+- Implemented UI Improvements and Backend Refactoring:
+  - Added a header and logo with a new Logo component
+  - Fixed and improved the styling of the offline indicator status bar
+  - Fixed clickability issues by adding proper ARIA roles and keyboard event handlers
+  - Put instructions on their own page in the help section
+  - Removed payment/stripe functionality
+  - Removed socket connection
+  - Enhanced API key input implementation
+  - Created a dedicated help page with comprehensive instructions
+
 - Implemented Folder Selection Enhancement:
   - Enhanced FileSystemService with detailed directory listing
   - Added IPC handlers for folder operations
@@ -249,9 +259,10 @@ Transitioning to Phase 4: Desktop Features - Implementing system tray integratio
    - Add proper error handling for edge cases in tray and notification managers
    - Test system tray and notifications on all supported platforms (Windows, macOS, Linux)
    - Ensure proper cleanup of resources when application exits
-   - Remove strip functionality
-   - Remove socket connection
-   - Figure out API key input
-   - Put instruction on own page in help
-   - Fix and make better styled online indicator status bar
-   - Fix clickability issues (nothing is currently clickable)
+   - ✓ Remove strip functionality
+   - ✓ Remove socket connection
+   - ✓ Figure out API key input
+   - ✓ Put instruction on own page in help
+   - ✓ Fix and make better styled online indicator status bar
+   - ✓ Fix clickability issues (nothing is currently clickable)
+   - ✓ Add a header and logo

@@ -1,5 +1,5 @@
 {
-  "name": "mdcode",
+  "name": "mdcodex",
   "version": "1.0.0",
   "description": "Desktop application for converting various file types to Markdown for Obsidian",
   "main": "src/electron/main.js",
@@ -17,8 +17,8 @@
     "lint": "eslint src/electron"
   },
   "build": {
-    "appId": "com.mdcode.app",
-    "productName": "mdCode",
+    "appId": "com.mdcodex.app",
+    "productName": "mdCodex",
     "directories": {
       "output": "dist"
     },
@@ -55,7 +55,7 @@
         {
           "name": "@electron-forge/maker-squirrel",
           "config": {
-            "name": "mdcode"
+            "name": "mdcodex"
           }
         },
         {

@@ -1,25 +1,17 @@
 <!-- src/routes/+layout.svelte -->
 <script>
-  import { onMount, onDestroy } from 'svelte';
-  import socketService from '$lib/services/socket.js';
+  import { onMount } from 'svelte';
   import Navigation from '$lib/components/common/Navigation.svelte';
   import OfflineStatusBar from '$lib/components/OfflineStatusBar.svelte';
   import '$lib/styles/global.css';
-  
-  // Initialize socket connection when app starts
-  socketService.connect();
 
   onMount(() => {
     document.documentElement.style.scrollBehavior = 'smooth';
   });
-
-  // Clean up socket connection when app unmounts
-  onDestroy(() => {
-    socketService.disconnect();
-  });
 </script>
 
 <svelte:head>
+  <title>mdCodex - Markdown Converter for Obsidian</title>
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
   <meta name="theme-color" content="#00a99d">
   <link 

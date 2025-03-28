@@ -85,7 +85,7 @@ function registerConversionHandlers() {
   });
 
   // Convert multiple files
-  ipcMain.handle('mdcode:convert-batch', async (event, request) => {
+  ipcMain.handle(IPCChannels.CONVERT_BATCH, async (event, request) => {
     if (!request?.paths || !Array.isArray(request.paths)) {
       return { 
         success: false, 
@@ -150,7 +150,7 @@ function registerConversionHandlers() {
   });
 
   // Select files for conversion
-  ipcMain.handle('mdcode:select-files', async () => {
+  ipcMain.handle(IPCChannels.SELECT_FILES, async () => {
     const result = await dialog.showOpenDialog({
       properties: ['openFile', 'multiSelections'],
       filters: [
@@ -172,7 +172,7 @@ function registerConversionHandlers() {
   });
 
   // Select output directory
-  ipcMain.handle('mdcode:select-output', async () => {
+  ipcMain.handle(IPCChannels.SELECT_OUTPUT, async () => {
     const result = await dialog.showOpenDialog({
       properties: ['openDirectory', 'createDirectory'],
       title: 'Select Output Directory',
@@ -367,7 +367,7 @@ function registerConversionHandlers() {
   });
 
   // Get conversion result
-  ipcMain.handle('mdcode:get-result', async (event, request) => {
+  ipcMain.handle(IPCChannels.GET_RESULT, async (event, request) => {
     if (!request?.path) {
       return { 
         success: false, 

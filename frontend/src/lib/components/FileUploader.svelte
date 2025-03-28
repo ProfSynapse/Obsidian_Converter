@@ -2,7 +2,6 @@
   import { createEventDispatcher } from 'svelte';
   import { files } from '$lib/stores/files.js';
   import { uploadStore } from '$lib/stores/uploadStore.js';
-  import { paymentStore } from '$lib/stores/payment.js';
   import { fade } from 'svelte/transition';
   import { apiKey } from '$lib/stores/apiKey.js';
   import { requiresApiKey, validateFileSize } from '$lib/utils/fileUtils.js';
@@ -13,7 +12,6 @@
   import DropZone from './common/DropZone.svelte';
   import ErrorMessage from './common/ErrorMessage.svelte';
   import FileList from './file/FileList.svelte';
-  import PaymentInput from './common/PaymentInput.svelte';
   import ApiKeyInput from './ApiKeyInput.svelte';
   import NativeFileSelector from './file/NativeFileSelector.svelte';
   import FolderSelector from './file/FolderSelector.svelte';
@@ -37,7 +35,6 @@
 
   $: showFileList = $files.length > 0;
   $: needsApiKey = $files.some(file => requiresApiKey(file));
-  $: showPaymentPrompt = $paymentStore.showPaymentPrompt;
 
   function showFeedback(message, type = 'info') {
     if (type !== 'success') {
@@ -46,20 +43,6 @@
     }
   }
 
-  function handlePayment(event) {
-    const { amount } = event.detail;
-    paymentStore.setAmount(amount);
-    paymentStore.setStatus('completed');
-    paymentStore.hidePrompt();
-    showFeedback(`✨ Thank you for your magical contribution of $${amount}!`, 'success');
-    dispatch('startConversion');
-  }
-
-  function handlePaymentSkip() {
-    paymentStore.setStatus('skipped');
-    paymentStore.hidePrompt();
-    dispatch('startConversion');
-  }
 
   function validateFile(file) {
     // Handle file path (string) from Electron or File object from web
@@ -258,7 +241,7 @@
         apiKeySection?.scrollIntoView({ behavior: 'smooth', block: 'center' });
       }, 300);
     } else if (uploadedFiles.length > 0) {
-      paymentStore.showPrompt();
+      dispatch('startConversion');
     }
   }
 </script>
@@ -278,26 +261,14 @@
 
       <!-- File Upload Section -->
       <div class="section">
+        <DropZone 
+          acceptedTypes={SUPPORTED_EXTENSIONS}
+          on:filesDropped={(event) => handleFilesAdded(event.detail.files)}
+          on:filesSelected={(event) => handleFilesAdded(event.detail.files)}
+        />
+        
         {#if isElectron}
-          <div class="native-selectors">
-            <div class="selector-row">
-              <NativeFileSelector
-                label="Select Files"
-                acceptedTypes={SUPPORTED_EXTENSIONS}
-                on:filesSelected={handleNativeFilesSelected}
-                fullWidth={true}
-              />
-              <FolderSelector
-                label="Select Folder"
-                mode="input"
-                showFileList={true}
-                acceptedTypes={SUPPORTED_EXTENSIONS}
-                on:folderSelected={handleFolderSelected}
-                on:fileSelected={handleFileSelectedFromFolder}
-                buttonVariant="secondary"
-                fullWidth={true}
-              />
-            </div>
+          <div class="output-directory">
             <NativeFileSelector
               label="Select Output Directory"
               directoryMode={true}
@@ -307,12 +278,6 @@
             />
           </div>
         {/if}
-        
-        <DropZone 
-          acceptedTypes={SUPPORTED_EXTENSIONS}
-          on:filesDropped={(event) => handleFilesAdded(event.detail.files)}
-          on:filesSelected={(event) => handleFilesAdded(event.detail.files)}
-        />
       </div>
       
       {#if $uploadStore.message}
@@ -333,11 +298,6 @@
         </div>
       {/if}
 
-      <PaymentInput 
-        showPayment={showPaymentPrompt}
-        on:payment={handlePayment}
-        on:skip={handlePaymentSkip}
-      />
     </div>
   </Container>
 </div>
