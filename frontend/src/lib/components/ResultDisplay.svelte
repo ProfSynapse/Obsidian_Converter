@@ -1,6 +1,6 @@
 <script>
   import { createEventDispatcher } from 'svelte';
-  import { fade } from 'svelte/transition';
+  import { fade, fly } from 'svelte/transition';
   import Button from './common/Button.svelte';
   import Container from './common/Container.svelte';
   import ProgressBar from './common/ProgressBar.svelte';
@@ -19,7 +19,7 @@
   }
 
   // Reactive declarations for status
-  $: isConverting = $conversionStatus.status === 'converting';
+  $: isConverting = ['converting', 'selecting_output', 'initializing'].includes($conversionStatus.status);
   $: isCompleted = $conversionStatus.status === 'completed';
   $: hasError = $conversionStatus.error !== null;
   
@@ -36,12 +36,17 @@
   // Check if we have a native file path result
   $: hasNativeResult = $conversionResult && $conversionResult.isNative && $conversionResult.outputPath;
 
+  // Get file count from conversion result
+  $: fileCount = $conversionResult?.items?.length || 0;
+
   function getStatusMessage(status, error) {
     switch(status) {
       case 'converting':
         return '🔄 Converting your files...';
+      case 'selecting_output':
+        return '📂 Select output directory...';
       case 'completed':
-        return '✨ Conversion completed!';
+        return '✅ Conversion completed successfully!';
       case 'error':
         return `❌ ${error || 'An error occurred during conversion'}`;
       case 'cancelled':
@@ -94,18 +99,53 @@
 <Container>
   <div class="conversion-status" transition:fade>
     {#if isConverting || isCompleted || hasError}
-      <div class="status-message">
-        <p class="message">{statusMessage}</p>
-        {#if currentFileName && isConverting}
-          <p class="current-file">Processing: {currentFileName}</p>
-        {/if}
+      <!-- Conversion in progress or completed -->
+      <div class="status-card {isCompleted ? 'success' : hasError ? 'error' : ''}">
+        <div class="status-icon">
+          {#if isCompleted}
+            <div class="icon-success" in:fly={{ y: -20, duration: 400 }}>✓</div>
+          {:else if hasError}
+            <div class="icon-error" in:fly={{ y: -20, duration: 400 }}>✗</div>
+          {:else}
+            <div class="icon-converting">🔄</div>
+          {/if}
+        </div>
+        
+        <div class="status-content">
+          <h3 class="status-title">{statusMessage}</h3>
+          
+          {#if currentFileName && isConverting}
+            <p class="current-file">Processing: {currentFileName}</p>
+          {/if}
+          
+          {#if isCompleted && fileCount > 0}
+            <p class="summary">
+              Successfully converted {fileCount} {fileCount === 1 ? 'file' : 'files'} to Markdown format for codex.md.
+            </p>
+          {/if}
+          
+          {#if hasNativeResult && isCompleted}
+            <div class="path-display">
+              <span class="path-label">Output:</span>
+              <span class="path-value">{$conversionResult.outputPath}</span>
+              <button 
+                class="copy-button" 
+                on:click={copyPath}
+                title="Copy path to clipboard"
+              >
+                📋
+              </button>
+            </div>
+          {/if}
+        </div>
       </div>
 
+      <!-- Progress bar section -->
       <div class="progress-section">
         <div class="progress-container">
           <ProgressBar 
             value={$conversionStatus.progress} 
-            color={hasError ? 'var(--color-error)' : 'var(--color-prime)'}
+            color={hasError ? 'var(--color-error)' : isCompleted ? 'var(--color-success)' : 'var(--color-prime)'}
             height="8px"
           />
           <span class="progress-text">
@@ -114,80 +154,90 @@
         </div>
       </div>
 
+      <!-- Action buttons -->
       {#if isCompleted}
-        <div class="button-container">
-          {#if $conversionResult}
-            {#if isElectron && hasNativeResult}
-              <!-- Electron-specific buttons for native file system -->
-              <Button 
-                variant="primary"
-                size="large"
-                on:click={openFile}
-              >
-                Open File
-              </Button>
-              <Button 
-                variant="secondary"
-                size="large"
-                on:click={showInFolder}
-              >
-                Show in Folder
-              </Button>
-            {:else}
-              <!-- Web download button -->
-              <Button 
-                variant="primary"
-                size="large"
-                on:click={() => triggerDownload()}
-              >
-                Download Files
-              </Button>
+        <div class="action-section">
+          <div class="button-container">
+            {#if $conversionResult}
+              {#if isElectron && hasNativeResult}
+                <!-- Electron-specific buttons for native file system -->
+                <Button 
+                  variant="primary"
+                  size="large"
+                  on:click={openFile}
+                >
+                  <span class="button-icon">📄</span> Open File
+                </Button>
+                <Button 
+                  variant="secondary"
+                  size="large"
+                  on:click={showInFolder}
+                >
+                  <span class="button-icon">📂</span> Show in Folder
+                </Button>
+              {:else}
+                <!-- Web download button -->
+                <Button 
+                  variant="primary"
+                  size="large"
+                  on:click={() => triggerDownload()}
+                >
+                  <span class="button-icon">⬇️</span> Download Files
+                </Button>
+              {/if}
             {/if}
-          {/if}
-          <Button 
-            variant={$conversionResult ? "secondary" : "primary"}
-            size="large"
-            on:click={() => window.location.reload()}
-          >
-            Convert More Files
-          </Button>
-        </div>
-        
-        {#if isElectron && hasNativeResult}
-          <div class="path-display">
-            <span class="path-label">Output:</span>
-            <span class="path-value">{$conversionResult.outputPath}</span>
-            <button 
-              class="copy-button" 
-              on:click={copyPath}
-              title="Copy path to clipboard"
+            <Button 
+              variant={$conversionResult ? "secondary" : "primary"}
+              size="large"
+              on:click={() => window.location.reload()}
             >
-              📋
-            </button>
+              <span class="button-icon">🔄</span> Convert More Files
+            </Button>
           </div>
-        {/if}
+        </div>
       {:else if hasError}
-        <div class="button-container">
-          <Button 
-            variant="primary"
-            size="large"
-            fullWidth
-            on:click={() => window.location.reload()}
-          >
-            Try Again
-          </Button>
+        <div class="action-section">
+          <div class="button-container">
+            <Button 
+              variant="primary"
+              size="large"
+              fullWidth
+              on:click={() => window.location.reload()}
+            >
+              <span class="button-icon">🔄</span> Try Again
+            </Button>
+          </div>
         </div>
       {/if}
     {:else}
+      <!-- Initial state - Redirect to resources page -->
       <div class="button-container">
-        <Button
-          variant="primary"
-          size="large"
-          fullWidth
-          on:click={() => dispatch('startConversion')}
-        >
-          Start Conversion
-        </Button>
+        {#if isElectron && $conversionResult?.outputPath}
+          <Button
+            variant="primary"
+            size="large"
+            fullWidth
+            on:click={showInFolder}
+          >
+            <span class="button-icon">📂</span> Show in Folder
+          </Button>
+        {:else}
+          <Button
+            variant="primary"
+            size="large"
+            fullWidth
+            on:click={() => {
+              // Auto-trigger the completed state to show resources
+              if ($conversionStatus.status !== 'error' && $conversionStatus.status !== 'cancelled') {
+                conversionStatus.setStatus('completed');
+                conversionStatus.setProgress(100);
+              }
+              dispatch('startConversion');
+            }}
+          >
+            <span class="button-icon">🚀</span> Continue to Resources
+          </Button>
+        {/if}
       </div>
     {/if}
   </div>
@@ -202,37 +252,26 @@
     padding: var(--spacing-md) 0;
   }
 
-  .status-message {
-    text-align: center;
+  .status-card {
+    display: flex;
+    align-items: flex-start;
+    gap: var(--spacing-md);
+    padding: var(--spacing-lg);
+    border-radius: var(--rounded-lg);
+    background-color: var(--color-background);
+    box-shadow: var(--shadow-sm);
     position: relative;
+    overflow: hidden;
   }
 
-  .message {
-    font-size: var(--font-size-lg);
-    font-weight: var(--font-weight-medium);
-    color: var(--color-text);
-    margin: 0;
-    margin-bottom: var(--spacing-sm);
-  }
-
-  .current-file {
-    font-size: var(--font-size-base);
-    color: var(--color-text-secondary);
-    margin: 0;
-    padding: var(--spacing-xs) var(--spacing-sm);
-    border-radius: var(--rounded-md);
-    position: relative;
-    background: transparent;
-  }
-
-  .current-file::before {
+  .status-card::before {
     content: "";
     position: absolute;
     top: 0;
     left: 0;
     right: 0;
     bottom: 0;
-    border-radius: var(--rounded-md);
+    border-radius: var(--rounded-lg);
     padding: 2px;
     background: linear-gradient(135deg, var(--color-prime), var(--color-second));
     -webkit-mask: 
@@ -241,7 +280,69 @@
     -webkit-mask-composite: xor;
     mask-composite: exclude;
     pointer-events: none;
-    opacity: 0.3;
+  }
+
+  .status-card.success::before {
+    background: linear-gradient(135deg, var(--color-success), var(--color-prime));
+  }
+
+  .status-card.error::before {
+    background: linear-gradient(135deg, var(--color-error), #ff7b7b);
+  }
+
+  .status-icon {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    width: 48px;
+    height: 48px;
+    border-radius: 50%;
+    background: linear-gradient(135deg, var(--color-prime), var(--color-second));
+    color: white;
+    font-size: 24px;
+    flex-shrink: 0;
+  }
+
+  .status-card.success .status-icon {
+    background: linear-gradient(135deg, var(--color-success), #4caf50);
+  }
+
+  .status-card.error .status-icon {
+    background: linear-gradient(135deg, var(--color-error), #ff5252);
+  }
+
+  .icon-success, .icon-error, .icon-converting {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    width: 100%;
+    height: 100%;
+  }
+
+  .status-content {
+    flex-grow: 1;
+  }
+
+  .status-title {
+    font-size: var(--font-size-lg);
+    font-weight: var(--font-weight-semibold);
+    margin-bottom: var(--spacing-xs);
+    color: var(--color-text);
+  }
+
+  .current-file {
+    font-size: var(--font-size-base);
+    color: var(--color-text-light);
+    margin: var(--spacing-xs) 0;
+    padding: var(--spacing-xs);
+    background-color: rgba(var(--color-prime-rgb), 0.05);
+    border-radius: var(--rounded-sm);
+  }
+
+  .summary {
+    font-size: var(--font-size-base);
+    color: var(--color-text);
+    margin: var(--spacing-sm) 0;
   }
 
   .progress-section {
@@ -250,27 +351,8 @@
     margin: 0 auto;
     padding: var(--spacing-md);
     border-radius: var(--rounded-lg);
-    position: relative;
-    background: transparent;
-  }
-
-  .progress-section::before {
-    content: "";
-    position: absolute;
-    top: 0;
-    left: 0;
-    right: 0;
-    bottom: 0;
-    border-radius: var(--rounded-lg);
-    padding: 2px;
-    background: linear-gradient(135deg, var(--color-prime), var(--color-second));
-    -webkit-mask: 
-        linear-gradient(#fff 0 0) content-box, 
-        linear-gradient(#fff 0 0);
-    -webkit-mask-composite: xor;
-    mask-composite: exclude;
-    pointer-events: none;
-    opacity: 0.2;
+    background-color: var(--color-background);
+    box-shadow: var(--shadow-sm);
   }
 
   .progress-container {
@@ -278,14 +360,16 @@
     flex-direction: column;
     gap: var(--spacing-sm);
     align-items: center;
-    position: relative;
-    z-index: 1;
   }
 
   .progress-text {
     font-size: var(--font-size-base);
-    color: var(--color-text-secondary);
+    color: var(--color-text-light);
     font-weight: var(--font-weight-medium);
+  }
+
+  .action-section {
+    margin-top: var(--spacing-sm);
   }
 
   .button-container {
@@ -294,8 +378,10 @@
     gap: var(--spacing-md);
     justify-content: center;
     padding: var(--spacing-sm) 0;
-    position: relative;
-    z-index: 1;
+  }
+
+  .button-icon {
+    margin-right: var(--spacing-xs);
   }
 
   .path-display {
@@ -303,19 +389,19 @@
     align-items: center;
     gap: var(--spacing-xs);
     padding: var(--spacing-sm);
-    background-color: var(--color-bg-alt);
+    background-color: rgba(var(--color-prime-rgb), 0.05);
     border-radius: var(--rounded-md);
     margin-top: var(--spacing-sm);
   }
 
   .path-label {
     font-weight: var(--font-weight-medium);
-    color: var(--color-text-secondary);
+    color: var(--color-text-light);
   }
 
   .path-value {
     flex-grow: 1;
-    font-family: var(--font-mono);
+    font-family: monospace;
     font-size: var(--font-size-sm);
     color: var(--color-text);
     overflow: hidden;
@@ -330,20 +416,11 @@
     padding: 0;
     font-size: var(--font-size-base);
     opacity: 0.7;
-    transition: opacity var(--transition-duration-fast) ease;
+    transition: opacity var(--transition-duration-normal) ease;
   }
 
   .copy-button:hover {
     opacity: 1;
-  }
-
-  /* High Contrast Mode */
-  @media (prefers-contrast: high) {
-    .current-file::before,
-    .progress-section::before {
-      padding: 3px;
-      opacity: 1;
-    }
   }
 
   /* Mobile Adjustments */
@@ -353,7 +430,14 @@
       padding: var(--spacing-sm) 0;
     }
 
-    .message {
+    .status-card {
+      padding: var(--spacing-md);
+      flex-direction: column;
+      align-items: center;
+      text-align: center;
+    }
+
+    .status-title {
       font-size: var(--font-size-base);
     }
 
@@ -363,6 +447,15 @@
 
     .button-container {
       flex-direction: column;
+    }
+
+    .path-display {
+      flex-direction: column;
+      align-items: flex-start;
+    }
+
+    .path-value {
+      width: 100%;
     }
   }
 </style>

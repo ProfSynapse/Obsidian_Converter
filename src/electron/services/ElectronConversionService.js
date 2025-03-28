@@ -17,9 +17,8 @@
 
 const path = require('path');
 const { app } = require('electron');
-const got = require('got');
-const TurndownService = require('turndown');
-const cheerio = require('cheerio');
+const { convertUrl } = require('../adapters/urlConverterAdapter');
+const { convertParentUrl } = require('../adapters/parentUrlConverterAdapter');
 const FileSystemService = require('./FileSystemService');
 const { textConverterFactory } = require('../adapters/textConverterFactoryAdapter');
 const { determineCategory } = require('../adapters/fileTypeUtilsAdapter');
@@ -30,7 +29,10 @@ class ElectronConversionService {
     this.fileSystem = FileSystemService;
     this.converter = textConverterFactory;
     this.progressUpdateInterval = 250; // Update progress every 250ms
-    this.outputDir = path.join(app.getPath('userData'), 'conversions');
+    this.defaultOutputDir = path.join(app.getPath('userData'), 'conversions');
+    
+    // Debug logging for output directory issues
+    console.log('ElectronConversionService initialized with default output directory:', this.defaultOutputDir);
   }
 
   /**
@@ -57,14 +59,43 @@ class ElectronConversionService {
       const baseName = path.basename(fileName, path.extname(fileName));
       const category = determineCategory(fileType, fileType);
       
-      const outputBasePath = path.join(
-        this.outputDir,
-        `${baseName}_${Date.now()}`
-      );
+      // Check if user provided an output directory
+      const userProvidedOutputDir = !!options.outputDir;
+      
+      // Use provided output directory or fall back to default
+      const outputDir = options.outputDir || this.defaultOutputDir;
+      
+      // Determine if we should create a subdirectory or use the output directory directly
+      // Always use direct output when user has specified a directory
+      const createSubdirectory = userProvidedOutputDir ? false : 
+                               (options.createSubdirectory !== undefined ? options.createSubdirectory : true);
+      
+      console.log('Conversion options:', {
+        userProvidedOutputDir,
+        outputDir,
+        createSubdirectory,
+        fileName
+      });
+      
+      let outputBasePath;
+      if (createSubdirectory) {
+        // Create a timestamped subdirectory (original behavior)
+        outputBasePath = path.join(
+          outputDir,
+          `${baseName}_${Date.now()}`
+        );
+      } else {
+        // Use the output directory directly
+        outputBasePath = outputDir;
+      }
 
       await this.fileSystem.createDirectory(outputBasePath);
-      await this.fileSystem.createDirectory(path.join(outputBasePath, 'assets'));
-      await this.fileSystem.createDirectory(path.join(outputBasePath, 'assets/images'));
+      
+      // Only create assets directories if we're creating a subdirectory
+      if (createSubdirectory) {
+        await this.fileSystem.createDirectory(path.join(outputBasePath, 'assets'));
+        await this.fileSystem.createDirectory(path.join(outputBasePath, 'assets/images'));
+      }
 
       console.log('📁 Set up output structure:', {
         input: fileName,
@@ -113,15 +144,29 @@ class ElectronConversionService {
 
       updateProgress(90);
 
+      // Determine file paths based on whether we're using subdirectories
+      let mainFilePath, imagesPath, metadataPath;
+      
+      if (createSubdirectory) {
+        // Original behavior with subdirectories
+        mainFilePath = path.join(outputBasePath, 'document.md');
+        imagesPath = path.join(outputBasePath, 'assets/images');
+        metadataPath = path.join(outputBasePath, 'metadata.json');
+      } else {
+        // Save directly to output directory with original filename
+        mainFilePath = path.join(outputBasePath, `${baseName}.md`);
+        imagesPath = outputBasePath;
+        metadataPath = path.join(outputBasePath, `${baseName}_metadata.json`);
+      }
+      
       // Save markdown content
-      const mainFilePath = path.join(outputBasePath, 'document.md');
       await this.fileSystem.writeFile(mainFilePath, conversionResult.content);
 
       // Save images if present
       if (conversionResult.images && conversionResult.images.length > 0) {
         for (const [index, image] of conversionResult.images.entries()) {
-          const imageFileName = `image_${index}${path.extname(image.name || '') || '.png'}`;
-          const imagePath = path.join(outputBasePath, 'assets/images', imageFileName);
+          const imageFileName = `${baseName}_image_${index}${path.extname(image.name || '') || '.png'}`;
+          const imagePath = path.join(imagesPath, imageFileName);
           await this.fileSystem.writeFile(imagePath, image.data);
         }
       }
@@ -136,7 +181,7 @@ class ElectronConversionService {
       };
 
       await this.fileSystem.writeFile(
-        path.join(outputBasePath, 'metadata.json'),
+        metadataPath,
         JSON.stringify(metadata, null, 2)
       );
 
@@ -285,14 +330,43 @@ class ElectronConversionService {
       const pathname = urlObj.pathname.replace(/\//g, '_').replace(/^_|_$/g, '') || 'index';
       const baseName = `${hostname}${pathname ? '_' + pathname : ''}`;
       
-      const outputBasePath = path.join(
-        this.outputDir,
-        `${baseName}_${Date.now()}`
-      );
+      // Check if user provided an output directory
+      const userProvidedOutputDir = !!options.outputDir;
+      
+      // Use provided output directory or fall back to default
+      const outputDir = options.outputDir || this.defaultOutputDir;
+      
+      // Determine if we should create a subdirectory or use the output directory directly
+      // Always use direct output when user has specified a directory
+      const createSubdirectory = userProvidedOutputDir ? false : 
+                               (options.createSubdirectory !== undefined ? options.createSubdirectory : true);
+      
+      console.log('URL Conversion options:', {
+        userProvidedOutputDir,
+        outputDir,
+        createSubdirectory,
+        url
+      });
+      
+      let outputBasePath;
+      if (createSubdirectory) {
+        // Create a timestamped subdirectory (original behavior)
+        outputBasePath = path.join(
+          outputDir,
+          `${baseName}_${Date.now()}`
+        );
+      } else {
+        // Use the output directory directly
+        outputBasePath = outputDir;
+      }
 
       await this.fileSystem.createDirectory(outputBasePath);
-      await this.fileSystem.createDirectory(path.join(outputBasePath, 'assets'));
-      await this.fileSystem.createDirectory(path.join(outputBasePath, 'assets/images'));
+      
+      // Only create assets directories if we're creating a subdirectory
+      if (createSubdirectory) {
+        await this.fileSystem.createDirectory(path.join(outputBasePath, 'assets'));
+        await this.fileSystem.createDirectory(path.join(outputBasePath, 'assets/images'));
+      }
 
       console.log('📁 Set up output structure for URL:', {
         url,
@@ -311,164 +385,46 @@ class ElectronConversionService {
 
       updateProgress(10);
 
-      // Fetch URL content
-      const response = await got(url, {
-        timeout: {
-          request: 30000,
-          response: 30000
-        },
-        retry: {
-          limit: 3,
-          statusCodes: [408, 413, 429, 500, 502, 503, 504],
-          methods: ['GET'],
-          calculateDelay: ({retryCount}) => retryCount * 1000
-        },
-        headers: {
-          'accept': 'text/html,application/xhtml+xml',
-          'accept-encoding': 'gzip, deflate',
-          'accept-language': 'en-US,en;q=0.9',
-          'user-agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
-        },
-        throwHttpErrors: false,
-        followRedirect: true,
-        decompress: true,
-        responseType: 'text'
+      // Use the URL converter adapter to convert the URL
+      const conversionResult = await convertUrl(url, {
+        ...options,
+        includeImages: true,
+        includeMeta: true
       });
 
-      if (!response.statusCode || response.statusCode >= 400) {
-        throw new Error(`Failed to fetch URL: HTTP ${response.statusCode}`);
-      }
-
-      updateProgress(30);
-
-      // Parse HTML
-      const $ = cheerio.load(response.body);
-
-      // Remove unnecessary elements
-      const removeSelectors = [
-        'script', 'style', 'iframe', 'noscript',
-        'header nav', 'footer nav', 'aside',
-        '.ads', '.social-share', '.comments',
-        '.navigation', '.menu', '.widget'
-      ];
-
-      removeSelectors.forEach(selector => {
-        $(selector).remove();
-      });
-
-      // Find main content
-      const contentSelectors = [
-        'article', 'main', '[role="main"]',
-        '.post-content', '.entry-content', '.article-content',
-        '.content', '#content', '#main', 'body'
-      ];
-
-      let $content = null;
-      for (const selector of contentSelectors) {
-        const $found = $(selector);
-        if ($found.length) {
-          $content = $found;
-          break;
-        }
-      }
-      $content = $content || $('body');
-
-      updateProgress(50);
-
-      // Replace all img tags with markdown syntax
-      const images = [];
-      $content.find('img').each((_, img) => {
-        const $img = $(img);
-        const src = $img.attr('src');
-        if (src) {
-          const alt = $img.attr('alt') || '';
-          const imgUrl = new URL(src, url).href;
-          const markdown = `\n![${alt}](${imgUrl})\n`;
-          $img.replaceWith(markdown);
-          
-          images.push({
-            url: imgUrl,
-            alt,
-            name: path.basename(imgUrl)
-          });
-        }
-      });
-
-      updateProgress(70);
-
-      // Convert HTML to Markdown
-      const turndownService = new TurndownService({
-        headingStyle: 'atx',
-        bulletListMarker: '-',
-        codeBlockStyle: 'fenced',
-        hr: '---',
-        strongDelimiter: '**',
-        emDelimiter: '*'
-      });
-
-      // Add basic rules
-      turndownService.addRule('tables', {
-        filter: ['table'],
-        replacement: (content) => content
-      });
-
-      turndownService.addRule('codeBlocks', {
-        filter: ['pre'],
-        replacement: (content) => `\n\`\`\`\n${content}\n\`\`\`\n`
-      });
-
-      turndownService.addRule('lineBreaks', {
-        filter: ['br'],
-        replacement: () => '\n'
-      });
-
-      const markdown = turndownService.turndown($content.html())
-        .replace(/\n{3,}/g, '\n\n')  // Remove extra newlines
-        .replace(/!\\\[/g, '![')     // Fix escaped opening brackets
-        .replace(/\\\]/g, ']')       // Fix escaped closing brackets
-        .trim();
-
-      updateProgress(80);
-
-      // Extract metadata
-      let metadata = null;
-      if (options.includeMeta !== false) {
-        try {
-          metadata = await extractMetadata(url);
-        } catch (error) {
-          console.error('Metadata extraction failed:', error);
-        }
+      if (!conversionResult || !conversionResult.content) {
+        throw new Error('URL conversion failed: Invalid result from adapter');
       }
 
       updateProgress(90);
 
-      // Combine metadata and markdown
-      const content = [
-        metadata ? [
-          '---',
-          Object.entries(metadata)
-            .map(([key, value]) => `${key}: "${value?.toString()?.replace(/"/g, '\\"') || ''}"`)
-            .join('\n'),
-          '---'
-        ].join('\n') : null,
-        markdown
-      ].filter(Boolean).join('\n\n');
-
+      // Determine file paths based on whether we're using subdirectories
+      let mainFilePath, metadataPath;
+      
+      if (createSubdirectory) {
+        // Original behavior with subdirectories
+        mainFilePath = path.join(outputBasePath, 'document.md');
+        metadataPath = path.join(outputBasePath, 'metadata.json');
+      } else {
+        // Save directly to output directory with hostname as filename
+        mainFilePath = path.join(outputBasePath, `${baseName}.md`);
+        metadataPath = path.join(outputBasePath, `${baseName}_metadata.json`);
+      }
+      
       // Save markdown content
-      const mainFilePath = path.join(outputBasePath, 'document.md');
-      await this.fileSystem.writeFile(mainFilePath, content);
+      await this.fileSystem.writeFile(mainFilePath, conversionResult.content);
 
       // Save metadata
       const metadataObj = {
         originalUrl: url,
-        title: metadata?.title || hostname,
+        title: conversionResult.metadata?.title || hostname,
         hostname,
         converted: new Date().toISOString(),
-        imageCount: images.length
+        imageCount: conversionResult.images?.length || 0
       };
 
       await this.fileSystem.writeFile(
-        path.join(outputBasePath, 'metadata.json'),
+        metadataPath,
         JSON.stringify(metadataObj, null, 2)
       );
 
@@ -486,7 +442,7 @@ class ElectronConversionService {
         outputPath: outputBasePath,
         mainFile: mainFilePath,
         metadata: metadataObj,
-        images
+        images: conversionResult.images
       };
 
     } catch (error) {
@@ -542,15 +498,45 @@ class ElectronConversionService {
 
       // Create output directory structure
       const hostname = urlObj.hostname;
-      const outputBasePath = path.join(
-        this.outputDir,
-        `${hostname}_site_${Date.now()}`
-      );
+      
+      // Check if user provided an output directory
+      const userProvidedOutputDir = !!options.outputDir;
+      
+      // Use provided output directory or fall back to default
+      const outputDir = options.outputDir || this.defaultOutputDir;
+      
+      // Determine if we should create a subdirectory or use the output directory directly
+      // Always use direct output when user has specified a directory
+      const createSubdirectory = userProvidedOutputDir ? false : 
+                               (options.createSubdirectory !== undefined ? options.createSubdirectory : true);
+      
+      console.log('Parent URL Conversion options:', {
+        userProvidedOutputDir,
+        outputDir,
+        createSubdirectory,
+        url
+      });
+      
+      let outputBasePath;
+      if (createSubdirectory) {
+        // Create a timestamped subdirectory (original behavior)
+        outputBasePath = path.join(
+          outputDir,
+          `${hostname}_site_${Date.now()}`
+        );
+      } else {
+        // Use the output directory directly
+        outputBasePath = outputDir;
+      }
 
       await this.fileSystem.createDirectory(outputBasePath);
-      await this.fileSystem.createDirectory(path.join(outputBasePath, 'pages'));
-      await this.fileSystem.createDirectory(path.join(outputBasePath, 'assets'));
-      await this.fileSystem.createDirectory(path.join(outputBasePath, 'assets/images'));
+      
+      // Create necessary subdirectories
+      if (createSubdirectory) {
+        await this.fileSystem.createDirectory(path.join(outputBasePath, 'pages'));
+        await this.fileSystem.createDirectory(path.join(outputBasePath, 'assets'));
+        await this.fileSystem.createDirectory(path.join(outputBasePath, 'assets/images'));
+      }
 
       console.log('📁 Set up output structure for parent URL:', {
         url,
@@ -567,69 +553,37 @@ class ElectronConversionService {
         }
       };
 
-      updateProgress(5);
+      updateProgress(10);
 
-      // First convert the parent URL itself
-      const parentResult = await this.convertUrl(url, {
+      // Use the parent URL converter adapter to convert the URL
+      const conversionResult = await convertParentUrl(url, {
         ...options,
-        onProgress: (progress) => {
-          // Scale progress from 5-20%
-          const scaledProgress = 5 + (progress * 0.15);
-          updateProgress(scaledProgress);
-        }
+        includeImages: true,
+        includeMeta: true
       });
 
-      if (!parentResult.success) {
-        throw new Error(`Failed to convert parent URL: ${parentResult.error}`);
+      if (!conversionResult || !conversionResult.content) {
+        throw new Error('Parent URL conversion failed: Invalid result from adapter');
       }
 
-      // Save parent page
-      const parentPagePath = path.join(outputBasePath, 'pages', 'index.md');
-      await this.fileSystem.writeFile(parentPagePath, parentResult.content || '');
+      updateProgress(90);
 
-      updateProgress(20);
+      // Save the files from the conversion result
+      if (conversionResult.files && conversionResult.files.length > 0) {
+        for (const file of conversionResult.files) {
+          const filePath = path.join(outputBasePath, file.name);
+          const fileDir = path.dirname(filePath);
+          
+          // Ensure directory exists
+          await this.fileSystem.createDirectory(fileDir);
+          
+          // Write file content
+          await this.fileSystem.writeFile(filePath, file.content);
+        }
+      }
 
-      // For now, we'll implement a simplified version that just converts the parent URL
-      // A full implementation would crawl the site and convert all pages
-      
-      // Generate index file
-      const indexContent = [
-        `---`,
-        `title: "${hostname} Archive"`,
-        `description: "Website archive of ${hostname}"`,
-        `date: "${new Date().toISOString()}"`,
-        `source: "${url}"`,
-        `archived_at: "${new Date().toISOString()}"`,
-        `tags:`,
-        `  - website-archive`,
-        `  - ${hostname.replace(/\./g, '-')}`,
-        `---`,
-        '',
-        `# ${hostname} Website Archive`,
-        '',
-        '## Site Information',
-        `- **Source URL:** ${url}`,
-        `- **Archived:** ${new Date().toISOString()}`,
-        `- **Total Pages:** 1`,
-        `- **Successful:** 1`,
-        `- **Failed:** 0`,
-        '',
-        '## Successfully Converted Pages',
-        '',
-        `- [[pages/index|Home Page]] - [Original](${url})`,
-        '',
-        '## Notes',
-        '',
-        '- All pages are stored in the `pages/` folder',
-        '- Internal links are preserved as wiki-links',
-        '- Original URLs are preserved in page metadata',
-        '- Images are linked to their original source URLs',
-        '- Generated with Obsidian Note Converter'
-      ].join('\n');
-
-      // Save index file
-      const indexPath = path.join(outputBasePath, 'index.md');
-      await this.fileSystem.writeFile(indexPath, indexContent);
+      // Determine the main file path
+      const mainFilePath = path.join(outputBasePath, 'index.md');
 
       updateProgress(100);
 
@@ -637,20 +591,22 @@ class ElectronConversionService {
       console.log('✅ Parent URL conversion completed:', {
         url,
         duration: `${Date.now() - startTime}ms`,
-        memoryUsed: `${Math.round((endMemory.heapUsed - initialMemory.heapUsed) / 1024 / 1024)}MB`
+        memoryUsed: `${Math.round((endMemory.heapUsed - initialMemory.heapUsed) / 1024 / 1024)}MB`,
+        totalPages: conversionResult.stats?.totalPages || 1,
+        successfulPages: conversionResult.stats?.successfulPages || 1
       });
 
       return {
         success: true,
         outputPath: outputBasePath,
-        mainFile: indexPath,
+        mainFile: mainFilePath,
         metadata: {
           originalUrl: url,
           hostname,
           converted: new Date().toISOString(),
-          totalPages: 1,
-          successfulPages: 1,
-          failedPages: 0
+          totalPages: conversionResult.stats?.totalPages || 1,
+          successfulPages: conversionResult.stats?.successfulPages || 1,
+          failedPages: conversionResult.stats?.failedPages || 0
         }
       };
 
@@ -671,11 +627,13 @@ class ElectronConversionService {
   /**
    * Sets up the output directory for conversions
    * @private
+   * @param {string} outputDir - The output directory to set up
    */
-  async setupOutputDirectory() {
+  async setupOutputDirectory(outputDir) {
     try {
-      await this.fileSystem.createDirectory(this.outputDir);
-      console.log('📁 Output directory ready:', this.outputDir);
+      const dirToSetup = outputDir || this.defaultOutputDir;
+      await this.fileSystem.createDirectory(dirToSetup);
+      console.log('📁 Output directory ready:', dirToSetup);
     } catch (error) {
       console.error('❌ Failed to set up output directory:', error);
       throw error;

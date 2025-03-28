@@ -81,11 +81,11 @@ export function isVideoType(ext) {
 /**
  * Validates and normalizes an item for conversion
  * @param {Object} item The item to validate and normalize
- * @param {Array<string>} supportedTypes Array of supported types
+ * @param {Array<string>} supportedTypes Array of supported types (defaults to all supported types if not provided)
  * @returns {Object} The normalized item
  * @throws {Error} If validation fails
  */
-export function validateAndNormalizeItem(item, supportedTypes) {
+export function validateAndNormalizeItem(item, supportedTypes = ['url', 'parent', 'youtube', 'document', 'audio', 'video', 'data']) {
   if (!item?.type) {
     throw new Error('Invalid item: missing type');
   }

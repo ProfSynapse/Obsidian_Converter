@@ -1,18 +1,14 @@
 // server.js
 
 import express from 'express';
-import fs from 'fs';
 import cors from 'cors';
 import helmet from 'helmet';
 import dotenv from 'dotenv';
-import { Server as SocketServer } from 'socket.io';
 import { JobManager } from './src/services/JobManager.js';
 import { config } from './src/config/default.js';
 import router from './src/routes/index.js';  // Updated path
 import proxyRoutes from './src/routes/proxyRoutes.js';  // Updated path
 import { errorHandler, AppError } from './src/utils/errorHandler.js';
-import morgan from 'morgan';
-import path from 'path';  // Add path module
 import { fileURLToPath } from 'url';
 import { dirname } from 'path';
 

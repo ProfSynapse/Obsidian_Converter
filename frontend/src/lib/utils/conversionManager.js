@@ -18,7 +18,6 @@ import { apiKey } from '$lib/stores/apiKey.js';
 import { conversionStatus } from '$lib/stores/conversionStatus.js';
 import client from '$lib/api/client.js';
 import electronClient from '$lib/api/electron';
-import socketService from '$lib/services/socket.js';
 import FileSaver from 'file-saver';
 import { CONFIG } from '$lib/config'; 
 import { conversionResult } from '$lib/stores/conversionResult.js';
@@ -81,7 +80,19 @@ export async function startConversion() {
 
     // Handle conversion based on environment
     if (isElectron) {
-      await handleElectronConversion(items, currentApiKey);
+      // First prompt for output directory
+      conversionStatus.setStatus('selecting_output');
+      const outputResult = await electronClient.selectOutputDirectory();
+      
+      if (!outputResult.success) {
+        // User cancelled directory selection
+        conversionStatus.setStatus('cancelled');
+        showFeedback('Conversion cancelled: No output directory selected', 'info');
+        return;
+      }
+      
+      // Proceed with conversion using the selected directory
+      await handleElectronConversion(items, currentApiKey, outputResult.path);
     } else {
       await handleWebConversion(items, currentApiKey);
     }
@@ -102,13 +113,30 @@ export async function startConversion() {
 /**
  * Handles conversion in Electron environment
  * @private
+ * @param {Array} items - Items to convert
+ * @param {string} apiKey - API key for services that require it
+ * @param {string} outputDir - Directory to save conversion results
  */
-async function handleElectronConversion(items, apiKey) {
+async function handleElectronConversion(items, apiKey, outputDir) {
   // Update status
   conversionStatus.setStatus('converting');
   conversionStatus.setProgress(0);
   
   try {
+    // Create options object with outputDir and createSubdirectory: false
+    const options = {
+      outputDir,
+      createSubdirectory: false, // Save directly to the selected directory without creating subdirectories
+      // Add API key if available
+      ...(apiKey ? { apiKey } : {})
+    };
+    
+    console.log('Conversion options:', {
+      outputDir,
+      createSubdirectory: false,
+      hasApiKey: !!apiKey
+    });
+    
     // For single file conversion
     if (items.length === 1) {
       const item = items[0];
@@ -119,23 +147,35 @@ async function handleElectronConversion(items, apiKey) {
       // Handle different item types
       let result;
       if (item.isNative && item.path) {
-        // Convert native file path
-        result = await electronClient.convertFile(item.path, item.options, (progress) => {
+        // Convert native file path with output directory
+        result = await electronClient.convertFile(item.path, {
+          ...item.options,
+          ...options
+        }, (progress) => {
           conversionStatus.setProgress(progress);
         });
       } else if (item.type === 'url') {
-        // Convert URL
-        result = await electronClient.convertUrl(item.url, item.options, (progress) => {
+        // Convert URL with output directory
+        result = await electronClient.convertUrl(item.url, {
+          ...item.options,
+          ...options
+        }, (progress) => {
           conversionStatus.setProgress(progress);
         });
       } else if (item.type === 'parent') {
-        // Convert parent URL (website)
-        result = await electronClient.convertParentUrl(item.url, item.options, (progress) => {
+        // Convert parent URL (website) with output directory
+        result = await electronClient.convertParentUrl(item.url, {
+          ...item.options,
+          ...options
+        }, (progress) => {
           conversionStatus.setProgress(progress);
         });
       } else if (item.type === 'youtube') {
-        // Convert YouTube URL
-        result = await electronClient.convertYoutube(item.url, item.options, (progress) => {
+        // Convert YouTube URL with output directory
+        result = await electronClient.convertYoutube(item.url, {
+          ...item.options,
+          ...options
+        }, (progress) => {
           conversionStatus.setProgress(progress);
         });
       } else if (item.file instanceof File) {
@@ -163,10 +203,13 @@ async function handleElectronConversion(items, apiKey) {
     } 
     // For batch conversion
     else {
-      // Convert batch of files
+      // Convert batch of files with output directory
       const result = await electronClient.convertBatch(
         items.map(item => item.isNative ? item.path : item.file),
-        { batchName: `Batch_${new Date().toISOString().replace(/:/g, '-')}` },
+        { 
+          batchName: `Batch_${new Date().toISOString().replace(/:/g, '-')}`,
+          ...options
+        },
         (progress) => {
           conversionStatus.setProgress(progress);
         },
@@ -205,155 +248,29 @@ async function handleElectronConversion(items, apiKey) {
 }
 
 /**
- * Handles conversion in web environment
+ * Handles conversion in web environment by using Electron's IPC
  * @private
  */
 async function handleWebConversion(items, apiKey) {
-  // Ensure socket connection for web environment
-  if (!socketService.connected) {
-    socketService.connect();
-  }
-
-  // Configure endpoint mapping
-  const getEndpoint = (item) => {
-    if (item.type === 'audio') return '/multimedia/audio';
-    if (item.type === 'video') return '/multimedia/video';
-    if (item.type === 'url') return '/web/url';
-    if (item.type === 'parent') return '/web/parent-url';
-    return '/document/file';
-  };
-
-  // Process items with socket-based progress tracking
-  const results = await client.processItems(items, apiKey, {
-    useBatch: items.length > 1 && !items.every(item => item.type === 'document'),
-    getEndpoint,
-    onProgress: (progress) => {
-      conversionStatus.setProgress(progress);
-    },
-    onItemComplete: (itemId, success, error) => {
-      files.updateFile(itemId, {
-        status: success ? 'completed' : 'error',
-        error: error?.message || null
-      });
+  try {
+    // Use electronClient's file selection
+    conversionStatus.setStatus('selecting_output');
+    const outputResult = await electronClient.selectOutputDirectory();
+    
+    if (!outputResult.success) {
+      conversionStatus.setStatus('cancelled');
+      showFeedback('Conversion cancelled: No output directory selected', 'info');
+      return;
     }
-  });
-
-  // Store job IDs and subscribe to socket updates
-  results.forEach(({ jobId, item }) => {
-    socketService.subscribeToJob(jobId, {
-      onStatus: (data) => {
-        conversionStatus.setStatus(data.status);
-        if (data.currentFile) {
-          conversionStatus.setCurrentFile(data.currentFile);
-        }
-      },
-      onProgress: (data) => {
-        conversionStatus.setProgress(data.progress);
-      },
-      onComplete: (data) => {
-        console.log('✅ Job complete callback received:', data);
-        
-        // Download the file when it's ready
-        if (data.downloadUrl) {
-          // Extract the base domain without the /api/v1 path
-          const baseUrl = CONFIG.API.BASE_URL.replace(/\/api\/v1\/?$/, '');
-          
-          // Ensure the download URL is absolute without duplicating /api/v1
-          const downloadUrl = data.downloadUrl.startsWith('http') 
-            ? data.downloadUrl 
-            : `${baseUrl}${data.downloadUrl}`;
-          
-          console.log('📥 Fetching from download URL:', downloadUrl);
-          
-          fetch(downloadUrl)
-            .then(response => {
-              console.log('📦 Download response received:', {
-                status: response.status,
-                contentType: response.headers.get('Content-Type')
-              });
-              return response.blob();
-            })
-            .then(blob => {
-              console.log('📦 Blob created:', {
-                size: blob.size,
-                type: blob.type
-              });
-              
-              conversionResult.setResult({
-                blob,
-                contentType: blob.type,
-                items: [item]
-              });
-              
-              files.updateFile(item.id, {
-                status: 'completed',
-                downloadUrl: data.downloadUrl
-              });
-              
-              console.log('✅ File status updated to completed');
-            })
-            .catch(error => {
-              console.error('❌ Error downloading file:', error);
-              files.updateFile(item.id, {
-                status: 'error',
-                error: 'Failed to download converted file: ' + error.message
-              });
-            });
-        } else {
-          console.warn('⚠️ No download URL in completion data:', data);
-          
-          // Try to extract download URL from other properties if available
-          const possibleUrl = data.url || data.result?.downloadUrl || data.result?.url;
-          
-          if (possibleUrl) {
-            // Extract the base domain without the /api/v1 path
-            const baseUrl = CONFIG.API.BASE_URL.replace(/\/api\/v1\/?$/, '');
-            
-            // Ensure the alternative URL is absolute without duplicating /api/v1
-            const alternativeUrl = possibleUrl.startsWith('http') 
-              ? possibleUrl 
-              : `${baseUrl}${possibleUrl}`;
-            
-            console.log('🔍 Found alternative download URL:', alternativeUrl);
-            
-            fetch(alternativeUrl)
-              .then(response => response.blob())
-              .then(blob => {
-                conversionResult.setResult({
-                  blob,
-                  contentType: blob.type,
-                  items: [item]
-                });
-                
-                files.updateFile(item.id, {
-                  status: 'completed',
-                  downloadUrl: possibleUrl
-                });
-              })
-              .catch(error => {
-                console.error('❌ Error downloading from alternative URL:', error);
-                files.updateFile(item.id, {
-                  status: 'error',
-                  error: 'Failed to download from alternative URL: ' + error.message
-                });
-              });
-          } else {
-            console.error('❌ No download URL found in completion data');
-            files.updateFile(item.id, {
-              status: 'error',
-              error: 'No download URL provided in completion data'
-            });
-          }
-        }
-      },
-      onError: (error) => {
-        files.updateFile(item.id, {
-          status: 'error',
-          error: error.message
-        });
-      }
-    });
-  });
+    
+    // Use Electron's conversion functionality even in web mode
+    await handleElectronConversion(items, apiKey, outputResult.path);
+  } catch (error) {
+    console.error('Web conversion error:', error);
+    conversionStatus.setError(error.message);
+    conversionStatus.setStatus('error');
+    throw error;
+  }
 }
 
 /**
@@ -410,7 +327,6 @@ export function cancelConversion() {
     electronClient.cancelRequests();
   } else {
     client.cancelRequests();
-    socketService.unsubscribeFromAll();
   }
 
   conversionStatus.setStatus('cancelled');

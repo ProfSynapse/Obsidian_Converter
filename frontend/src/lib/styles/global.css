@@ -14,10 +14,18 @@
 /* ----------------- 1. CSS Variables (Theme) ----------------- */
 :root {
   /* Colors - Interface */
-  --color-prime: #00a99d;
-  --color-second: #93278f;
-  --color-surface: #ffffff;
-  --color-background: #f9f9f9;
+  --color-prime: #00A99D; /* Persian Green */
+  --color-prime-rgb: 0, 169, 157;
+  --color-second: #93278F; /* Dark Purple */
+  --color-second-rgb: 147, 39, 143;
+  --color-third: #33475B; /* Cello */
+  --color-third-rgb: 51, 71, 91;
+  --color-fourth: #F7931E; /* Carrot Orange */
+  --color-fourth-rgb: 247, 147, 30;
+  --color-fifth: #29ABE2; /* Summer Sky */
+  --color-fifth-rgb: 41, 171, 226;
+  --color-surface: #fbf7f1; /* Floral White - our white alternative */
+  --color-background: #fbf7f1; /* Floral White */
   --color-border: rgba(0, 0, 0, 0.1);
 
   /* Colors - Feedback */

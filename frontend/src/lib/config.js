@@ -3,9 +3,6 @@ const ENV = {
     API_BASE_URL: import.meta.env.PROD ? 
         'https://backend-production-6e08.up.railway.app/api/v1' : 
         'http://localhost:3000/api/v1',
-    SOCKET_URL: import.meta.env.PROD ?
-        'https://backend-production-6e08.up.railway.app' :
-        'http://localhost:3000',
     MAX_PAYLOAD_SIZE: 50 * 1024 * 1024, // 50MB
     CORS_ORIGIN: import.meta.env.VITE_CORS_ORIGIN || '*'
 };
@@ -13,38 +10,7 @@ const ENV = {
 // Use Railway's URL in production
 export const API_BASE_URL = import.meta.env.RAILWAY_API_BASE_URL;
 
-export const SOCKET_EVENTS = {
-    // Connection events
-    CONNECT: 'connect',
-    DISCONNECT: 'disconnect',
-    RECONNECT: 'reconnect',
-    
-    // Conversion events
-    CONVERSION_STARTED: 'conversion:started',
-    CONVERSION_PROGRESS: 'conversion:progress',
-    CONVERSION_COMPLETE: 'conversion:complete',
-    CONVERSION_ERROR: 'conversion:error',
-    
-    // Job events
-    JOB_STATUS: 'job:status',
-    JOB_PROGRESS: 'job:progress',
-    JOB_COMPLETE: 'job:complete',
-    JOB_ERROR: 'job:error'
-};
-
 export const CONFIG = {
-    SOCKET: {
-        URL: ENV.SOCKET_URL,
-        OPTIONS: {
-            autoConnect: true,
-            reconnection: true,
-            reconnectionAttempts: 5,
-            reconnectionDelay: 1000,
-            reconnectionDelayMax: 5000,
-            timeout: 20000,
-            transports: ['websocket', 'polling']
-        }
-    },
     API: {
         MAX_RETRIES: 3,
         RETRY_DELAY: 1000,

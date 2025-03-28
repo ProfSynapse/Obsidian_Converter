@@ -322,13 +322,6 @@
     font-size: var(--font-size-sm);
     margin-top: 0;
   }
-
-  @media (prefers-reduced-motion: reduce) {
-    .submit-button:hover:not(:disabled),
-    .clear-button:hover {
-      transform: none;
-    }
-  }
   
   @media (max-width: 640px) {
     .api-key-wrapper {

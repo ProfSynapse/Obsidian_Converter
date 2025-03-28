@@ -204,18 +204,6 @@
           on:filesDropped={(event) => handleFilesAdded(event.detail.files)}
           on:filesSelected={(event) => handleFilesAdded(event.detail.files)}
         />
-        
-        {#if isElectron}
-          <div class="output-directory">
-            <NativeFileSelector
-              label="Select Output Directory"
-              directoryMode={true}
-              on:directorySelected={handleDirectorySelected}
-              buttonVariant="secondary"
-              fullWidth={true}
-            />
-          </div>
-        {/if}
       </div>
       
       {#if $uploadStore.message}
@@ -264,40 +252,15 @@
     opacity: 0.3;
   }
 
-  .native-selectors {
-    display: flex;
-    flex-direction: column;
-    gap: var(--spacing-md);
-    margin-bottom: var(--spacing-md);
-  }
-  
-  .selector-row {
-    display: flex;
-    gap: var(--spacing-md);
-  }
-
   /* Mobile Adjustments */
   @media (max-width: 768px) {
     .uploader-content {
-      gap: var(--spacing-sm);
-    }
-    
-    .native-selectors {
-      gap: var(--spacing-sm);
-    }
-    
-    .selector-row {
-      flex-direction: column;
       gap: var(--spacing-sm);
     }
   }
 
   @media (max-width: 640px) {
     .uploader-content {
-      gap: var(--spacing-xs);
-    }
-    
-    .native-selectors {
       gap: var(--spacing-xs);
     }
   }

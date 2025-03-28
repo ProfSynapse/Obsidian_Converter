@@ -1,10 +1,10 @@
 <!-- src/routes/+page.svelte -->
 
 <script>
-  import ObsidianNoteConverter from '$lib/components/ObsidianNoteConverter.svelte';
+  import CodexMdConverter from '$lib/components/CodexMdConverter.svelte';
 </script>
 
-<ObsidianNoteConverter />
+<CodexMdConverter />
 
 <style>
   /* Add any page-specific */

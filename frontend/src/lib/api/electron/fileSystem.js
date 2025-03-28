@@ -227,6 +227,25 @@ class FileSystemOperations {
         new ConversionError(error.message || 'Failed to delete item');
     }
   }
+
+  /**
+   * Opens a file with the default application
+   * @param {string} path Path to open
+   * @returns {Promise<void>}
+   */
+  async openFile(path) {
+    if (!window.electronAPI) {
+      throw new ConversionError('Cannot open file: Not running in Electron environment');
+    }
+
+    try {
+      await window.electronAPI.openExternal(`file://${path}`);
+    } catch (error) {
+      throw error instanceof ConversionError ? 
+        error : 
+        new ConversionError(error.message || 'Failed to open file');
+    }
+  }
 }
 
 // Create and export singleton instance

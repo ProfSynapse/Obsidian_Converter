@@ -1,109 +1,51 @@
-<!-- src/routes/+layout.svelte -->
 <script>
-  import { onMount } from 'svelte';
+  // Import custom styles
+  import '$lib/styles/global.css';
   import Navigation from '$lib/components/common/Navigation.svelte';
   import OfflineStatusBar from '$lib/components/OfflineStatusBar.svelte';
-  import '$lib/styles/global.css';
-
-  onMount(() => {
-    document.documentElement.style.scrollBehavior = 'smooth';
-  });
 </script>
 
 <svelte:head>
-  <title>mdCodex - Markdown Converter for Obsidian</title>
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-  <meta name="theme-color" content="#00a99d">
-  <link 
-    rel="preload" 
-    href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;500;600;700&display=swap"
-    as="style"
-    on:load={e => {
-      e.target.onload = null;
-      e.target.rel = 'stylesheet';
-    }}
-  >
+  <title>codex.md | Markdown Converter for Obsidian</title>
+  <meta name="description" content="Convert various file types and web content to Markdown format for Obsidian" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="theme-color" content="#13151a" />
+  <meta charset="utf-8" />
+  <link rel="icon" href="/favicon.png" />
 </svelte:head>
 
-<div class="app-shell">
-  <!-- Navigation -->
+<div class="app-layout">
   <Navigation />
   
-  <!-- Offline Status Bar -->
-  <OfflineStatusBar />
-  
-  <!-- Main Content -->
-  <main class="main animate-fade-in">
-    <div class="content-area">
-      <slot />
-    </div>
+  <main>
+    <slot />
   </main>
+  
+  <OfflineStatusBar />
 </div>
 
 <style>
-  /* App Shell */
-  .app-shell {
+  :global(body) {
+    margin: 0;
+    font-family: var(--font-family-base);
+    background-color: var(--color-background);
+    color: var(--color-text);
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  .app-layout {
     display: flex;
     flex-direction: column;
     min-height: 100vh;
-    width: 100%;
-    background: var(--color-surface);
-    padding: var(--spacing-sm);
-    box-sizing: border-box;
-    align-items: center;
-    gap: var(--spacing-sm);
   }
 
-  /* Main Content Area */
-  .main {
+  main {
     flex: 1;
-    position: relative;
-    display: flex;
-    justify-content: center;
-    align-items: flex-start;
-    width: 100%;
-  }
-
-  .content-area {
-    display: flex;
-    flex-direction: column;
-    gap: var(--spacing-md);
-    width: 100%;
-    max-width: var(--content-width-lg);
-    margin: 0 auto;
-  }
-
-  /* Responsive Adjustments */
-  @media (min-width: 1440px) {
-    .app-shell {
-      padding: var(--spacing-md);
-      gap: var(--spacing-md);
-    }
-
-    .content-area {
-      gap: var(--spacing-lg);
-    }
-  }
-
-  @media (max-width: 768px) {
-    .app-shell {
-      padding: var(--spacing-xs);
-      gap: var(--spacing-xs);
-    }
-
-    .content-area {
-      gap: var(--spacing-sm);
-    }
-  }
-
-  @media (max-width: 640px) {
-    .app-shell {
-      padding: var(--spacing-2xs);
-      gap: var(--spacing-2xs);
-    }
-
-    .content-area {
-      gap: var(--spacing-xs);
-    }
+    background-color: var(--color-background);
+    padding: var(--spacing-md);
+    box-sizing: border-box;
+    /* Add padding to account for the offline status bar */
+    padding-bottom: calc(var(--spacing-md) + 36px);
   }
 </style>

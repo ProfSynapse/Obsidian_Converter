@@ -151,3 +151,55 @@ export function ensureError(error) {
   
   return new Error('An unknown error occurred');
 }
+
+/**
+ * ErrorUtils - A collection of utility functions for error handling
+ * 
+ * This object groups all error-related utility functions for easier import
+ * and usage throughout the application.
+ */
+export const ErrorUtils = {
+  /**
+   * Creates a specific error instance based on type
+   */
+  createError: (type, message, options = {}) => createError(type, message, options),
+  
+  /**
+   * Format error for user display
+   */
+  formatError: (error) => formatError(error),
+  
+  /**
+   * Checks if an error is retryable
+   */
+  isRetryable: (error) => isRetryable(error),
+  
+  /**
+   * Helper function to ensure errors are proper Error instances
+   */
+  ensureError: (error) => ensureError(error),
+  
+  /**
+   * Wraps any error in a ConversionError if it isn't already one
+   */
+  wrap: (error) => {
+    if (error instanceof ConversionError) {
+      return error;
+    }
+    
+    if (error instanceof Error) {
+      return new ConversionError(
+        error.message,
+        { 
+          type: 'unknown',
+          details: error.stack
+        }
+      );
+    }
+    
+    return new ConversionError(
+      typeof error === 'string' ? error : 'An unknown error occurred',
+      { type: 'unknown' }
+    );
+  }
+};

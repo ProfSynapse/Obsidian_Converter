@@ -4,6 +4,26 @@
 Transitioning to Phase 4: Desktop Features - Implementing system tray integration, native notifications, file associations, and auto-updates while enhancing frontend components for native file operations and completing the IPC implementation for all conversion types.
 
 ## Recent Changes
+- Fixed Event Handling Error:
+  - Fixed "Cannot destructure property 'type' of 'event.data' as it is undefined" error
+  - Added null/undefined checks in eventHandlers.js for all event handlers
+  - Implemented defensive programming to handle missing event data
+  - Added error logging for undefined data in event handlers
+  - Added a utility method to safely extract data from events
+  - Enhanced the getActiveJobs method to support job cancellation
+
+- Fixed URL Conversion Error:
+  - Fixed "Cannot read properties of undefined (reading 'includes')" error in URL conversion
+  - Added default value for supportedTypes parameter in validateAndNormalizeItem function
+  - Updated function documentation to reflect the optional parameter
+  - Ensured single URL conversion works properly in Electron environment
+
+- Fixed Missing ErrorUtils Export:
+  - Added ErrorUtils object to errors.js to fix import errors
+  - Implemented missing wrap() function for error handling
+  - Fixed SyntaxError in requestHandler.js, converters.js, and client.js
+  - Resolved "The requested module '/src/lib/api/errors.js' does not provide an export named 'ErrorUtils'" error
+
 - Implemented Modular Electron Client Architecture:
   - Refactored electronClient.js into a modular structure in frontend/src/lib/api/electron/
   - Created utils.js for common utility functions like ID generation and URL normalization
@@ -270,3 +290,8 @@ Transitioning to Phase 4: Desktop Features - Implementing system tray integratio
    - ✓ Remove strip functionality
    - ✓ Remove socket connection
    - ✓ Figure out API key input
+   - ✓ Put instruction on own page in help
+   - ✓ Fix and make better styled online indicator status bar
+   - ✓ Fix clickability issues (nothing is currently clickable)
+   - ✓ Add a header and logo
+   - ✓ Fix URL conversion error with modular architecture

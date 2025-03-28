@@ -22,7 +22,7 @@ const statusActions = {
   },
   converting: (state) => {
     conversionStatus.setStatus('converting');
-    if (state.file) {
+    if (state && state.file) {
       conversionStatus.setCurrentFile(state.file);
     }
   },
@@ -33,7 +33,7 @@ const statusActions = {
   },
   error: (state) => {
     conversionStatus.setStatus('error');
-    conversionStatus.setError(state.error || 'Unknown error occurred');
+    conversionStatus.setError((state && state.error) || 'Unknown error occurred');
   },
   cancelled: () => {
     conversionStatus.setStatus('cancelled');
@@ -51,6 +51,23 @@ class EventHandlerManager {
   }
 
   /**
+   * Safely extracts data from an event
+   * @private
+   * @param {Event} event The event object
+   * @returns {Object} The extracted data or an empty object
+   */
+  _safelyExtractData(event) {
+    // Check if event exists and has data property
+    if (!event) return {};
+    
+    // Handle different event data structures
+    if (event.data !== undefined) return event.data;
+    
+    // For direct data passing (second argument in handlers)
+    return {};
+  }
+
+  /**
    * Registers event handlers for a conversion job
    * @param {string} jobId Unique identifier for the conversion job
    * @param {string} fileIdentifier Path or identifier of the file/resource being converted
@@ -61,32 +78,50 @@ class EventHandlerManager {
   registerHandlers(jobId, fileIdentifier, onProgress = null, onItemComplete = null) {
     const handlers = {
       progress: (event, data) => {
+        // Ensure data is defined before accessing properties
+        if (!data) {
+          console.error('Received undefined data in progress event handler');
+          return;
+        }
+        
         if (data.file === fileIdentifier || (data.id && this.activeRequests.has(data.id))) {
           // Update progress
-          conversionStatus.setProgress(data.progress);
+          conversionStatus.setProgress(data.progress || 0);
           if (data.file) {
             conversionStatus.setCurrentFile(data.file);
           }
           
           if (onProgress) {
-            onProgress(data.progress, data);
+            onProgress(data.progress || 0, data);
           }
         }
       },
       
       status: (event, data) => {
-        if (this.activeRequests.has(data.id)) {
-          const action = statusActions[data.status];
+        // Ensure data is defined before accessing properties
+        if (!data) {
+          console.error('Received undefined data in status event handler');
+          return;
+        }
+        
+        if (data.id && this.activeRequests.has(data.id)) {
+          const action = data.status && statusActions[data.status];
           if (action) {
             action(data);
-          } else {
+          } else if (data.status) {
             conversionStatus.setStatus(data.status);
           }
         }
       },
       
       complete: (event, data) => {
-        if (this.activeRequests.has(data.id)) {
+        // Ensure data is defined before accessing properties
+        if (!data) {
+          console.error('Received undefined data in complete event handler');
+          return;
+        }
+        
+        if (data.id && this.activeRequests.has(data.id)) {
           statusActions.completed(data);
           
           if (onItemComplete) {
@@ -99,7 +134,13 @@ class EventHandlerManager {
       },
       
       error: (event, data) => {
-        if (this.activeRequests.has(data.id)) {
+        // Ensure data is defined before accessing properties
+        if (!data) {
+          console.error('Received undefined data in error event handler');
+          return;
+        }
+        
+        if (data.id && this.activeRequests.has(data.id)) {
           statusActions.error(data);
           
           this.removeHandlers(data.id);
@@ -174,6 +215,14 @@ class EventHandlerManager {
    */
   isActive(jobId) {
     return this.activeRequests.has(jobId);
+  }
+  
+  /**
+   * Gets all active job IDs
+   * @returns {Array<string>} Array of active job IDs
+   */
+  getActiveJobs() {
+    return Array.from(this.activeRequests.keys());
   }
 }
 

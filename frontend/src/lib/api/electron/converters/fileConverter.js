@@ -46,8 +46,21 @@ export async function convertFile(filePath, options = {}, onProgress = null) {
     // Register event handlers
     eventHandlerManager.registerHandlers(jobId, filePath, onProgress);
 
+    // Log options for debugging
+    console.log('File conversion options:', {
+      filePath,
+      outputDir: options.outputDir,
+      createSubdirectory: options.createSubdirectory
+    });
+    
     // Call the IPC method
     const result = await window.electronAPI.convertFile(filePath, options);
+    
+    // Log result for debugging
+    console.log('File conversion result:', {
+      success: result.success,
+      outputPath: result.outputPath
+    });
 
     // Check for errors
     if (!result.success) {
@@ -114,8 +127,21 @@ export async function convertBatch(filePaths, options = {}, onProgress = null, o
       batchName: options.batchName || `Batch_${new Date().toISOString().replace(/:/g, '-')}`
     };
 
+    // Log options for debugging
+    console.log('Batch conversion options:', {
+      fileCount: filePaths.length,
+      outputDir: options.outputDir,
+      createSubdirectory: options.createSubdirectory
+    });
+    
     // Call the IPC method
     const result = await window.electronAPI.convertBatch(filePaths, batchOptions);
+    
+    // Log result for debugging
+    console.log('Batch conversion result:', {
+      success: result.success,
+      outputPath: result.outputPath
+    });
 
     // Check for errors
     if (!result.success) {

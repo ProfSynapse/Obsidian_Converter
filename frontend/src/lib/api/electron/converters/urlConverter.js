@@ -45,18 +45,43 @@ export async function convertUrl(url, options = {}, onProgress = null) {
     // Register event handlers
     eventHandlerManager.registerHandlers(jobId, normalizedUrl, onProgress);
 
-    // Prepare request data
+    // Prepare request data with enhanced options for better content extraction
     const requestData = {
       url: normalizedUrl,
       options: {
         includeImages: true,
         includeMeta: true,
+        handleDynamicContent: true, // Enable dynamic content handling for SPAs
+        // Enhanced options for better content extraction
+        got: {
+          timeout: {
+            request: 45000,
+            response: 45000
+          },
+          retry: {
+            limit: 5,
+            statusCodes: [408, 413, 429, 500, 502, 503, 504, 520, 521, 522, 523, 524]
+          }
+        },
         ...options
       }
     };
+    
+    // Log options for debugging
+    console.log('URL conversion options:', {
+      url: normalizedUrl,
+      outputDir: options.outputDir,
+      createSubdirectory: options.createSubdirectory
+    });
 
     // Call the IPC method
     const result = await window.electronAPI.convertUrl(normalizedUrl, requestData.options);
+    
+    // Log result for debugging
+    console.log('URL conversion result:', {
+      success: result.success,
+      outputPath: result.outputPath
+    });
 
     // Check for errors
     if (!result.success) {
@@ -104,20 +129,48 @@ export async function convertParentUrl(url, options = {}, onProgress = null) {
     // Register event handlers
     eventHandlerManager.registerHandlers(jobId, normalizedUrl, onProgress);
 
-    // Prepare request data
+    // Prepare request data with enhanced options for better content extraction
     const requestData = {
       url: normalizedUrl,
       options: {
         includeImages: true,
         includeMeta: true,
-        depth: options.depth || 1,
-        maxPages: options.maxPages || 10,
+        handleDynamicContent: true, // Enable dynamic content handling for SPAs
+        // Default crawling parameters
+        concurrentLimit: 30, // Limit concurrent requests to avoid overwhelming the server
+        waitBetweenRequests: 500, // Add a small delay between requests to be more respectful
+        maxDepth: options.depth || 2, // Default to depth 2 for better content coverage
+        maxPages: options.maxPages || 50, // Default to 50 pages for better content coverage
+        // Enhanced options for better content extraction
+        got: {
+          timeout: {
+            request: 45000,
+            response: 45000
+          },
+          retry: {
+            limit: 5,
+            statusCodes: [408, 413, 429, 500, 502, 503, 504, 520, 521, 522, 523, 524]
+          }
+        },
         ...options
       }
     };
+    
+    // Log options for debugging
+    console.log('Parent URL conversion options:', {
+      url: normalizedUrl,
+      outputDir: options.outputDir,
+      createSubdirectory: options.createSubdirectory
+    });
 
     // Call the IPC method
     const result = await window.electronAPI.convertParentUrl(normalizedUrl, requestData.options);
+    
+    // Log result for debugging
+    console.log('Parent URL conversion result:', {
+      success: result.success,
+      outputPath: result.outputPath
+    });
 
     // Check for errors
     if (!result.success) {
@@ -171,6 +224,7 @@ export async function convertYoutube(url, options = {}, onProgress = null) {
       options: {
         includeImages: true,
         includeMeta: true,
+        handleDynamicContent: true, // Enable dynamic content handling for SPAs
         ...options
       }
     };

@@ -1,10 +1,23 @@
-// services/converter/web/parentUrlConverter.js
+/**
+ * Parent URL Converter Module
+ * 
+ * This module provides functionality for converting entire websites to Markdown.
+ * It handles crawling multiple pages and converting them to Markdown.
+ * 
+ * Related files:
+ * - ./urlConverter.js: Single URL converter
+ * - ./utils/config.js: Configuration settings
+ * - ./utils/spaHandler.js: SPA detection and handling
+ * - ./utils/contentExtractor.js: Content extraction logic
+ * - ./utils/htmlToMarkdown.js: HTML to Markdown conversion
+ */
 
 import got from 'got';
 import pLimit from 'p-limit';
 import * as cheerio from 'cheerio';
 import { convertUrlToMarkdown } from './urlConverter.js';
 import { AppError } from '../../../utils/errorHandler.js';
+import { DEFAULT_PARENT_URL_CONVERTER_OPTIONS } from './utils/config.js';
 
 /**
  * Configuration for URL conversion
@@ -14,88 +27,50 @@ const CONFIG = {
   validProtocols: ['http:', 'https:'],
   excludePatterns: [
     // Assets to exclude
-    /\.(css|js|woff|woff2|ttf|eot)$/i,
-    /\.(mp3|mp4|wav|avi|mov|wmv|flv|ogg|webm)$/i, // Media files
+    /\.(css|js|woff|woff2|ttf|eot|svg|ico|gif|png|jpg|jpeg|webp)$/i,
+    /\.(mp3|mp4|wav|avi|mov|wmv|flv|ogg|webm|m4a|m4v)$/i, // Media files
     
     // Documents and archives
-    /\.(pdf|zip|doc|docx|xls|xlsx|ppt|pptx|rar|7z)$/i,
+    /\.(pdf|zip|doc|docx|xls|xlsx|ppt|pptx|rar|7z|tar|gz|bz2)$/i,
     
     // Tracking and analytics
-    /\?(utm_|source=|campaign=|ref=|fbclid=|gclid=)/i,
-    /\/(analytics|tracking|pixel|beacon|ad)\//i,
-    /\.(analytics|tracking)\./i,
-    /\b(ga|gtm|pixel|fb)\b/i,
+    /\?(utm_|source=|campaign=|ref=|fbclid=|gclid=|dclid=|cid=|yclid=)/i,
+    /\/(analytics|tracking|pixel|beacon|ad|stats|counter)\//i,
+    /\.(analytics|tracking|stats)\./i,
+    /\b(ga|gtm|pixel|fb|adsense|doubleclick)\b/i,
     
     // System and utility
     /#.*/,  // Anchors
-    /^(mailto:|tel:|javascript:|data:)/i,  // Protocols
-    /\/(api|feed|rss|auth|login|signup|sitemap|robots\.txt)/i,  // System paths
-    /\/(cart|checkout|account|profile|settings)/i,  // User pages
-    /\/(search|tags?|categories)/i,  // Navigation
-    /\/(wp-admin|wp-content|wp-includes)/i,  // CMS
-    /\/(cdn-cgi|__webpack|_next|static)\//i,  // Infrastructure
+    /^(mailto:|tel:|javascript:|data:|file:|blob:)/i,  // Protocols
+    /\/(api|feed|rss|atom|json|xml|auth|login|signup|sitemap|robots\.txt)/i,  // System paths
+    /\/(cart|checkout|account|profile|settings|dashboard|admin|wp-admin)/i,  // User/admin pages
+    /\/(search|tags?|categories|archive|author|date|page\/\d+)/i,  // Navigation and pagination
+    /\/(wp-admin|wp-content|wp-includes|wp-json|wp-login)/i,  // WordPress
+    /\/(cdn-cgi|__webpack|_next|static|assets|dist|build|node_modules)\//i,  // Infrastructure
     
     // Dynamic and temporary
-    /\?.*(?:session|token|nonce|timestamp)=/i,
-    /\/\d{4}\/\d{2}\/\d{2}\//  // Date-based URLs
+    /\?.*(?:session|token|nonce|timestamp|cache|nocache|random|_=\d+)=/i,
+    /\/\d{4}\/\d{2}\/\d{2}\//,  // Date-based URLs
+    
+    // Social media and sharing
+    /\/(?:share|tweet|pin|like|follow|subscribe|comment)/i,
+    
+    // E-commerce specific
+    /\/(?:add-to-cart|wishlist|favorites|compare|product-comparison)/i,
+    
+    // Specific file types that might be linked but aren't content
+    /\.(exe|dmg|pkg|deb|rpm|apk|ipa|jar|war|ear|class|dll|so|lib)$/i,
+    
+    // Internationalization and localization
+    /\/(?:translate|language|locale|region|country|timezone)/i,
+    
+    // Print and view modes
+    /\/(?:print|print-view|printer-friendly|mobile-view|amp)/i,
+    
+    // Authentication and security
+    /\/(?:verify|confirm|activate|reset-password|forgot-password|unsubscribe)/i
   ],
-  http: {
-    headers: {
-      'accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,text/xml;q=0.8,*/*;q=0.7',
-      'accept-encoding': 'gzip, deflate, br',
-      'accept-language': 'en-US,en;q=0.9',
-      'cache-control': 'no-cache',
-      'pragma': 'no-cache',
-      'sec-fetch-dest': 'document',
-      'sec-fetch-mode': 'navigate',
-      'sec-fetch-site': 'same-origin',
-      'sec-fetch-user': '?1',
-      'upgrade-insecure-requests': '1',
-      'user-agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
-    },
-    decompress: true,
-    responseType: 'text',
-    dynamicContentWait: 2000, // Wait time in ms for dynamic content
-    timeout: {
-      request: 30000,
-      response: 30000
-    },
-    preflight: {
-      timeout: 5000,    // Quick check timeout
-      maxRetries: 2     // Limited retries for preflight
-    },
-    retry: {
-      limit: 3,
-      methods: ['GET', 'HEAD'],
-      statusCodes: [408, 413, 429, 500, 502, 503, 504],
-      errorCodes: [
-        'ETIMEDOUT',
-        'ECONNRESET',
-        'EADDRINUSE',
-        'ECONNREFUSED',
-        'EPIPE',
-        'ENOTFOUND',
-        'ENETUNREACH',
-        'EAI_AGAIN'
-      ],
-      calculateDelay: ({retryCount}) => retryCount * 1000,
-      maxRetryAfter: 60000 // Maximum value for retry-after header
-    },
-    spa: {
-      selectors: [
-        '[data-router-view]',   // Common SPA view containers
-        '[data-view]',
-        '[ng-view]',
-        '[ui-view]',
-        '[v-cloak]',           // Vue.js
-        '[data-reactroot]',    // React
-        '[ng-app]',            // Angular
-        '.nuxt-content',       // Nuxt.js
-        '.gatsby-content'      // Gatsby
-      ],
-      navigationTimeout: 5000
-    }
-  }
+  http: DEFAULT_PARENT_URL_CONVERTER_OPTIONS.http
 };
 
 /**
@@ -110,25 +85,90 @@ class UrlFinder {
     try {
       console.log(`🔍 Finding child pages for: ${parentUrl}`);
       
-      const response = await got(parentUrl, {
+      // Create a clean options object for got
+      const gotOptions = {
         retry: {
-          limit: 3,
-          statusCodes: [408, 413, 429, 500, 502, 503, 504],
+          limit: 5,
+          statusCodes: [408, 413, 429, 500, 502, 503, 504, 520, 521, 522, 523, 524],
           methods: ['GET'],
-          calculateDelay: ({retryCount}) => retryCount * 1000
+          calculateDelay: ({retryCount}) => retryCount * 1500
         },
         timeout: {
-          request: 30000,
-          response: 30000
+          request: 45000,
+          response: 45000
         },
-        headers: CONFIG.http.headers,
+        headers: {
+          ...CONFIG.http.headers,
+          'Cache-Control': 'no-cache, max-age=0',
+          'Pragma': 'no-cache'
+        },
         throwHttpErrors: false,
         followRedirect: true,
         decompress: true,
         responseType: 'text'
-      });
+      };
+      
+      // Enhanced SPA detection and handling
+      const isSPA = await this.detectSPA(parentUrl, gotOptions);
+      
+      // Fetch the page with appropriate options
+      let response;
+      let bestResponse = null;
+      let bestContentScore = 0;
+      
+      // Always try multiple wait times to get the best content
+      const waitTimes = isSPA ? [1000, 3000, 5000, 8000] : [0, 2000, 4000];
+      
+      for (const waitTime of waitTimes) {
+        try {
+          console.log(`⏱️ Trying with ${waitTime}ms delay...`);
+          
+          // Create options with delay
+          const fetchOptions = { 
+            ...gotOptions,
+            headers: {
+              ...gotOptions.headers,
+              // Add a random query parameter to avoid caching
+              'Cookie': `nocache=${Date.now()}`
+            },
+            timeout: {
+              request: waitTime + 15000,
+              response: waitTime + 15000
+            },
+            // Add a random query parameter to avoid caching
+            searchParams: {
+              '_': Date.now()
+            }
+          };
+          
+          // Add a delay if needed
+          if (waitTime > 0) {
+            await new Promise(resolve => setTimeout(resolve, waitTime));
+          }
+          
+          const tempResponse = await got(parentUrl, fetchOptions);
+          
+          // Score the content quality
+          const contentScore = this.scoreUrlDiscoveryContent(tempResponse.body);
+          console.log(`📊 Content score for ${waitTime}ms delay: ${contentScore}`);
+          
+          // Keep the response with the highest content score
+          if (!bestResponse || contentScore > bestContentScore) {
+            bestResponse = tempResponse;
+            bestContentScore = contentScore;
+          }
+        } catch (e) {
+          console.log(`⚠️ Error with ${waitTime}ms delay: ${e.message}`);
+        }
+      }
+      
+      response = bestResponse || await got(parentUrl, gotOptions);
+      
+      if (!response || !response.body) {
+        throw new AppError(`Failed to load parent URL: No valid response`, 400);
+      }
 
-      if (!response.ok) {
+      if (response.statusCode >= 400) {
         throw new AppError(`Failed to load parent URL: ${response.statusCode}`, 400);
       }
 
@@ -137,62 +177,294 @@ class UrlFinder {
       const chunks = [];
       let currentChunk = [];
       
+      // Track URL priorities (higher = more important)
+      const urlPriorities = new Map();
+      
+      // Track URL metadata for better prioritization
+      const urlMetadata = new Map();
+      
+      // First pass: collect all URLs and their metadata
+      console.log(`🔍 First pass: collecting all URLs and metadata...`);
+      
       // Find all <a> tags with href
       $('a[href]').each((_, element) => {
         try {
           let href = $(element).attr('href');
           
+          // Skip empty hrefs
+          if (!href || href === '#' || href === '/') {
+            return;
+          }
+          
           // Clean and normalize URL
           href = href.trim()
             .replace(/[\n\r\t]/g, '')
-            .split('#')[0]
-            .split('?')[0];
-
+            .split('#')[0]; // Remove hash
+          
           // Skip invalid protocols
-          if (href.match(/^(mailto:|tel:|javascript:|data:)/i)) {
+          if (href.match(/^(mailto:|tel:|javascript:|data:|file:|blob:)/i)) {
             return;
           }
 
           // Convert to absolute URL
           const absoluteUrl = new URL(href, parentUrl).href;
           const urlObj = new URL(absoluteUrl);
-
-          // Only include URLs from same domain and not excluded
-          if (urlObj.hostname === parentUrlObj.hostname &&
-              !CONFIG.excludePatterns.some(pattern => pattern.test(absoluteUrl))) {
-            if (!this.childUrls.has(absoluteUrl)) {
-              this.childUrls.add(absoluteUrl);
-              currentChunk.push(absoluteUrl);
-              
-              // When chunk is full, add it to chunks and start a new one
-              if (currentChunk.length >= chunkSize) {
-                console.log(`📦 Creating chunk of ${currentChunk.length} URLs`);
-                chunks.push([...currentChunk]);
-                currentChunk = [];
-                
-                // Force garbage collection if available
-                if (global.gc) {
-                  console.log('🧹 Running garbage collection after chunk');
-                  global.gc();
-                }
-              }
-            }
+          
+          // Only process URLs from same domain
+          if (urlObj.hostname !== parentUrlObj.hostname) {
+            return;
           }
+          
+          // Skip excluded patterns
+          if (CONFIG.excludePatterns.some(pattern => pattern.test(absoluteUrl))) {
+            return;
+          }
+          
+          // Remove query parameters for deduplication
+          const normalizedUrl = absoluteUrl.split('?')[0];
+          
+          // Skip if already processed
+          if (this.childUrls.has(normalizedUrl)) {
+            return;
+          }
+          
+          // Add to our set of discovered URLs
+          this.childUrls.add(normalizedUrl);
+          
+          // Collect metadata about this URL
+          const $element = $(element);
+          const linkText = $element.text().trim();
+          const isInNavigation = $element.closest('nav, .nav, .menu, .navigation, header, .header').length > 0;
+          const isInMain = $element.closest('main, article, .content, #content, .post, .entry').length > 0;
+          const isInSidebar = $element.closest('aside, .sidebar, .widget, .supplementary').length > 0;
+          const isInFooter = $element.closest('footer, .footer').length > 0;
+          const hasImage = $element.find('img').length > 0;
+          const hasIcon = $element.find('i, svg, .icon').length > 0;
+          const pathDepth = urlObj.pathname.split('/').filter(Boolean).length;
+          const queryParams = urlObj.search ? urlObj.search.split('&').length : 0;
+          const isPagination = /\/page\/\d+|[?&]page=\d+|[?&]p=\d+|[?&]offset=|[?&]limit=|[?&]start=/.test(absoluteUrl);
+          const isArchive = /\/archive|\/category|\/tag|\/author|\/date|\/\d{4}\/\d{2}/.test(urlObj.pathname);
+          
+          // Store metadata
+          urlMetadata.set(normalizedUrl, {
+            url: normalizedUrl,
+            linkText,
+            isInNavigation,
+            isInMain,
+            isInSidebar,
+            isInFooter,
+            hasImage,
+            hasIcon,
+            pathDepth,
+            queryParams,
+            isPagination,
+            isArchive
+          });
         } catch (error) {
           console.log(`⚠️ Skipping invalid URL: ${error.message}`);
         }
       });
+      
+      // Second pass: calculate priorities and organize into chunks
+      console.log(`🔍 Second pass: calculating priorities for ${urlMetadata.size} URLs...`);
+      
+      // Process all collected URLs
+      for (const [url, metadata] of urlMetadata.entries()) {
+        try {
+          // Calculate URL priority based on various factors
+          let priority = 0;
+          
+          // Content location factors
+          if (metadata.isInMain) priority += 30;
+          if (metadata.isInNavigation) priority += 20;
+          if (metadata.isInSidebar) priority -= 10;
+          if (metadata.isInFooter) priority -= 15;
+          
+          // URL structure factors
+          priority -= metadata.pathDepth * 5;
+          priority -= metadata.queryParams * 8;
+          
+          // Link appearance factors
+          if (metadata.linkText && metadata.linkText.length > 3) priority += 10;
+          if (metadata.hasImage) priority += 5;
+          if (metadata.hasIcon) priority -= 5;
+          
+          // Content type factors
+          if (metadata.isPagination) priority -= 20;
+          if (metadata.isArchive) priority -= 15;
+          
+          // Special case for index/home page
+          const urlObj = new URL(url);
+          if (urlObj.pathname === '/' || urlObj.pathname === '/index.html') {
+            priority += 50;
+          }
+          
+          // Special case for important content pages
+          if (/\/about|\/contact|\/faq|\/help|\/support|\/guide|\/tutorial|\/docs|\/documentation/.test(urlObj.pathname)) {
+            priority += 40;
+          }
+          
+          // Store the URL with its priority
+          urlPriorities.set(url, priority);
+          
+          // Add to current chunk
+          currentChunk.push(url);
+          
+          // When chunk is full, add it to chunks and start a new one
+          if (currentChunk.length >= chunkSize) {
+            // Sort URLs by priority before creating chunk
+            currentChunk.sort((a, b) => (urlPriorities.get(b) || 0) - (urlPriorities.get(a) || 0));
+            
+            console.log(`📦 Creating chunk of ${currentChunk.length} URLs`);
+            chunks.push([...currentChunk]);
+            currentChunk = [];
+            
+            // Force garbage collection if available
+            if (global.gc) {
+              console.log('🧹 Running garbage collection after chunk');
+              global.gc();
+            }
+          }
+        } catch (error) {
+          console.log(`⚠️ Error processing URL ${url}: ${error.message}`);
+        }
+      }
 
       // Add any remaining URLs as the final chunk
       if (currentChunk.length > 0) {
+        // Sort URLs by priority
+        currentChunk.sort((a, b) => (urlPriorities.get(b) || 0) - (urlPriorities.get(a) || 0));
+        
         console.log(`📦 Creating final chunk of ${currentChunk.length} URLs`);
         chunks.push([...currentChunk]);
       }
+
+      // Log the top 10 URLs by priority for debugging
+      const topUrls = Array.from(urlPriorities.entries())
+        .sort((a, b) => b[1] - a[1])
+        .slice(0, 10);
+      
+      console.log(`🔝 Top 10 URLs by priority:`);
+      topUrls.forEach(([url, priority]) => {
+        console.log(`   ${priority}: ${url}`);
+      });
 
       console.log(`✅ Found total of ${this.childUrls.size} child pages in ${chunks.length} chunks`);
       return chunks;
     } catch (error) {
       throw new AppError(`Failed to find child pages: ${error.message}`, 500);
+    }
+  }
+  
+  /**
+   * Score HTML content for URL discovery quality
+   * @param {string} html - The HTML content to score
+   * @returns {number} - A quality score (higher is better)
+   */
+  scoreUrlDiscoveryContent(html) {
+    if (!html) return 0;
+    
+    try {
+      const $ = cheerio.load(html);
+      
+      // Count links
+      const linkCount = $('a[href]').length;
+      
+      // Count links with text
+      const linksWithText = $('a[href]').filter(function() {
+        return $(this).text().trim().length > 0;
+      }).length;
+      
+      // Count links in navigation
+      const navLinks = $('nav a[href], header a[href], .navigation a[href], .menu a[href]').length;
+      
+      // Count links in main content
+      const contentLinks = $('main a[href], article a[href], .content a[href], #content a[href]').length;
+      
+      // Count links with images
+      const linksWithImages = $('a[href] img').length;
+      
+      // Calculate final score
+      const score = linkCount * 2 + 
+                   linksWithText * 3 + 
+                   navLinks * 5 + 
+                   contentLinks * 10 + 
+                   linksWithImages * 3;
+      
+      return score;
+    } catch (error) {
+      console.error('Error scoring HTML content for URL discovery:', error);
+      return 0;
+    }
+  }
+  
+  /**
+   * Detects if a URL is likely a Single Page Application
+   * @param {string} url - The URL to check
+   * @param {Object} options - Request options
+   * @returns {Promise<boolean>} - True if the URL is likely an SPA
+   */
+  async detectSPA(url, options) {
+    try {
+      // Do a quick HEAD request first
+      const headResponse = await got.head(url, {
+        ...options,
+        timeout: {
+          request: 5000,
+          response: 5000
+        }
+      });
+      
+      // Check content type - we only care about HTML
+      const contentType = headResponse.headers['content-type'] || '';
+      if (!contentType.includes('text/html')) {
+        return false;
+      }
+      
+      // Do a GET request to check the content
+      const response = await got(url, {
+        ...options,
+        timeout: {
+          request: 10000,
+          response: 10000
+        }
+      });
+      
+      // Check for SPA indicators in the HTML
+      const spaIndicators = [
+        // Framework root elements
+        /<div[^>]*(?:id=['"]app['"]|id=['"]root['"])/i,
+        /<div[^>]*(?:data-reactroot|data-react-app)/i,
+        /<div[^>]*(?:ng-app|ng-controller|ng-view)/i,
+        /<div[^>]*(?:v-app|data-v-|vue-app)/i,
+        /<div[^>]*(?:data-svelte|svelte-app)/i,
+        
+        // Framework scripts
+        /<script[^>]*(?:react|vue|angular|svelte|next|nuxt|gatsby)/i,
+        
+        // Common SPA patterns
+        /<div[^>]*(?:router-view|ui-view|page-view)/i,
+        /<div[^>]*(?:data-router|data-page|data-view)/i,
+        
+        // Empty content containers that will be filled by JS
+        /<div[^>]*(?:id=['"]content['"]|class=['"]content['"])[^>]*>\s*<\/div>/i,
+        /<div[^>]*(?:id=['"]main['"]|class=['"]main['"])[^>]*>\s*<\/div>/i,
+        
+        // Loading indicators
+        /<div[^>]*(?:loading|spinner|skeleton)/i
+      ];
+      
+      // Check if any SPA indicators are present
+      const isSPA = spaIndicators.some(pattern => pattern.test(response.body));
+      
+      // Also check if the page has minimal content but lots of scripts
+      const hasMinimalContent = response.body.length < 20000 && 
+                               (response.body.match(/<script/g) || []).length > 5;
+      
+      return isSPA || hasMinimalContent;
+    } catch (error) {
+      console.log(`⚠️ Error detecting SPA: ${error.message}`);
+      return false;
     }
   }
 }
@@ -210,11 +482,15 @@ class UrlProcessor {
 
     for (const url of urls) {
       try {
+        // Extract handleDynamicContent from options to avoid passing it directly to got
+        const { handleDynamicContent, ...filteredOptions } = options;
+        
         // Create clean options object for URL conversion
         const conversionOptions = {
-          ...options,
+          ...filteredOptions,
           includeImages: true,
           includeMeta: true,
+          handleDynamicContent: handleDynamicContent !== false, // Preserve this option for SPA handling
           got: {
             retry: CONFIG.http.retry,
             timeout: CONFIG.http.timeout,

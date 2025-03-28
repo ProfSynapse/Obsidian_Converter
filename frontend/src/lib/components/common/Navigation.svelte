@@ -55,7 +55,7 @@
     justify-content: space-between;
     align-items: center;
     width: 100%;
-    padding: 1rem;
+    padding: 1.25rem;
     background: var(--color-surface);
     border-bottom: 1px solid var(--color-border);
   }
@@ -63,17 +63,20 @@
   .nav-brand {
     display: flex;
     align-items: center;
+    padding: 0.5rem;
+    border-radius: var(--rounded-md);
+    transition: transform 0.3s ease;
+  }
+  
+  .nav-brand:hover {
+    transform: translateY(-1px);
   }
   
   .brand-link {
     text-decoration: none;
     display: flex;
     align-items: center;
-    transition: transform 0.2s ease;
-  }
-  
-  .brand-link:hover {
-    transform: scale(1.05);
+    padding: 0.25rem 0.5rem;
   }
   
   .nav-links {

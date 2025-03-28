@@ -11,8 +11,8 @@ export const files = createFilesStore();
 // Clear any stored files data on page load
 if (browser) {
     // Clear any stored files data
-    localStorage.removeItem('obsidian_converter_files');
-    sessionStorage.removeItem('obsidian_converter_files');
+    localStorage.removeItem('codex_md_files');
+    sessionStorage.removeItem('codex_md_files');
 }
 export const currentFileType = derived(files, $files => {
     const activeFile = $files[0];
@@ -127,8 +127,8 @@ function createFilesStore() {
             set([]); // Clear the store
             if (browser) {
                 // Clear any stored data
-                localStorage.removeItem('obsidian_converter_files');
-                sessionStorage.removeItem('obsidian_converter_files');
+                localStorage.removeItem('codex_md_files');
+                sessionStorage.removeItem('codex_md_files');
             }
         };
     });
@@ -358,8 +358,8 @@ function createFilesStore() {
             let count = 0;
             if (browser) {
                 // Clear any stored data
-                localStorage.removeItem('obsidian_converter_files');
-                sessionStorage.removeItem('obsidian_converter_files');
+                localStorage.removeItem('codex_md_files');
+                sessionStorage.removeItem('codex_md_files');
             }
             return updateFiles(files => {
                 count = files.length;
