@@ -2,69 +2,117 @@
 
 ## Technologies Used
 1. **Core Framework & Runtime**
+   - Electron (latest LTS)
    - Node.js (>=14.0.0)
-   - Express.js
+   - Svelte (frontend)
 
-2. **File Processing Libraries**
+2. **Electron Core**
+   - electron-builder: Application packaging
+   - electron-updater: Auto-updates
+   - electron-store: Local storage
+   - electron-log: Application logging
+
+3. **File Processing Libraries**
    - @bundled-es-modules/pdfjs-dist: PDF processing
    - mammoth: DOCX processing
    - csv-parse: CSV processing
    - office-text-extractor: Office document handling
    - fluent-ffmpeg: Audio/video processing
-   - youtube-transcript: YouTube transcription
+   - youtube-transcript: YouTube transcription (online only)
 
-3. **Utility Libraries**
-   - archiver: ZIP file creation
-   - jszip: ZIP file handling
-   - turndown: HTML to Markdown conversion
+4. **File System Libraries**
+   - fs-extra: Enhanced file system operations
+   - proper-lockfile: File locking for concurrent access
+   - folder-hash: Directory integrity checking
+   - sanitize-filename: Safe file name creation
    - file-type: File type detection
-   - multer: File upload handling
-   - puppeteer: Web page rendering and scraping
+   - electron-store: Encrypted storage for settings and API keys
 
-4. **Security & Middleware**
-   - helmet: Security headers
-   - cors: Cross-origin resource sharing
-   - express-validator: Request validation
-   - dotenv: Environment variable management
+5. **Security Libraries**
+   - crypto-js: Encryption for sensitive data
+   - keytar: System keychain integration
+   - node-machine-id: Machine-specific encryption
+   - secure-electron-store: Secure configuration storage
+
+5. **Utility Libraries**
+   - turndown: HTML to Markdown conversion
+   - node-ipc: Inter-process communication
+   - electron-context-menu: Native context menus
+   - electron-log: Advanced logging
+   - electron-dl: Download management (web content only)
 
 5. **Development Tools**
-   - Babel: JavaScript transpilation
+   - Vite: Build tooling
    - ESLint: Code linting
-   - nodemon: Development server
-   - husky: Git hooks
+   - electron-devtools-installer: DevTools
+   - electron-reloader: Development reloading
+   - TypeScript: Type checking
 
 ## Development Setup
 1. **Prerequisites**
    - Node.js >= 14.0.0
    - NPM or equivalent package manager
+   - Electron development dependencies
 
-2. **Environment Variables**
-   - PORT: Server port (default: 3000)
-   - RAILWAY_ENVIRONMENT: Deployment environment
-   - API keys for protected services
-
-3. **Installation**
+2. **Installation**
    ```bash
    npm install
    ```
 
-4. **Development Server**
+3. **Development Commands**
    ```bash
-   npm start
+   # Start development mode
+   npm run dev
+   
+   # Build for production
+   npm run build
+   
+   # Package application
+   npm run package
    ```
 
-## Technical Constraints
-1. **File Processing**
-   - File size limits based on configuration
-   - Specific file type support
-   - Memory constraints for large files
+## Technical Considerations
+1. **File System Integration**
+   - Native file system access with fs-extra
+   - Atomic file operations for reliability
+   - Structured folder organization
+   - File locking for concurrent access
+   - Watch patterns for file changes
+   - Robust error handling
+   - Output path management
+   - File permission handling
 
-2. **API Limitations**
-   - Rate limiting for API endpoints
-   - Authentication required for certain operations
-   - CORS restrictions
+2. **IPC Communication**
+   - Context isolation for security
+   - Preload scripts configuration
+   - Renderer process limitations
+   - Main process API design
 
-3. **Deployment**
-   - Railway.app deployment configuration
-   - Environment-specific settings
-   - Resource limitations based on hosting
+3. **Desktop Integration**
+   - Auto-launch capabilities
+   - System tray integration
+   - Native notifications
+   - Protocol handlers
+
+4. **Application Updates**
+   - Auto-update mechanism
+   - Version management
+   - Update notifications
+   - Rollback handling
+
+5. **API Integration**
+   - OpenAI Whisper API client
+   - API key management system
+   - Usage tracking and monitoring
+   - Offline capability detection
+   - Rate limiting implementation
+   - Error handling and retry logic
+
+6. **File Management**
+   - Batch processing coordination
+   - Asset folder organization
+   - File naming conventions
+   - Path normalization
+   - Concurrent write handling
+   - Temporary file cleanup
+   - Error recovery procedures
