@@ -7,7 +7,7 @@
  * 
  * Related files:
  * - frontend/src/lib/api/client.js: HTTP API client
- * - frontend/src/lib/api/electronClient.js: Electron IPC client
+ * - frontend/src/lib/api/electron: Electron IPC client modules
  * - frontend/src/lib/stores/conversionResult.js: Stores conversion results
  * - frontend/src/lib/components/ResultDisplay.svelte: Displays conversion results
  */
@@ -16,12 +16,13 @@ import { get } from 'svelte/store';
 import { files } from '$lib/stores/files.js';
 import { apiKey } from '$lib/stores/apiKey.js';
 import { conversionStatus } from '$lib/stores/conversionStatus.js';
-import client, { ConversionError } from '$lib/api/client.js';
-import electronClient from '$lib/api/electronClient.js';
+import client from '$lib/api/client.js';
+import electronClient from '$lib/api/electron';
 import socketService from '$lib/services/socket.js';
 import FileSaver from 'file-saver';
 import { CONFIG } from '$lib/config'; 
 import { conversionResult } from '$lib/stores/conversionResult.js';
+import { validateAndNormalizeItem } from '$lib/api/electron';
 
 // Check if we're running in Electron
 const isElectron = typeof window !== 'undefined' && 
@@ -40,110 +41,15 @@ function readFileAsBase64(file) {
 }
 
 /**
- * Prepares a single item for conversion
- */
-async function prepareItem(item) {
-  try {
-    if (!item.id || !item.name) {
-      throw ConversionError.validation(`Item ${item.name} is missing required properties`);
-    }
-
-    const baseItem = {
-      id: item.id,
-      name: item.name,
-      options: {
-        includeImages: true,
-        includeMeta: true,
-        convertLinks: true
-      }
-    };
-
-    // Handle File type
-    if (item.file instanceof File) {
-      const fileExt = item.name.split('.').pop().toLowerCase();
-      const type = determineFileType(fileExt);
-      
-      // File size validation
-      if (item.file.size > CONFIG.CONVERSION.FILE_SIZE_LIMIT) {
-        throw ConversionError.validation(
-          `File size exceeds limit of ${CONFIG.CONVERSION.FILE_SIZE_LIMIT / (1024 * 1024)}MB`
-        );
-      }
-
-      // File type validation
-      if (!type) {
-        throw ConversionError.validation(`Unsupported file type: ${fileExt}`);
-      }
-
-      // Check if API key is required for this file type
-      if (CONFIG.FILES.API_REQUIRED.includes(fileExt) && !get(apiKey)) {
-        throw ConversionError.validation('API key is required for this file type');
-      }
-
-      return {
-        ...baseItem,
-        type,
-        file: item.file
-      };
-    }
-
-    // Handle URL types (including parent URLs)
-    if (item.type === 'url' || item.type === 'parent' || item.url || item.name.startsWith('http')) {
-      const rawUrl = item.url || item.content || item.name;
-      let normalizedUrl;
-      try {
-        const urlObj = new URL(rawUrl);
-        const normalizedPath = urlObj.pathname.replace(/\/+$/, '').toLowerCase();
-        urlObj.pathname = normalizedPath;
-        normalizedUrl = urlObj.href.toLowerCase();
-      } catch (error) {
-        throw ConversionError.validation('Invalid URL format');
-      }
-
-      return {
-        ...baseItem,
-        type: item.type === 'parent' ? 'parent' : 'url',
-        url: normalizedUrl,
-        content: normalizedUrl,
-        options: {
-          ...baseItem.options,
-          ...(item.type === 'parent' ? { depth: 1, maxPages: 10 } : {}),
-          ...item.options
-        }
-      };
-    }
-
-    throw ConversionError.validation(`Unsupported item type or missing content: ${item.name}`);
-  } catch (error) {
-    console.error(`Error preparing ${item.name}:`, error);
-    throw error instanceof ConversionError ? error : ConversionError.validation(error.message);
-  }
-}
-
-function determineFileType(extension) {
-  if (!extension) return null;
-  
-  const categories = CONFIG.FILES.CATEGORIES;
-  const ext = extension.toLowerCase();
-  
-  if (categories.audio.includes(ext)) return 'audio';
-  if (categories.video.includes(ext)) return 'video';
-  if (categories.documents.includes(ext)) return 'document';
-  if (categories.data.includes(ext)) return 'data';
-  
-  return null; // Return null for unsupported types
-}
-
-/**
  * Prepares batch items for conversion
  */
 function prepareBatchItems(items) {
   if (!Array.isArray(items) || items.length === 0) {
-    throw ConversionError.validation('No items provided for conversion');
+    throw new Error('No items provided for conversion');
   }
   
   return Promise.all(items.map(async item => {
-    const prepared = await prepareItem(item);
+    const prepared = isElectron ? validateAndNormalizeItem(item) : item;
     // Add metadata about whether this item should be batched
     prepared.shouldBatch = prepared.type !== 'document';
     return prepared;
@@ -165,8 +71,8 @@ export async function startConversion() {
     return;
   }
 
-  conversionStatus.reset();
-  conversionStatus.setStatus('converting');
+  conversionStatus.setStatus('initializing');
+  conversionStatus.setProgress(0);
 
   try {
     // Prepare items for conversion
@@ -187,13 +93,9 @@ export async function startConversion() {
   } catch (error) {
     console.error('Conversion error:', error);
 
-    const errorMessage = error instanceof ConversionError ? 
-      error.message : 
-      error.message || 'An unexpected error occurred during conversion';
-
-    conversionStatus.setError(errorMessage);
+    conversionStatus.setError(error.message || 'An unexpected error occurred during conversion');
     conversionStatus.setStatus('error');
-    showFeedback(errorMessage, 'error');
+    showFeedback(error.message || 'An unexpected error occurred during conversion', 'error');
   }
 }
 
@@ -340,23 +242,13 @@ async function handleWebConversion(items, apiKey) {
   results.forEach(({ jobId, item }) => {
     socketService.subscribeToJob(jobId, {
       onStatus: (data) => {
-        conversionStatus.update(status => ({
-          ...status,
-          [item.id]: {
-            ...status[item.id],
-            status: data.status,
-            message: data.message
-          }
-        }));
+        conversionStatus.setStatus(data.status);
+        if (data.currentFile) {
+          conversionStatus.setCurrentFile(data.currentFile);
+        }
       },
       onProgress: (data) => {
-        conversionStatus.update(status => ({
-          ...status,
-          [item.id]: {
-            ...status[item.id],
-            progress: data.progress
-          }
-        }));
+        conversionStatus.setProgress(data.progress);
       },
       onComplete: (data) => {
         console.log('✅ Job complete callback received:', data);
@@ -514,17 +406,15 @@ export function triggerDownload() {
  * Cancels the ongoing conversion process
  */
 export function cancelConversion() {
-  conversionStatus.setStatus('cancelled');
-  client.cancelRequests();
-  
-  // Unsubscribe from all socket updates
-  const currentFiles = get(files);
-  currentFiles.forEach(file => {
-    if (file.jobId) {
-      socketService.unsubscribeFromJob(file.jobId);
-    }
-  });
+  if (isElectron) {
+    electronClient.cancelRequests();
+  } else {
+    client.cancelRequests();
+    socketService.unsubscribeFromAll();
+  }
 
+  conversionStatus.setStatus('cancelled');
+  
   files.update(items => 
     items.map(item => 
       item.status === 'converting' 

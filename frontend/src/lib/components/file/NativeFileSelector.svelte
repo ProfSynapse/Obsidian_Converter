@@ -5,7 +5,7 @@
   This component replaces the standard HTML file input with native system dialogs.
   
   Related files:
-  - frontend/src/lib/api/electronClient.js: Client for Electron IPC
+  - frontend/src/lib/api/electron: Modular Electron client implementation
   - frontend/src/lib/components/FileUploader.svelte: Main file upload component
   - src/electron/ipc/handlers/filesystem/index.js: IPC handlers for file system operations
 -->
@@ -14,8 +14,9 @@
   import { createEventDispatcher } from 'svelte';
   import { fade } from 'svelte/transition';
   import Button from '../common/Button.svelte';
-  import electronClient from '../../api/electronClient.js';
   import { uploadStore } from '../../stores/uploadStore.js';
+  import fileSystemOperations from '../../api/electron/fileSystem.js';
+  import electronClient from '../../api/electron';
   
   // Props
   export let label = 'Select Files';
@@ -66,17 +67,17 @@
       
       // Select files or directory based on mode
       const result = directoryMode 
-        ? await electronClient.selectOutputDirectory(options)
-        : await electronClient.selectFiles(options);
+        ? await fileSystemOperations.selectOutputDirectory(options)
+        : await fileSystemOperations.selectFiles(options);
       
-      if (result) {
+      if (result?.success) {
         // Handle directory selection
         if (directoryMode) {
-          dispatch('directorySelected', { path: result });
+          dispatch('directorySelected', { path: result.path });
         } 
         // Handle file selection
-        else if (Array.isArray(result) && result.length > 0) {
-          dispatch('filesSelected', { paths: result });
+        else if (result.paths?.length > 0) {
+          dispatch('filesSelected', { paths: result.paths });
         }
       }
     } catch (error) {

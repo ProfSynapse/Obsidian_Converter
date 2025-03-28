@@ -5,7 +5,8 @@
   import { fade } from 'svelte/transition';
   import { apiKey } from '$lib/stores/apiKey.js';
   import { requiresApiKey, validateFileSize } from '$lib/utils/fileUtils.js';
-  import electronClient from '$lib/api/electronClient.js';
+  import { fileCategories, generateId, isSupportedFileType, normalizeUrl } from '$lib/api/electron';
+  import electronClient from '$lib/api/electron';
   import Container from './common/Container.svelte';
   import TabNavigation from './common/TabNavigation.svelte';
   import UrlInput from './common/UrlInput.svelte';
@@ -18,13 +19,8 @@
 
   const dispatch = createEventDispatcher();
 
-  const SUPPORTED_FILES = {
-    documents: ['pdf', 'docx', 'pptx'],
-    data: ['csv', 'xlsx'],
-    audio: ['mp3', 'wav', 'm4a'],
-    video: ['mp4', 'webm', 'avi']
-  };
-
+  // Use fileCategories from electron utils
+  const SUPPORTED_FILES = fileCategories;
   const SUPPORTED_EXTENSIONS = Object.values(SUPPORTED_FILES).flat();
 
   // Check if we're running in Electron
@@ -43,14 +39,13 @@
     }
   }
 
-
   function validateFile(file) {
     // Handle file path (string) from Electron or File object from web
     const isFilePath = typeof file === 'string';
     const fileName = isFilePath ? file.split(/[/\\]/).pop() : file.name;
     const extension = fileName.split('.').pop().toLowerCase();
     
-    if (!SUPPORTED_EXTENSIONS.includes(extension)) {
+    if (!isSupportedFileType(extension)) {
       return { valid: false, message: `Unsupported file type: ${fileName}` };
     }
 
@@ -78,14 +73,6 @@
       }
     }
     return 'unknown';
-  }
-
-  function generateId() {
-    try {
-      return crypto.randomUUID();
-    } catch (e) {
-      return `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
-    }
   }
 
   function handleFilesAdded(newFiles) {
@@ -182,19 +169,6 @@
       handleFilesAdded([path]);
     }
   }
-
-  function normalizeUrl(url) {
-    try {
-      const urlObj = new URL(url);
-      const normalizedPath = urlObj.pathname.replace(/\/+$/, '').toLowerCase();
-      urlObj.pathname = normalizedPath;
-      return urlObj.href.toLowerCase();
-    } catch (error) {
-      console.error('URL normalization error:', error);
-      return url.toLowerCase();
-    }
-  }
-
 
   async function handleFileUpload(event) {
     const uploadedFiles = Array.from(event.target.files || []);

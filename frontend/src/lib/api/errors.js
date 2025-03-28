@@ -1,116 +1,153 @@
-// src/lib/api/errors.js
+/**
+ * Custom Error Classes
+ * 
+ * Defines custom error classes used throughout the application.
+ * These help provide more specific error handling and better error messages.
+ */
 
 /**
- * Custom error class for conversion-related errors
+ * Base error class for conversion-related errors
  */
 export class ConversionError extends Error {
-    constructor(message, code = 'CONVERSION_ERROR', details = null) {
-        super(message);
-        this.name = 'ConversionError';
-        this.code = code;
-        this.details = details;
-        this.timestamp = new Date().toISOString();
-    }
-
-    /**
-     * Creates a validation error instance
-     */
-    static validation(message, details = null) {
-        return new ConversionError(message, 'VALIDATION_ERROR', details);
-    }
-
-    /**
-     * Creates an error instance from API response
-     */
-    static fromResponse(response) {
-        // Log the response for debugging
-        console.log('🔍 Creating error from response:', JSON.stringify(response, null, 2));
-        
-        try {
-            // Special case: If response contains jobId, it's actually a success
-            if (response && response.jobId) {
-                console.log('⚠️ Warning: Response with jobId was incorrectly treated as an error');
-                return new ConversionError(
-                    'Response with jobId was incorrectly treated as an error',
-                    'RESPONSE_MISCLASSIFIED',
-                    { jobId: response.jobId }
-                );
-            }
-            
-            // Handle structured error responses
-            if (response && response.error) {
-                return new ConversionError(
-                    response.error.message || 'Unknown server error',
-                    response.error.code || 'API_ERROR',
-                    response.error.details
-                );
-            }
-            
-            // Handle error status responses
-            if (response && response.status === 'error') {
-                return new ConversionError(
-                    response.message || 'Server reported an error',
-                    response.code || 'API_ERROR',
-                    response.details || null
-                );
-            }
-            
-            // Handle plain error messages
-            if (response && typeof response.message === 'string') {
-                return new ConversionError(
-                    response.message,
-                    response.code || 'API_ERROR',
-                    response.details || null
-                );
-            }
-            
-            // Fallback for unexpected response formats
-            return new ConversionError(
-                'Unexpected server response format',
-                'RESPONSE_FORMAT_ERROR',
-                { originalResponse: response }
-            );
-        } catch (err) {
-            // Ultimate fallback if error creation itself fails
-            console.error('Error while creating ConversionError:', err);
-            return new ConversionError(
-                'Failed to process error response',
-                'ERROR_PROCESSING_ERROR',
-                { originalError: err.message }
-            );
-        }
-    }
+  constructor(message, options = {}) {
+    super(message);
+    this.name = 'ConversionError';
+    this.options = options;
+    this.details = options.details || null;
+    this.type = options.type || 'generic';
+    this.retryable = options.retryable !== false;
+  }
 }
 
 /**
- * Error utility functions
+ * Error class for validation failures
  */
-export const ErrorUtils = {
-    wrap(error) {
-        if (error instanceof ConversionError) return error;
-        
-        // Check for validation errors from API
-        if (error.status === 400 || error?.response?.status === 400) {
-            return ConversionError.validation(
-                error.message || 'Validation failed',
-                error.details
-            );
-        }
-        
-        return new ConversionError(
-            error.message,
-            'UNKNOWN_ERROR',
-            error
-        );
-    },
+export class ValidationError extends ConversionError {
+  constructor(message, options = {}) {
+    super(message, { ...options, type: 'validation' });
+    this.name = 'ValidationError';
+  }
+}
 
-    isRetryable(error) {
-        // Add status code check
-        if (error.status === 400 || error?.response?.status === 400) {
-            return false;
-        }
+/**
+ * Error class for file system operation failures
+ */
+export class FileSystemError extends ConversionError {
+  constructor(message, options = {}) {
+    super(message, { ...options, type: 'filesystem' });
+    this.name = 'FileSystemError';
+    this.path = options.path;
+    this.operation = options.operation;
+  }
+}
 
-        const retryableCodes = ['NETWORK_ERROR', 'API_ERROR', 'TIMEOUT_ERROR'];
-        return retryableCodes.includes(error?.code);
-    }
-};
+/**
+ * Error class for network-related failures
+ */
+export class NetworkError extends ConversionError {
+  constructor(message, options = {}) {
+    super(message, { ...options, type: 'network' });
+    this.name = 'NetworkError';
+  }
+}
+
+/**
+ * Error class for API errors
+ */
+export class ApiError extends NetworkError {
+  constructor(message, options = {}) {
+    super(message, options);
+    this.name = 'ApiError';
+    this.statusCode = options.statusCode;
+    this.endpoint = options.endpoint;
+  }
+}
+
+/**
+ * Error class for electron IPC errors
+ */
+export class ElectronError extends ConversionError {
+  constructor(message, options = {}) {
+    super(message, { ...options, type: 'electron' });
+    this.name = 'ElectronError';
+    this.channel = options.channel;
+  }
+}
+
+/**
+ * Creates a specific error instance based on type
+ */
+export function createError(type, message, options = {}) {
+  switch (type) {
+    case 'validation':
+      return new ValidationError(message, options);
+    case 'filesystem':
+      return new FileSystemError(message, options);
+    case 'network':
+      return new NetworkError(message, options);
+    case 'api':
+      return new ApiError(message, options);
+    case 'electron':
+      return new ElectronError(message, options);
+    default:
+      return new ConversionError(message, { ...options, type });
+  }
+}
+
+/**
+ * Format error for user display
+ */
+export function formatError(error) {
+  if (error instanceof ConversionError) {
+    return {
+      message: error.message,
+      type: error.type,
+      retryable: error.retryable,
+      details: error.details
+    };
+  }
+
+  return {
+    message: error.message || 'An unknown error occurred',
+    type: 'unknown',
+    retryable: true,
+    details: null
+  };
+}
+
+/**
+ * Checks if an error is retryable
+ */
+export function isRetryable(error) {
+  if (error instanceof ConversionError) {
+    return error.retryable;
+  }
+  
+  // Network errors are generally retryable
+  if (error instanceof NetworkError) {
+    return true;
+  }
+  
+  // By default, assume unknown errors are retryable
+  return true;
+}
+
+/**
+ * Helper function to ensure errors are proper Error instances
+ */
+export function ensureError(error) {
+  if (error instanceof Error) {
+    return error;
+  }
+  
+  if (typeof error === 'string') {
+    return new Error(error);
+  }
+  
+  if (typeof error === 'object') {
+    const message = error.message || JSON.stringify(error);
+    return new Error(message);
+  }
+  
+  return new Error('An unknown error occurred');
+}

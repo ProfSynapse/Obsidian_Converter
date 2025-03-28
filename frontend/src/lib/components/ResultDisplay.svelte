@@ -7,7 +7,8 @@
   import { conversionStatus, currentFile } from '$lib/stores/conversionStatus.js';
   import { conversionResult } from '$lib/stores/conversionResult.js';
   import { triggerDownload } from '$lib/utils/conversionManager.js';
-  import electronClient from '$lib/api/electronClient.js';
+  import electronClient from '$lib/api/electron';
+  import fileSystemOperations from '$lib/api/electron/fileSystem.js';
 
   const dispatch = createEventDispatcher();
 
@@ -57,7 +58,7 @@
     if (!isElectron || !$conversionResult?.outputPath) return;
     
     try {
-      await window.electronAPI.openExternal(`file://${$conversionResult.outputPath}`);
+      await fileSystemOperations.openFile($conversionResult.outputPath);
     } catch (error) {
       console.error('Error opening file:', error);
     }
@@ -70,7 +71,7 @@
     if (!isElectron || !$conversionResult?.outputPath) return;
     
     try {
-      await window.electronAPI.showItemInFolder($conversionResult.outputPath);
+      await fileSystemOperations.showItemInFolder($conversionResult.outputPath);
     } catch (error) {
       console.error('Error showing file in folder:', error);
     }
@@ -297,6 +298,45 @@
     z-index: 1;
   }
 
+  .path-display {
+    display: flex;
+    align-items: center;
+    gap: var(--spacing-xs);
+    padding: var(--spacing-sm);
+    background-color: var(--color-bg-alt);
+    border-radius: var(--rounded-md);
+    margin-top: var(--spacing-sm);
+  }
+
+  .path-label {
+    font-weight: var(--font-weight-medium);
+    color: var(--color-text-secondary);
+  }
+
+  .path-value {
+    flex-grow: 1;
+    font-family: var(--font-mono);
+    font-size: var(--font-size-sm);
+    color: var(--color-text);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .copy-button {
+    background: none;
+    border: none;
+    cursor: pointer;
+    padding: 0;
+    font-size: var(--font-size-base);
+    opacity: 0.7;
+    transition: opacity var(--transition-duration-fast) ease;
+  }
+
+  .copy-button:hover {
+    opacity: 1;
+  }
+
   /* High Contrast Mode */
   @media (prefers-contrast: high) {
     .current-file::before,
@@ -319,6 +359,10 @@
 
     .current-file {
       font-size: var(--font-size-sm);
+    }
+
+    .button-container {
+      flex-direction: column;
     }
   }
 </style>

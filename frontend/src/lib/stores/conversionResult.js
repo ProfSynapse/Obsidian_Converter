@@ -8,11 +8,11 @@
  * Related files:
  * - frontend/src/lib/utils/conversionManager.js: Manages the conversion process
  * - frontend/src/lib/components/ResultDisplay.svelte: Displays conversion results
- * - frontend/src/lib/api/electronClient.js: Client for Electron IPC
+ * - frontend/src/lib/api/electron: Modular Electron client implementation
  */
 
 import { writable } from 'svelte/store';
-import electronClient from '$lib/api/electronClient.js';
+import electronClient from '$lib/api/electron';
 
 function createConversionResultStore() {
   // Default state with null values

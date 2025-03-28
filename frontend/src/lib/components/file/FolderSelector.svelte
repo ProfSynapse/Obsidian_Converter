@@ -5,7 +5,7 @@
   This component allows users to select folders for both input and output operations.
   
   Related files:
-  - frontend/src/lib/api/electronClient.js: Client for Electron IPC
+  - frontend/src/lib/api/electron: Modular Electron client implementation
   - frontend/src/lib/components/FileUploader.svelte: Main file upload component
   - src/electron/ipc/handlers/filesystem/index.js: IPC handlers for file system operations
 -->
@@ -14,8 +14,9 @@
   import { createEventDispatcher } from 'svelte';
   import { fade } from 'svelte/transition';
   import Button from '../common/Button.svelte';
-  import electronClient from '../../api/electronClient.js';
   import { uploadStore } from '../../stores/uploadStore.js';
+  import fileSystemOperations from '../../api/electron/fileSystem.js';
+  import electronClient from '../../api/electron';
   
   // Props
   export let label = 'Select Folder';
@@ -58,28 +59,23 @@
       
       // Select folder based on mode
       const result = mode === 'output'
-        ? await electronClient.selectOutputDirectory()
-        : await electronClient.selectFiles({ 
-            properties: ['openDirectory', 'createDirectory'] 
-          });
+        ? await fileSystemOperations.selectOutputDirectory()
+        : await fileSystemOperations.selectInputDirectory();
       
-      if (result && result.success) {
-        const folderPath = mode === 'output' ? result.path : result.paths[0];
-        if (folderPath) {
-          selectedPath = folderPath;
-          
-          // If input mode and showFileList is true, list directory contents
-          if (mode === 'input' && showFileList) {
-            await loadFolderContents(selectedPath);
-            isExpanded = true;
-          }
-          
-          // Dispatch event
-          dispatch('folderSelected', { 
-            path: selectedPath,
-            contents: folderContents
-          });
+      if (result?.success) {
+        selectedPath = result.path;
+        
+        // If input mode and showFileList is true, list directory contents
+        if (mode === 'input' && showFileList) {
+          await loadFolderContents(selectedPath);
+          isExpanded = true;
         }
+        
+        // Dispatch event
+        dispatch('folderSelected', { 
+          path: selectedPath,
+          contents: folderContents
+        });
       }
     } catch (error) {
       console.error('Folder selection error:', error);
@@ -98,15 +94,12 @@
   async function loadFolderContents(folderPath) {
     try {
       const options = {
-        recursive: false
+        recursive: false,
+        extensions: acceptedTypes
       };
       
-      if (acceptedTypes && acceptedTypes.length > 0) {
-        options.extensions = acceptedTypes;
-      }
-      
-      const result = await electronClient.listDirectory(folderPath, options);
-      if (result && result.success) {
+      const result = await fileSystemOperations.listDirectory(folderPath, options);
+      if (result?.success) {
         folderContents = result.items || [];
       } else {
         folderContents = [];
