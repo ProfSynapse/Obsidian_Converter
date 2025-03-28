@@ -214,82 +214,27 @@ class ElectronClient {
         error: null
       }));
 
-      // Set up event handlers
-      const progressHandler = (event, data) => {
-        if (data.file === filePath || (data.id && this.activeRequests.has(data.id))) {
-          conversionStatus.update(status => ({
-            ...status,
-            progress: data.progress
-          }));
-          
-          if (onProgress) {
-            onProgress(data.progress);
-          }
-        }
-      };
-      
-      const statusHandler = (event, data) => {
-        if (this.activeRequests.has(data.id)) {
-          conversionStatus.update(status => ({
-            ...status,
-            status: data.status
-          }));
-        }
-      };
-      
-      const completeHandler = (event, data) => {
-        if (this.activeRequests.has(data.id)) {
-          // Update conversion status
-          conversionStatus.update(status => ({
-            ...status,
-            active: false,
-            progress: 100,
-            currentFile: null,
-            status: 'completed'
-          }));
-          
-          // Clean up
-          this._removeEventHandlers(data.id);
-          this.activeRequests.delete(data.id);
-        }
-      };
-      
-      const errorHandler = (event, data) => {
-        if (this.activeRequests.has(data.id)) {
-          // Update conversion status with error
-          conversionStatus.update(status => ({
-            ...status,
-            active: false,
-            error: data.error || 'Unknown error occurred',
-            status: 'error'
-          }));
-          
-          // Clean up
-          this._removeEventHandlers(data.id);
-          this.activeRequests.delete(data.id);
-        }
-      };
+      // Generate a temporary ID for handler registration before we get the real job ID
+      const tempId = this._generateId();
 
       // Register event handlers
-      window.electronAPI.onConversionProgress(progressHandler);
-      window.electronAPI.onConversionStatus(statusHandler);
-      window.electronAPI.onConversionComplete(completeHandler);
-      window.electronAPI.onConversionError(errorHandler);
+      this._registerEventHandlers(tempId, filePath, onProgress);
 
       // Call the IPC method
       const result = await window.electronAPI.convertFile(filePath, options);
       
-      // Store job ID and event handlers for cleanup
-      if (result.jobId) {
-        this.activeRequests.set(result.jobId, {
-          id: result.jobId,
-          handlers: {
-            progress: progressHandler,
-            status: statusHandler,
-            complete: completeHandler,
-            error: errorHandler
-          }
-        });
+      // Update the job ID if it's different from our temporary one
+      if (result.jobId && result.jobId !== tempId) {
+        const handlers = this.activeRequests.get(tempId)?.handlers;
+        if (handlers) {
+          // Remove old registration and create new one with correct ID
+          this._removeEventHandlers(tempId);
+          this.activeRequests.delete(tempId);
+          this.activeRequests.set(result.jobId, {
+            id: result.jobId,
+            handlers
+          });
+        }
       }
 
       return result;
@@ -309,19 +254,113 @@ class ElectronClient {
   }
   
   /**
-   * Removes event handlers for a job
+   * Registers event handlers for a conversion job
    * @private
-   * @param {string} jobId The job ID
+   * @param {string} jobId - Unique identifier for the conversion job
+   * @param {string} fileIdentifier - Path or identifier of the file/resource being converted
+   * @param {Function} onProgress - Callback function for progress updates: (progress: number, data: Object) => void
+   * @param {Function} [onItemComplete] - Optional callback for item completion in batch operations: (data: Object) => void
+   * @returns {Object} Object containing the registered event handlers
+   * @throws {Error} If event handler registration fails
+   */
+  _registerEventHandlers(jobId, fileIdentifier, onProgress = null, onItemComplete = null) {
+    const handlers = {
+      progress: (event, data) => {
+        if (data.file === fileIdentifier || (data.id && this.activeRequests.has(data.id))) {
+          conversionStatus.update(status => ({
+            ...status,
+            progress: data.progress,
+            currentFile: data.file || fileIdentifier
+          }));
+          
+          if (onProgress) {
+            onProgress(data.progress, data);
+          }
+        }
+      },
+      
+      status: (event, data) => {
+        if (this.activeRequests.has(data.id)) {
+          conversionStatus.update(status => ({
+            ...status,
+            status: data.status
+          }));
+        }
+      },
+      
+      complete: (event, data) => {
+          if (this.activeRequests.has(data.id)) {
+            conversionStatus.update(status => ({
+              ...status,
+              active: false,
+              progress: 100,
+              currentFile: null,
+              status: 'completed'
+            }));
+            
+            if (onItemComplete) {
+              onItemComplete(data);
+            }
+            
+            this._removeEventHandlers(data.id);
+            this.activeRequests.delete(data.id);
+          }
+      },
+      
+      error: (event, data) => {
+        if (this.activeRequests.has(data.id)) {
+          conversionStatus.update(status => ({
+            ...status,
+            active: false,
+            error: data.error || 'Unknown error occurred',
+            status: 'error'
+          }));
+          
+          this._removeEventHandlers(data.id);
+          this.activeRequests.delete(data.id);
+        }
+      }
+    };
+
+    try {
+      // Register event handlers
+      window.electronAPI.onConversionProgress(handlers.progress);
+      window.electronAPI.onConversionStatus(handlers.status);
+      window.electronAPI.onConversionComplete(handlers.complete);
+      window.electronAPI.onConversionError(handlers.error);
+
+      // Store handlers for cleanup
+      this.activeRequests.set(jobId, {
+        id: jobId,
+        handlers
+      });
+
+      return handlers;
+    } catch (error) {
+      // If registration fails, clean up any handlers that were registered
+      if (this.activeRequests.has(jobId)) {
+        this._removeEventHandlers(jobId);
+        this.activeRequests.delete(jobId);
+      }
+      throw error;
+    }
+  }
+
+  /**
+   * Removes registered event handlers for a conversion job
+   * @private
+   * @param {string} jobId - Unique identifier for the conversion job whose handlers should be removed
+   * @description Cleans up all registered event handlers (progress, status, complete, error) for the specified job
    */
   _removeEventHandlers(jobId) {
     if (this.activeRequests.has(jobId)) {
       const { handlers } = this.activeRequests.get(jobId);
       
-      // Remove event listeners
-      window.electronAPI.onConversionProgress(handlers.progress);
-      window.electronAPI.onConversionStatus(handlers.status);
-      window.electronAPI.onConversionComplete(handlers.complete);
-      window.electronAPI.onConversionError(handlers.error);
+      // Remove event listeners using the off* methods
+      window.electronAPI.offConversionProgress(handlers.progress);
+      window.electronAPI.offConversionStatus(handlers.status);
+      window.electronAPI.offConversionComplete(handlers.complete);
+      window.electronAPI.offConversionError(handlers.error);
     }
   }
 
@@ -348,16 +387,38 @@ class ElectronClient {
         error: null
       }));
 
+      // Generate a temporary ID for handler registration before we get the real job ID
+      const tempId = this._generateId();
+
+      // Register event handlers with batch-specific progress handling
+      this._registerEventHandlers(tempId, 'batch', 
+        (progress, data) => {
+          conversionStatus.update(status => ({
+            ...status,
+            progress,
+            currentFile: data?.file || 'Processing files...'
+          }));
+          if (onProgress) onProgress(progress, data);
+        }, 
+        onItemComplete
+      );
+
       // Call the IPC method
       const result = await window.electronAPI.convertBatch(filePaths, options);
 
-      // Update conversion status
-      conversionStatus.update(status => ({
-        ...status,
-        active: false,
-        progress: 100,
-        currentFile: null
-      }));
+      // Update the job ID if it's different from our temporary one
+      if (result.jobId && result.jobId !== tempId) {
+        const handlers = this.activeRequests.get(tempId)?.handlers;
+        if (handlers) {
+          // Remove old registration and create new one with correct ID
+          this._removeEventHandlers(tempId);
+          this.activeRequests.delete(tempId);
+          this.activeRequests.set(result.jobId, {
+            id: result.jobId,
+            handlers
+          });
+        }
+      }
 
       return result;
     } catch (error) {
@@ -495,22 +556,11 @@ class ElectronClient {
         error: null
       }));
 
-      // Set up progress handler
-      const progressHandler = (event, data) => {
-        if (data.file === normalizedUrl) {
-          conversionStatus.update(status => ({
-            ...status,
-            progress: data.progress
-          }));
-          
-          if (onProgress) {
-            onProgress(data.progress);
-          }
-        }
-      };
+      // Generate a temporary ID for handler registration before we get the real job ID
+      const tempId = this._generateId();
 
-      // Subscribe to progress events
-      window.electronAPI.onConversionProgress(progressHandler);
+      // Register event handlers
+      this._registerEventHandlers(tempId, normalizedUrl, onProgress);
 
       // Prepare request data
       const requestData = {
@@ -524,6 +574,20 @@ class ElectronClient {
 
       // Call the IPC method
       const result = await window.electronAPI.convertUrl(normalizedUrl, requestData.options);
+
+      // Update the job ID if it's different from our temporary one
+      if (result.jobId && result.jobId !== tempId) {
+        const handlers = this.activeRequests.get(tempId)?.handlers;
+        if (handlers) {
+          // Remove old registration and create new one with correct ID
+          this._removeEventHandlers(tempId);
+          this.activeRequests.delete(tempId);
+          this.activeRequests.set(result.jobId, {
+            id: result.jobId,
+            handlers
+          });
+        }
+      }
 
       // Update conversion status
       conversionStatus.update(status => ({
@@ -573,22 +637,11 @@ class ElectronClient {
         error: null
       }));
 
-      // Set up progress handler
-      const progressHandler = (event, data) => {
-        if (data.file === normalizedUrl) {
-          conversionStatus.update(status => ({
-            ...status,
-            progress: data.progress
-          }));
-          
-          if (onProgress) {
-            onProgress(data.progress);
-          }
-        }
-      };
+      // Generate a temporary ID for handler registration before we get the real job ID
+      const tempId = this._generateId();
 
-      // Subscribe to progress events
-      window.electronAPI.onConversionProgress(progressHandler);
+      // Register event handlers
+      this._registerEventHandlers(tempId, normalizedUrl, onProgress);
 
       // Prepare request data
       const requestData = {
@@ -605,12 +658,27 @@ class ElectronClient {
       // Call the IPC method
       const result = await window.electronAPI.convertParentUrl(normalizedUrl, requestData.options);
 
+      // Update the job ID if it's different from our temporary one
+      if (result.jobId && result.jobId !== tempId) {
+        const handlers = this.activeRequests.get(tempId)?.handlers;
+        if (handlers) {
+          // Remove old registration and create new one with correct ID
+          this._removeEventHandlers(tempId);
+          this.activeRequests.delete(tempId);
+          this.activeRequests.set(result.jobId, {
+            id: result.jobId,
+            handlers
+          });
+        }
+      }
+
       // Update conversion status
       conversionStatus.update(status => ({
         ...status,
         active: false,
         progress: 100,
-        currentFile: null
+        currentFile: null,
+        status: 'completed'
       }));
 
       return result;
@@ -653,22 +721,11 @@ class ElectronClient {
         error: null
       }));
 
-      // Set up progress handler
-      const progressHandler = (event, data) => {
-        if (data.file === normalizedUrl) {
-          conversionStatus.update(status => ({
-            ...status,
-            progress: data.progress
-          }));
-          
-          if (onProgress) {
-            onProgress(data.progress);
-          }
-        }
-      };
+      // Generate a temporary ID for handler registration before we get the real job ID
+      const tempId = this._generateId();
 
-      // Subscribe to progress events
-      window.electronAPI.onConversionProgress(progressHandler);
+      // Register event handlers
+      this._registerEventHandlers(tempId, normalizedUrl, onProgress);
 
       // Prepare request data
       const requestData = {
@@ -682,6 +739,20 @@ class ElectronClient {
 
       // Call the IPC method
       const result = await window.electronAPI.convertYoutube(normalizedUrl, requestData.options);
+
+      // Update the job ID if it's different from our temporary one
+      if (result.jobId && result.jobId !== tempId) {
+        const handlers = this.activeRequests.get(tempId)?.handlers;
+        if (handlers) {
+          // Remove old registration and create new one with correct ID
+          this._removeEventHandlers(tempId);
+          this.activeRequests.delete(tempId);
+          this.activeRequests.set(result.jobId, {
+            id: result.jobId,
+            handlers
+          });
+        }
+      }
 
       // Update conversion status
       conversionStatus.update(status => ({

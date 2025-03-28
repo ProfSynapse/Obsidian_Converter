@@ -75,16 +75,32 @@ contextBridge.exposeInMainWorld(
     transcribeAudio: (filePath) => ipcRenderer.invoke('mdcode:transcribe:audio', { filePath }),
     transcribeVideo: (filePath) => ipcRenderer.invoke('mdcode:transcribe:video', { filePath }),
     
-    // Events
+    // Events with on/off functionality
     onFileDropped: (callback) => ipcRenderer.on('mdcode:file-dropped', callback),
+    offFileDropped: (callback) => ipcRenderer.removeListener('mdcode:file-dropped', callback),
+    
     onUpdateAvailable: (callback) => ipcRenderer.on('mdcode:update-available', callback),
+    offUpdateAvailable: (callback) => ipcRenderer.removeListener('mdcode:update-available', callback),
+    
     onConversionProgress: (callback) => ipcRenderer.on('mdcode:convert:progress', callback),
+    offConversionProgress: (callback) => ipcRenderer.removeListener('mdcode:convert:progress', callback),
+    
     onConversionStatus: (callback) => ipcRenderer.on('mdcode:convert:status', callback),
+    offConversionStatus: (callback) => ipcRenderer.removeListener('mdcode:convert:status', callback),
+    
     onConversionComplete: (callback) => ipcRenderer.on('mdcode:convert:complete', callback),
+    offConversionComplete: (callback) => ipcRenderer.removeListener('mdcode:convert:complete', callback),
+    
     onConversionError: (callback) => ipcRenderer.on('mdcode:convert:error', callback),
+    offConversionError: (callback) => ipcRenderer.removeListener('mdcode:convert:error', callback),
+    
     cancelConversion: (id) => ipcRenderer.invoke('mdcode:convert:cancel', { id }),
+    
     onFileEvent: (callback) => ipcRenderer.on('mdcode:watch:event', callback),
-    onOfflineEvent: (callback) => ipcRenderer.on('mdcode:offline:event', callback)
+    offFileEvent: (callback) => ipcRenderer.removeListener('mdcode:watch:event', callback),
+    
+    onOfflineEvent: (callback) => ipcRenderer.on('mdcode:offline:event', callback),
+    offOfflineEvent: (callback) => ipcRenderer.removeListener('mdcode:offline:event', callback)
   }
 );
 

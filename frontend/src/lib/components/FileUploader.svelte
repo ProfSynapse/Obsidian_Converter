@@ -195,40 +195,6 @@
     }
   }
 
-  async function handleUrlSubmit(event) {
-    uploadStore.clearMessage();
-    const { url, type = 'url' } = event.detail;
-    
-    if (!url) {
-      showFeedback('Please enter a valid URL', 'error');
-      return;
-    }
-
-    try {
-      const normalizedUrl = normalizeUrl(url);
-      const newUrl = new URL(normalizedUrl);
-      
-      const newFile = {
-        id: generateId(),
-        name: newUrl.hostname,
-        url: normalizedUrl,
-        type: type,
-        status: 'Ready',
-        progress: 0,
-        selected: false,
-        requiresApiKey: true
-      };
-
-      const result = files.addFile(newFile);
-      if (result.success) {
-        dispatch('filesAdded', { files: [newFile] });
-      } else {
-        showFeedback(result.message, 'error');
-      }
-    } catch (error) {
-      showFeedback('Invalid URL format', 'error');
-    }
-  }
 
   async function handleFileUpload(event) {
     const uploadedFiles = Array.from(event.target.files || []);
@@ -252,9 +218,7 @@
       <!-- URL Input Section -->
       <div class="section">
         <TabNavigation />
-        <UrlInput 
-          on:submitUrl={handleUrlSubmit}
-        />
+        <UrlInput />
       </div>
 
       <div class="section-divider"></div>

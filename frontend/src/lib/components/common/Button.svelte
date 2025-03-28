@@ -4,6 +4,10 @@
   export let disabled = false;
   export let fullWidth = false;
   export let size = 'medium'; // small, medium, large
+  
+  // Rest props to handle any additional attributes like data-testid
+  let restProps = {};
+  export { restProps as $$restProps };
 </script>
 
 <button
@@ -12,6 +16,7 @@
   class="button {variant} {size}"
   class:full-width={fullWidth}
   on:click
+  {...$$restProps}
 >
   <slot />
 </button>
