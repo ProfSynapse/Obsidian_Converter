@@ -183,7 +183,9 @@ async function cleanupTempFile(filePath) {
 }
 
 /**
- * Prepares batch items for conversion
+ * Prepares batch items for conversion, supporting files, URLs, and parent URLs
+ * @param {Array} items - Array of items to convert
+ * @returns {Promise<Array>} - Array of prepared items
  */
 function prepareBatchItems(items) {
   if (!Array.isArray(items) || items.length === 0) {
@@ -192,8 +194,18 @@ function prepareBatchItems(items) {
   
   return Promise.all(items.map(async item => {
     const prepared = isElectron ? validateAndNormalizeItem(item) : item;
-    // Add metadata about whether this item should be batched
-    prepared.shouldBatch = prepared.type !== 'document';
+    
+    // Determine if item should be included in batch based on type
+    if (prepared.type === 'url' || prepared.type === 'parent') {
+      // URLs and parent URLs can be batched
+      prepared.shouldBatch = true;
+      prepared.isUrl = true; // Flag for special handling
+    } else {
+      // For files and other types, use original logic
+      prepared.shouldBatch = prepared.type !== 'document';
+      prepared.isUrl = false;
+    }
+    
     return prepared;
   }));
 }
@@ -374,34 +386,54 @@ async function handleElectronConversion(items, apiKey, outputDir) {
       // Track temporary files for cleanup
       const tempFilePaths = [];
       
-      // Process each item to handle File objects
-      const processedPaths = await Promise.all(
+      // Process each item to handle File objects and URLs
+      const processedItems = await Promise.all(
         items.map(async (item, index) => {
+          if (item.isUrl) {
+            // For URLs, return an object with URL info
+            return {
+              type: item.type,
+              url: item.url,
+              options: item.options,
+              id: item.id
+            };
+          }
           // For native files, just use the path
-          if (item.isNative && item.path) {
-            return item.path;
+          else if (item.isNative && item.path) {
+            return {
+              type: 'file',
+              path: item.path,
+              options: item.options,
+              id: item.id
+            };
           }
           // For File objects, save to temporary file first
           else if (item.file instanceof File) {
             conversionStatus.setCurrentFile(`Preparing ${item.file.name}...`);
             const tempFilePath = await saveTempFile(item.file);
             tempFilePaths.push({ path: tempFilePath, originalName: item.file.name });
-            return tempFilePath;
+            return {
+              type: 'file',
+              path: tempFilePath,
+              isTemporary: true,
+              options: item.options,
+              id: item.id
+            };
           }
-          // For other types (URLs, etc.), we can't process in batch
+          // For unsupported types
           else {
             throw new Error(`Unsupported item type in batch: ${item.type || 'unknown'}`);
           }
         })
       );
-      
+
       conversionStatus.setStatus('converting');
       conversionStatus.setProgress(10);
-      
+
       try {
-        // Convert batch of files with output directory
+        // Convert batch with mixed content types
         const result = await electronClient.convertBatch(
-          processedPaths,
+          processedItems,
           { 
             batchName: `Batch_${new Date().toISOString().replace(/:/g, '-')}`,
             ...options

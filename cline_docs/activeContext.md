@@ -4,8 +4,37 @@
 Transitioning to Phase 4: Desktop Features - Implementing system tray integration, native notifications, file associations, and auto-updates while enhancing frontend components for native file operations and completing the IPC implementation for all conversion types.
 
 - Implementing a standardized attachment folder structure for images extracted from PDFs and slides
+- Enhancing URL and Parent URL conversion with Puppeteer for better content extraction
 
 ## Recent Changes
+- Enhanced URL and Parent URL Conversion with Puppeteer:
+  - Replaced Cheerio and Got with Puppeteer for better content extraction
+  - Implemented browser instance management for efficient resource usage
+  - Added support for modern web frameworks (React, Vue, Angular, etc.)
+  - Enhanced content scoring to better identify main content areas
+  - Added fallback to body content when specific selectors don't find enough content
+  - Enhanced SPA detection and waiting logic for dynamic content
+  - Added proper metadata extraction from rendered pages
+  - Improved image extraction from rendered pages
+  - Added URL normalization to prevent duplicate pages
+  - Implemented tracking of both normalized and original URLs
+  - Ensured unique pages in the output by using normalized URLs as keys
+  - Fixed frontmatter generation for individual pages in parent URL conversion
+  - Enhanced error handling and resource cleanup
+  
+- Implemented Browser Service for Puppeteer:
+  - Created a new BrowserService to manage a single Puppeteer browser instance
+  - Implemented lazy initialization to start browser only when needed
+  - Added browser instance sharing between URL and Parent URL converters
+  - Modified urlConverter.js and parentUrlConverter.js to accept external browser instances
+  - Updated adapters to use the shared browser instance
+  - Added proper cleanup of browser resources on application exit
+  - Improved error handling for browser operations
+  - Enhanced content extraction with better HTML cleanup
+  - Fixed JavaScript variable assignments in HTML that caused parsing issues
+  - Added comprehensive cleanup of cookie notices, popups, and other distractions
+  - Improved content scoring algorithm to better identify main content
+
 - Fixed Batch Conversion and DOCX Handling Issues:
   - Fixed "ConversionError: An object could not be cloned" error in batch conversion
   - Modified batch conversion process to properly handle File objects
@@ -235,6 +264,7 @@ Transitioning to Phase 4: Desktop Features - Implementing system tray integratio
    - Transcription service integration ✓
    - Modular Electron client architecture ✓
    - Proper event handling for conversions ✓
+   - Enhanced URL and Parent URL conversion with Puppeteer ✓
 
 2. **Current Implementation Gaps**
    - Batch conversion with proper progress tracking ⚠️
@@ -284,6 +314,7 @@ Transitioning to Phase 4: Desktop Features - Implementing system tray integratio
    - Batch conversion with progress tracking ⚠️
    - Modular Electron client architecture ✓
    - Comprehensive error handling system ✓
+   - Enhanced URL and Parent URL conversion with Puppeteer ✓
 
 2. **Next Focus Areas**
    - High Priority:
@@ -396,3 +427,4 @@ Transitioning to Phase 4: Desktop Features - Implementing system tray integratio
    - ✓ Fix clickability issues (nothing is currently clickable)
    - ✓ Add a header and logo
    - ✓ Fix URL conversion error with modular architecture
+   - ✓ Enhance URL and Parent URL conversion with Puppeteer

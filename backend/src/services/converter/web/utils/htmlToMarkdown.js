@@ -1,20 +1,8 @@
 /**
  * HTML to Markdown Converter Module
- * 
- * This module provides functionality for converting HTML to Markdown format.
- * It includes methods for processing different HTML elements and generating
- * well-formatted Markdown output.
- * 
- * Related files:
- * - ../urlConverter.js: Main URL converter implementation
- * - ./config.js: Configuration settings
- * - ./spaHandler.js: SPA detection and handling
- * - ./contentExtractor.js: Content extraction logic
  */
 
 import { JSDOM } from 'jsdom';
-import { formatMetadata } from '../../../../utils/metadataExtractor.js';
-import { AppError } from '../../../../utils/errorHandler.js';
 
 /**
  * Generates Markdown from HTML content
@@ -27,28 +15,90 @@ import { AppError } from '../../../../utils/errorHandler.js';
  */
 export async function generateMarkdown(content, metadata, images, url, options) {
   try {
+    console.log('Starting markdown generation...');
+    
+    // Check if content is valid
+    if (!content || content.length < 10) {
+      console.error('Invalid content received for markdown generation:', content);
+      return `# ${metadata.title || 'Page Content'}\n\nNo content could be extracted from this page.`;
+    }
+    
+    console.log(`Content length before cleaning: ${content.length}`);
+    
+    // Clean up content before parsing
+    content = cleanHtmlContent(content);
+    
+    console.log(`Content length after cleaning: ${content.length}`);
+    console.log(`Content preview after cleaning: ${content.substring(0, 200)}...`);
+    
     // Create a new JSDOM instance with the content
-    const dom = new JSDOM(content);
+    const dom = new JSDOM(content, {
+      contentType: 'text/html',
+      includeNodeLocations: true,
+      runScripts: 'outside-only'
+    });
     const document = dom.window.document;
+    
+    // Check if document is valid
+    if (!document) {
+      console.error('Invalid document after JSDOM parsing');
+      return `# ${metadata.title || 'Page Content'}\n\nFailed to parse page content.`;
+    }
+    
+    // If document.body is null, try to create it
+    if (!document.body) {
+      console.warn('Document body is null, trying to fix...');
+      
+      // Try to extract the body content from the HTML string
+      const bodyMatch = content.match(/<body[^>]*>([\s\S]*?)<\/body>/i);
+      if (bodyMatch && bodyMatch[1]) {
+        console.log('Found body content in HTML string, creating body element');
+        
+        // Create a body element and set its innerHTML
+        const bodyElement = document.createElement('body');
+        bodyElement.innerHTML = bodyMatch[1];
+        
+        // Append the body to the document if it doesn't exist
+        if (!document.documentElement) {
+          const html = document.createElement('html');
+          document.appendChild(html);
+          html.appendChild(bodyElement);
+        } else {
+          document.documentElement.appendChild(bodyElement);
+        }
+      } else {
+        console.error('Could not find body content in HTML string');
+        
+        // Create a minimal body with the content
+        const bodyElement = document.createElement('body');
+        bodyElement.innerHTML = content;
+        
+        // Append the body to the document
+        if (!document.documentElement) {
+          const html = document.createElement('html');
+          document.appendChild(html);
+          html.appendChild(bodyElement);
+        } else {
+          document.documentElement.appendChild(bodyElement);
+        }
+      }
+    }
+    
+    // Double check if document.body exists now
+    if (!document.body) {
+      console.error('Failed to create document body');
+      return `# ${metadata.title || 'Page Content'}\n\nFailed to parse page content.`;
+    }
+    
+    // Remove script and style elements
+    removeUnwantedElements(document);
     
     // Convert the content to Markdown
     let markdown = '';
     
-    // Add metadata as YAML frontmatter
-    if (options.includeMeta && Object.keys(metadata).length > 0) {
-      markdown += '---\n';
-      markdown += formatMetadata(metadata);
-      markdown += `url: ${url}\n`;
-      markdown += `date_scraped: ${new Date().toISOString()}\n`;
-      markdown += `page_count: 1\n`; // URLs are treated as a single page
-      markdown += '---\n\n';
-    }
-    
     // Add title
     let title = metadata.title || document.title || extractTitleFromDocument(document) || '';
-    // Remove temp_ prefix from title if present
     if (title.startsWith('temp_')) {
-      // Extract original filename by removing 'temp_timestamp_' prefix
       title = title.replace(/^temp_\d+_/, '');
     }
     
@@ -56,47 +106,181 @@ export async function generateMarkdown(content, metadata, images, url, options) 
       markdown += `# ${title}\n\n`;
     }
     
-    // Process the document to convert HTML to Markdown
-    markdown += htmlToMarkdown(document.body);
+    // Process the document body
+    console.log('Processing document body...');
+    let processedContent = '';
     
-    // Add images at the end if they weren't already included
-    if (options.includeImages && images.length > 0) {
-      const imageMarkdown = generateImagesSection(images);
-      if (imageMarkdown && !markdown.includes(imageMarkdown)) {
-        markdown += '\n\n## Images\n\n';
-        markdown += imageMarkdown;
+    try {
+      if (document.body) {
+        processedContent = htmlToMarkdown(document.body);
+        console.log(`Processed content length: ${processedContent.length}`);
+        console.log(`Processed content preview: ${processedContent.substring(0, 200)}...`);
+      } else {
+        console.error('Document body is null');
+        processedContent = 'No content could be extracted.';
       }
+    } catch (error) {
+      console.error('Error processing document body:', error);
+      processedContent = 'Error processing content: ' + error.message;
     }
+
+    // Map to store image source to URL mappings
+    const imageMap = new Map(images.map(img => [img.src, img]));
+
+    // Replace image references
+    processedContent = processedContent.replace(/!\[([^\]]*)\]\(([^)]+)\)/g, (match, alt, src) => {
+      // Look up the image in our map
+      const image = imageMap.get(src);
+      if (image) {
+        return `![[${src}]]`;
+      }
+      return match;
+    });
+
+    markdown += processedContent;
     
-    // Add source URL at the end
-    markdown += `\n\n---\n\nSource: [${url}](${url})\n`;
+    // Clean up the final markdown
+    markdown = cleanMarkdown(markdown);
     
+    // Remove any remaining JavaScript-like content
+    markdown = removeJavaScriptContent(markdown);
+    
+    console.log(`Final markdown length: ${markdown.length}`);
+    console.log(`Final markdown preview: ${markdown.substring(0, 200)}...`);
+    
+    // If markdown is too short, it might indicate a problem
+    if (markdown.length < 50) {
+      console.warn('Generated markdown is very short, might indicate a problem');
+      // Add a fallback message
+      markdown += `\n\nNote: Limited content was extracted from ${url}. You may want to visit the original page for more information.`;
+    }
+
     return markdown;
   } catch (error) {
     console.error('Error generating Markdown:', error);
-    throw new AppError(`Failed to generate Markdown: ${error.message}`, 500);
+    throw new Error(`Failed to generate Markdown: ${error.message}`);
   }
 }
 
 /**
+ * Clean HTML content before parsing
+ * @private
+ */
+function cleanHtmlContent(content) {
+  if (!content) return '';
+  
+  // Remove script tags and their content
+  content = content.replace(/<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi, '');
+  
+  // Remove style tags and their content
+  content = content.replace(/<style\b[^<]*(?:(?!<\/style>)<[^<]*)*<\/style>/gi, '');
+  
+  // Remove inline JavaScript
+  content = content.replace(/\bon\w+\s*=\s*["'].*?["']/gi, '');
+  
+  // Remove JavaScript variable assignments
+  content = content.replace(/window\.__[^;]+;/g, '');
+  content = content.replace(/var\s+\w+\s*=\s*{[^}]+};/g, '');
+  content = content.replace(/const\s+\w+\s*=\s*{[^}]+};/g, '');
+  content = content.replace(/let\s+\w+\s*=\s*{[^}]+};/g, '');
+  
+  // Remove JSON-like data structures
+  content = content.replace(/\{"\w+":(?:[^}]+|\{[^}]+\})+\}/g, '');
+  
+  // Remove HTML comments
+  content = content.replace(/<!--[\s\S]*?-->/g, '');
+  
+  return content;
+}
+
+/**
+ * Remove unwanted elements from the DOM
+ * @private
+ */
+function removeUnwantedElements(document) {
+  // Remove all script tags
+  const scripts = document.querySelectorAll('script');
+  scripts.forEach(script => script.remove());
+  
+  // Remove all style tags
+  const styles = document.querySelectorAll('style');
+  styles.forEach(style => style.remove());
+  
+  // Remove all noscript tags
+  const noscripts = document.querySelectorAll('noscript');
+  noscripts.forEach(noscript => noscript.remove());
+  
+  // Remove all iframe tags
+  const iframes = document.querySelectorAll('iframe');
+  iframes.forEach(iframe => iframe.remove());
+  
+  // Remove cookie notices and consent banners
+  const cookieElements = document.querySelectorAll('[id*="cookie"], [class*="cookie"], [id*="consent"], [class*="consent"]');
+  cookieElements.forEach(el => el.remove());
+  
+  // Remove HubSpot specific elements
+  const hubspotElements = document.querySelectorAll('[class*="hs-"], [id*="hs-"], [data-hs-]');
+  hubspotElements.forEach(el => el.remove());
+}
+
+/**
+ * Remove JavaScript-like content from markdown
+ * @private
+ */
+function removeJavaScriptContent(markdown) {
+  if (!markdown) return '';
+  
+  // Remove window.__* assignments
+  markdown = markdown.replace(/window\.__[\s\S]*?;/g, '');
+  
+  // Remove var/const/let assignments
+  markdown = markdown.replace(/(?:var|const|let)\s+\w+\s*=[\s\S]*?;/g, '');
+  
+  // Remove document.* calls
+  markdown = markdown.replace(/document\.[\s\S]*?;/g, '');
+  
+  // Remove JSON-like structures
+  markdown = markdown.replace(/\{\s*"[^"]+"\s*:[\s\S]*?\}/g, '');
+  
+  // Remove any lines that are just JavaScript-like code
+  const lines = markdown.split('\n');
+  const filteredLines = lines.filter(line => {
+    const trimmed = line.trim();
+    // Skip lines that look like JavaScript
+    if (/^(?:window|document|var|const|let|function)\.\w+/.test(trimmed)) return false;
+    if (/^[a-zA-Z$_][a-zA-Z0-9$_]*\s*=/.test(trimmed)) return false;
+    if (/^if\s*\(/.test(trimmed)) return false;
+    if (/^for\s*\(/.test(trimmed)) return false;
+    if (/^while\s*\(/.test(trimmed)) return false;
+    if (/^switch\s*\(/.test(trimmed)) return false;
+    if (/^try\s*\{/.test(trimmed)) return false;
+    if (/^catch\s*\(/.test(trimmed)) return false;
+    if (/^finally\s*\{/.test(trimmed)) return false;
+    if (/^}\s*else\s*\{/.test(trimmed)) return false;
+    if (/^}\s*else\s+if\s*\(/.test(trimmed)) return false;
+    if (/^}\s*$/.test(trimmed) && lines[lines.indexOf(line) - 1]?.trim().endsWith('{')) return false;
+    
+    return true;
+  });
+  
+  return filteredLines.join('\n');
+}
+
+/**
  * Extracts title from document
- * @param {Document} document - DOM document
- * @returns {string} - Extracted title
+ * @private
  */
 function extractTitleFromDocument(document) {
-  // Try to find the first h1
   const h1 = document.querySelector('h1');
   if (h1 && h1.textContent.trim()) {
     return h1.textContent.trim();
   }
   
-  // If no h1, try the title tag
   const title = document.querySelector('title');
   if (title && title.textContent.trim()) {
     return title.textContent.trim();
   }
   
-  // If no title, try the first h2
   const h2 = document.querySelector('h2');
   if (h2 && h2.textContent.trim()) {
     return h2.textContent.trim();
@@ -106,29 +290,8 @@ function extractTitleFromDocument(document) {
 }
 
 /**
- * Generates Markdown for images
- * @param {Array} images - Images to include
- * @returns {string} - Markdown for images
- */
-function generateImagesSection(images) {
-  if (!images || images.length === 0) return '';
-  
-  let markdown = '';
-  
-  // Add each image
-  images.forEach(img => {
-    const alt = img.alt || '';
-    const title = img.title ? ` "${img.title}"` : '';
-    markdown += `![${alt}](${img.src}${title})\n\n`;
-  });
-  
-  return markdown;
-}
-
-/**
  * Converts HTML to Markdown
- * @param {HTMLElement} element - HTML element to convert
- * @returns {string} - Markdown content
+ * @private
  */
 export function htmlToMarkdown(element) {
   if (!element) return '';
@@ -138,7 +301,6 @@ export function htmlToMarkdown(element) {
   // Process each child node
   for (const node of Array.from(element.childNodes)) {
     if (node.nodeType === 3) { // Text node
-      // Clean up text nodes (remove excessive whitespace)
       const text = node.textContent.replace(/\s+/g, ' ');
       markdown += text;
     } else if (node.nodeType === 1) { // Element node
@@ -189,19 +351,13 @@ export function htmlToMarkdown(element) {
         case 'img':
           const src = node.getAttribute('src');
           const alt = node.getAttribute('alt') || '';
-          const title = node.getAttribute('title') || '';
           if (src) {
-            if (title) {
-              markdown += `![${alt}](${src} "${title}")`;
-            } else {
-              markdown += `![${alt}](${src})`;
-            }
+            markdown += `![${alt}](${src})`;
           }
           break;
           
         case 'ul':
           markdown += '\n\n';
-          // Process nested lists properly
           for (const li of Array.from(node.children)) {
             if (li.tagName.toLowerCase() === 'li') {
               markdown += `* ${processListItem(li)}\n`;
@@ -212,7 +368,6 @@ export function htmlToMarkdown(element) {
           
         case 'ol':
           markdown += '\n\n';
-          // Process nested lists properly
           Array.from(node.children).forEach((li, index) => {
             if (li.tagName.toLowerCase() === 'li') {
               markdown += `${index + 1}. ${processListItem(li)}\n`;
@@ -231,19 +386,16 @@ export function htmlToMarkdown(element) {
           break;
           
         case 'pre':
-          // Try to detect language from class
           let language = '';
           const classAttr = node.getAttribute('class') || '';
           const codeElement = node.querySelector('code');
           const codeClass = codeElement ? codeElement.getAttribute('class') || '' : '';
           
-          // Check for language classes like "language-javascript" or "brush: js"
           const langMatch = (classAttr + ' ' + codeClass).match(/(?:language|lang|brush)[-:\s](\w+)/i);
           if (langMatch) {
             language = langMatch[1].toLowerCase();
           }
           
-          // Get the code content from either the code element or the pre element
           const codeContent = codeElement ? codeElement.textContent : node.textContent;
           
           markdown += `\n\n\`\`\`${language}\n`;
@@ -252,7 +404,6 @@ export function htmlToMarkdown(element) {
           break;
           
         case 'code':
-          // Don't process code inside pre (already handled above)
           if (node.parentElement && node.parentElement.tagName.toLowerCase() !== 'pre') {
             markdown += `\`${node.textContent}\``;
           }
@@ -267,10 +418,8 @@ export function htmlToMarkdown(element) {
           break;
           
         case 'div':
-          // For divs, we want to add spacing only if they appear to be block-level
           const divContent = htmlToMarkdown(node);
           if (divContent.trim()) {
-            // Check if the div has block styling
             const display = node.style.display;
             if (display === 'block' || display === 'flex' || display === 'grid') {
               markdown += `\n\n${divContent.trim()}\n\n`;
@@ -281,7 +430,6 @@ export function htmlToMarkdown(element) {
           break;
           
         default:
-          // For other elements, just process their children
           markdown += htmlToMarkdown(node);
       }
     }
@@ -292,13 +440,11 @@ export function htmlToMarkdown(element) {
 
 /**
  * Process a list item, handling nested lists properly
- * @param {HTMLElement} li - List item element
- * @returns {string} - Processed list item content
+ * @private
  */
 function processListItem(li) {
   let content = '';
   
-  // Process each child node
   for (const node of Array.from(li.childNodes)) {
     if (node.nodeType === 3) { // Text node
       content += node.textContent;
@@ -306,7 +452,6 @@ function processListItem(li) {
       const tagName = node.tagName.toLowerCase();
       
       if (tagName === 'ul') {
-        // Handle nested unordered list
         content += '\n';
         for (const nestedLi of Array.from(node.children)) {
           if (nestedLi.tagName.toLowerCase() === 'li') {
@@ -314,7 +459,6 @@ function processListItem(li) {
           }
         }
       } else if (tagName === 'ol') {
-        // Handle nested ordered list
         content += '\n';
         Array.from(node.children).forEach((nestedLi, index) => {
           if (nestedLi.tagName.toLowerCase() === 'li') {
@@ -322,7 +466,6 @@ function processListItem(li) {
           }
         });
       } else {
-        // Process other elements
         content += htmlToMarkdown(node);
       }
     }
@@ -333,8 +476,7 @@ function processListItem(li) {
 
 /**
  * Converts an HTML table to Markdown
- * @param {HTMLElement} table - Table element
- * @returns {string} - Markdown table
+ * @private
  */
 function convertTableToMarkdown(table) {
   if (!table) return '';
@@ -345,33 +487,25 @@ function convertTableToMarkdown(table) {
     
     if (rows.length === 0) return '';
     
-    // Process header row
     const headerRow = rows[0];
     const headerCells = Array.from(headerRow.querySelectorAll('th, td'));
     
     if (headerCells.length === 0) return '';
     
-    // Create header row
     markdown += '| ' + headerCells.map(cell => cell.textContent.trim()).join(' | ') + ' |\n';
-    
-    // Create separator row
     markdown += '| ' + headerCells.map(() => '---').join(' | ') + ' |\n';
     
-    // Process data rows
     for (let i = 1; i < rows.length; i++) {
       const row = rows[i];
       const cells = Array.from(row.querySelectorAll('td, th'));
       
       if (cells.length === 0) continue;
       
-      // Pad cells array to match header length if needed
       while (cells.length < headerCells.length) {
         cells.push({ textContent: '' });
       }
       
-      // Create data row
       markdown += '| ' + cells.map(cell => {
-        // Clean cell content (remove newlines, etc.)
         return cell.textContent.trim().replace(/\n/g, ' ');
       }).join(' | ') + ' |\n';
     }
@@ -392,29 +526,14 @@ function convertTableToMarkdown(table) {
 export function cleanMarkdown(markdown) {
   if (!markdown) return '';
   
-  // Replace multiple consecutive blank lines with a single blank line
   let cleaned = markdown.replace(/\n{3,}/g, '\n\n');
-  
-  // Fix list item spacing
   cleaned = cleaned.replace(/\n\n(\s*[-*+])/g, '\n$1');
   cleaned = cleaned.replace(/\n\n(\s*\d+\.)/g, '\n$1');
-  
-  // Fix blockquote spacing
   cleaned = cleaned.replace(/\n\n(\s*>)/g, '\n$1');
-  
-  // Fix heading spacing
   cleaned = cleaned.replace(/\n{3,}(#{1,6}\s)/g, '\n\n$1');
-  
-  // Fix code block spacing
   cleaned = cleaned.replace(/\n{3,}(```)/g, '\n\n$1');
-  
-  // Fix horizontal rule spacing
   cleaned = cleaned.replace(/\n{3,}(---)/g, '\n\n$1');
-  
-  // Fix table spacing
   cleaned = cleaned.replace(/\n{3,}(\|)/g, '\n\n$1');
-  
-  // Trim leading/trailing whitespace
   cleaned = cleaned.trim();
   
   return cleaned;

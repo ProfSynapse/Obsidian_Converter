@@ -18,6 +18,7 @@ const { setupIPCHandlers } = require('./ipc/handlers');
 const { IPCChannels } = require('./ipc/types');
 const TrayManager = require('./features/tray');
 const NotificationManager = require('./features/notifications');
+const BrowserService = require('./services/BrowserService');
 const { createStore } = require('./utils/storeFactory');
 
 // Generate machine-specific encryption key for the store
@@ -80,6 +81,13 @@ app.whenReady().then(async () => {
       store.set('tempDirectory', tempDir);
       console.log('Set default temp directory:', tempDir);
     }
+    
+    // Initialize the browser service
+    console.log('Initializing browser service...');
+    BrowserService.initialize().catch(error => {
+      console.error('Failed to initialize browser service:', error);
+      // Non-fatal error, continue app initialization
+    });
 
     // Then create the window
     const mainWindow = createWindow();
@@ -117,9 +125,17 @@ app.on('window-all-closed', () => {
 });
 
 // Clean up resources when quitting
-app.on('will-quit', () => {
+app.on('will-quit', async () => {
   if (trayManager) {
     trayManager.destroy();
+  }
+  
+  // Close the browser service
+  try {
+    console.log('Closing browser service...');
+    await BrowserService.close();
+  } catch (error) {
+    console.error('Error closing browser service:', error);
   }
 });
 

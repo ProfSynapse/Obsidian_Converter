@@ -4,6 +4,34 @@ This document tracks what has been completed and what remains to be built in the
 
 ## Completed Features
 
+- Implemented Browser Service for Puppeteer:
+  - Created a new BrowserService to manage a single Puppeteer browser instance
+  - Implemented lazy initialization to start browser only when needed
+  - Added browser instance sharing between URL and Parent URL converters
+  - Modified urlConverter.js and parentUrlConverter.js to accept external browser instances
+  - Updated adapters to use the shared browser instance
+  - Added proper cleanup of browser resources on application exit
+  - Improved error handling for browser operations
+  - Enhanced content extraction with better HTML cleanup
+  - Fixed JavaScript variable assignments in HTML that caused parsing issues
+  - Added comprehensive cleanup of cookie notices, popups, and other distractions
+  - Improved content scoring algorithm to better identify main content
+
+- Enhanced URL and Parent URL conversion with Puppeteer:
+  - Replaced Cheerio and Got with Puppeteer for better content extraction
+  - Implemented browser instance management for efficient resource usage
+  - Added support for modern web frameworks (React, Vue, Angular, etc.)
+  - Enhanced content scoring to better identify main content areas
+  - Added fallback to body content when specific selectors don't find enough content
+  - Enhanced SPA detection and waiting logic for dynamic content
+  - Added proper metadata extraction from rendered pages
+  - Improved image extraction from rendered pages
+  - Added URL normalization to prevent duplicate pages
+  - Implemented tracking of both normalized and original URLs
+  - Ensured unique pages in the output by using normalized URLs as keys
+  - Fixed frontmatter generation for individual pages in parent URL conversion
+  - Enhanced error handling and resource cleanup
+
 - Enhanced batch conversion with improved progress tracking:
   - Fixed "An object could not be cloned" error in batch conversion
   - Added proper handling of File objects in batch conversion
@@ -15,6 +43,9 @@ This document tracks what has been completed and what remains to be built in the
   - Enhanced error handling in page marker insertion
   - Fixed transformDocument function to handle paragraphs without content
   - Added try/catch blocks to prevent errors in paragraph transforms
+  - Changed DOCX conversion to use HTML output and then convert to Markdown
+  - Added HTML file converter for direct HTML to Markdown conversion
+  - Added support for HTML and HTM file types
 - Standardized attachment folder structure: Images extracted from PDFs and slides are now saved to a `{{filename}}_attachments` folder
 - Consistent page/slide numbering: Fixed duplicate page numbering in PDFs and slide numbering in PPTX files
 - Electron-based file conversion with native file system access

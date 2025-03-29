@@ -1,674 +1,520 @@
 /**
  * Parent URL Converter Module
- * 
- * This module provides functionality for converting entire websites to Markdown.
- * It handles crawling multiple pages and converting them to Markdown.
- * 
- * Related files:
- * - ./urlConverter.js: Single URL converter
- * - ./utils/config.js: Configuration settings
- * - ./utils/spaHandler.js: SPA detection and handling
- * - ./utils/contentExtractor.js: Content extraction logic
- * - ./utils/htmlToMarkdown.js: HTML to Markdown conversion
  */
 
-import got from 'got';
+import puppeteer from 'puppeteer';
 import pLimit from 'p-limit';
-import * as cheerio from 'cheerio';
 import { convertUrlToMarkdown } from './urlConverter.js';
 import { AppError } from '../../../utils/errorHandler.js';
 import { DEFAULT_PARENT_URL_CONVERTER_OPTIONS } from './utils/config.js';
 
-/**
- * Configuration for URL conversion
- */
-const CONFIG = {
-  concurrentLimit: 50,
-  validProtocols: ['http:', 'https:'],
-  excludePatterns: [
-    // Assets to exclude
-    /\.(css|js|woff|woff2|ttf|eot|svg|ico|gif|png|jpg|jpeg|webp)$/i,
-    /\.(mp3|mp4|wav|avi|mov|wmv|flv|ogg|webm|m4a|m4v)$/i, // Media files
-    
-    // Documents and archives
-    /\.(pdf|zip|doc|docx|xls|xlsx|ppt|pptx|rar|7z|tar|gz|bz2)$/i,
-    
-    // Tracking and analytics
-    /\?(utm_|source=|campaign=|ref=|fbclid=|gclid=|dclid=|cid=|yclid=)/i,
-    /\/(analytics|tracking|pixel|beacon|ad|stats|counter)\//i,
-    /\.(analytics|tracking|stats)\./i,
-    /\b(ga|gtm|pixel|fb|adsense|doubleclick)\b/i,
-    
-    // System and utility
-    /#.*/,  // Anchors
-    /^(mailto:|tel:|javascript:|data:|file:|blob:)/i,  // Protocols
-    /\/(api|feed|rss|atom|json|xml|auth|login|signup|sitemap|robots\.txt)/i,  // System paths
-    /\/(cart|checkout|account|profile|settings|dashboard|admin|wp-admin)/i,  // User/admin pages
-    /\/(search|tags?|categories|archive|author|date|page\/\d+)/i,  // Navigation and pagination
-    /\/(wp-admin|wp-content|wp-includes|wp-json|wp-login)/i,  // WordPress
-    /\/(cdn-cgi|__webpack|_next|static|assets|dist|build|node_modules)\//i,  // Infrastructure
-    
-    // Dynamic and temporary
-    /\?.*(?:session|token|nonce|timestamp|cache|nocache|random|_=\d+)=/i,
-    /\/\d{4}\/\d{2}\/\d{2}\//,  // Date-based URLs
-    
-    // Social media and sharing
-    /\/(?:share|tweet|pin|like|follow|subscribe|comment)/i,
-    
-    // E-commerce specific
-    /\/(?:add-to-cart|wishlist|favorites|compare|product-comparison)/i,
-    
-    // Specific file types that might be linked but aren't content
-    /\.(exe|dmg|pkg|deb|rpm|apk|ipa|jar|war|ear|class|dll|so|lib)$/i,
-    
-    // Internationalization and localization
-    /\/(?:translate|language|locale|region|country|timezone)/i,
-    
-    // Print and view modes
-    /\/(?:print|print-view|printer-friendly|mobile-view|amp)/i,
-    
-    // Authentication and security
-    /\/(?:verify|confirm|activate|reset-password|forgot-password|unsubscribe)/i
-  ],
-  http: DEFAULT_PARENT_URL_CONVERTER_OPTIONS.http
-};
+// Browser instance cache to avoid launching multiple browsers
+let browserInstance = null;
 
 /**
- * Simple URL finder class to get child pages
+ * Format metadata as YAML frontmatter
  */
+function formatMetadata(metadata) {
+  const lines = ['---'];
+
+  // Filter out any image-related metadata
+  const cleanedMetadata = Object.fromEntries(
+    Object.entries(metadata).filter(([key]) => !key.toLowerCase().includes('image'))
+  );
+
+  for (const [key, value] of Object.entries(cleanedMetadata)) {
+    if (Array.isArray(value)) {
+      if (value.length > 0) {
+        lines.push(`${key}:`);
+        value.forEach(item => lines.push(`  - ${item}`));
+      }
+    } else if (value !== null && value !== undefined && value !== '') {
+      // Escape special characters and wrap values containing special chars in quotes
+      const needsQuotes = /[:#\[\]{}",\n]/g.test(value.toString());
+      const escapedValue = value.toString().replace(/"/g, '\\"');
+      lines.push(`${key}: ${needsQuotes ? `"${escapedValue}"` : value}`);
+    }
+  }
+
+  lines.push('---\n');
+  return lines.join('\n');
+}
+
+// Normalize URL by removing fragments and query parameters
+function normalizeUrl(url) {
+  try {
+    const urlObj = new URL(url);
+    urlObj.hash = ''; // Remove fragment
+    return urlObj.origin + urlObj.pathname;
+  } catch (error) {
+    console.error('Error normalizing URL:', error);
+    return url;
+  }
+}
+
 class UrlFinder {
   constructor() {
     this.childUrls = new Set();
+    this.normalizedUrlMap = new Map(); // Maps normalized URLs to original URLs
+    this.externalBrowser = null;
+    this.shouldCloseBrowser = false;
+  }
+
+  async getBrowser(externalBrowser = null) {
+    // If an external browser is provided, use it
+    if (externalBrowser) {
+      this.externalBrowser = externalBrowser;
+      return externalBrowser;
+    }
+    
+    // If we already have an external browser, use it
+    if (this.externalBrowser) {
+      return this.externalBrowser;
+    }
+    
+    // Otherwise, use or create the cached browser instance
+    if (!browserInstance) {
+      console.log('🌐 Launching new Puppeteer browser instance for parent URL conversion...');
+      browserInstance = await puppeteer.launch({
+        headless: 'new',
+        args: [
+          '--no-sandbox',
+          '--disable-setuid-sandbox',
+          '--disable-dev-shm-usage',
+          '--disable-accelerated-2d-canvas',
+          '--disable-gpu',
+          '--window-size=1280,800'
+        ]
+      });
+      
+      // Set up event listeners
+      browserInstance.on('disconnected', () => {
+        console.log('🌐 Browser disconnected, clearing instance');
+        browserInstance = null;
+      });
+      
+      this.shouldCloseBrowser = true;
+    }
+    
+    return browserInstance;
+  }
+  
+  /**
+   * Clean up the page by removing unwanted elements
+   * @param {Page} page - Puppeteer page object
+   */
+  async cleanupPage(page) {
+    try {
+      // Remove script tags and their content
+      await page.evaluate(() => {
+        const elementsToRemove = [
+          'script',
+          'style',
+          'noscript',
+          'iframe',
+          '[id*="cookie"]',
+          '[class*="cookie"]',
+          '[id*="consent"]',
+          '[class*="consent"]',
+          '[id*="popup"]',
+          '[class*="popup"]',
+          '[id*="banner"]',
+          '[class*="banner"]',
+          '[id*="modal"]',
+          '[class*="modal"]',
+          '[id*="dialog"]',
+          '[class*="dialog"]',
+          '[id*="overlay"]',
+          '[class*="overlay"]',
+          '[id*="notification"]',
+          '[class*="notification"]',
+          '[class*="hs-"]',
+          '[id*="hs-"]',
+          '[data-hs-]'
+        ];
+        
+        elementsToRemove.forEach(selector => {
+          document.querySelectorAll(selector).forEach(el => el.remove());
+        });
+        
+        // Remove inline JavaScript
+        document.querySelectorAll('[onclick], [onload], [onunload], [onchange], [onsubmit], [onfocus], [onblur]').forEach(el => {
+          el.removeAttribute('onclick');
+          el.removeAttribute('onload');
+          el.removeAttribute('onunload');
+          el.removeAttribute('onchange');
+          el.removeAttribute('onsubmit');
+          el.removeAttribute('onfocus');
+          el.removeAttribute('onblur');
+        });
+      });
+      
+      // Clean up JavaScript variable assignments in HTML
+      await page.evaluate(() => {
+        // Find and remove script blocks that set window variables
+        const html = document.documentElement.outerHTML;
+        const cleanedHtml = html.replace(/window\.__[^;]+;/g, '')
+                               .replace(/var\s+\w+\s*=\s*{[^}]+};/g, '')
+                               .replace(/const\s+\w+\s*=\s*{[^}]+};/g, '')
+                               .replace(/let\s+\w+\s*=\s*{[^}]+};/g, '');
+        
+        // This is a bit of a hack, but it works to clean up the HTML
+        if (html !== cleanedHtml) {
+          document.open();
+          document.write(cleanedHtml);
+          document.close();
+        }
+      });
+    } catch (error) {
+      console.error('Error cleaning up page:', error);
+      // Continue with extraction even if cleanup fails
+    }
   }
 
   async findChildUrlsInChunks(parentUrl, chunkSize = 50) {
+    let page = null;
+    
     try {
       console.log(`🔍 Finding child pages for: ${parentUrl}`);
       
-      // Create a clean options object for got
-      const gotOptions = {
-        retry: {
-          limit: 5,
-          statusCodes: [408, 413, 429, 500, 502, 503, 504, 520, 521, 522, 523, 524],
-          methods: ['GET'],
-          calculateDelay: ({retryCount}) => retryCount * 1500
-        },
-        timeout: {
-          request: 45000,
-          response: 45000
-        },
-        headers: {
-          ...CONFIG.http.headers,
-          'Cache-Control': 'no-cache, max-age=0',
-          'Pragma': 'no-cache'
-        },
-        throwHttpErrors: false,
-        followRedirect: true,
-        decompress: true,
-        responseType: 'text'
-      };
+      // Get browser instance
+      const browser = await this.getBrowser();
       
-      // Enhanced SPA detection and handling
-      const isSPA = await this.detectSPA(parentUrl, gotOptions);
+      // Create a new page
+      page = await browser.newPage();
       
-      // Fetch the page with appropriate options
-      let response;
-      let bestResponse = null;
-      let bestContentScore = 0;
+      // Set viewport
+      await page.setViewport({ width: 1280, height: 800 });
       
-      // Always try multiple wait times to get the best content
-      const waitTimes = isSPA ? [1000, 3000, 5000, 8000] : [0, 2000, 4000];
+      // Set user agent
+      await page.setUserAgent(
+        'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
+      );
       
-      for (const waitTime of waitTimes) {
-        try {
-          console.log(`⏱️ Trying with ${waitTime}ms delay...`);
-          
-          // Create options with delay
-          const fetchOptions = { 
-            ...gotOptions,
-            headers: {
-              ...gotOptions.headers,
-              // Add a random query parameter to avoid caching
-              'Cookie': `nocache=${Date.now()}`
-            },
-            timeout: {
-              request: waitTime + 15000,
-              response: waitTime + 15000
-            },
-            // Add a random query parameter to avoid caching
-            searchParams: {
-              '_': Date.now()
-            }
-          };
-          
-          // Add a delay if needed
-          if (waitTime > 0) {
-            await new Promise(resolve => setTimeout(resolve, waitTime));
-          }
-          
-          const tempResponse = await got(parentUrl, fetchOptions);
-          
-          // Score the content quality
-          const contentScore = this.scoreUrlDiscoveryContent(tempResponse.body);
-          console.log(`📊 Content score for ${waitTime}ms delay: ${contentScore}`);
-          
-          // Keep the response with the highest content score
-          if (!bestResponse || contentScore > bestContentScore) {
-            bestResponse = tempResponse;
-            bestContentScore = contentScore;
-          }
-        } catch (e) {
-          console.log(`⚠️ Error with ${waitTime}ms delay: ${e.message}`);
-        }
+      // Navigate to URL with timeout and wait for content to load
+      await page.goto(parentUrl, { 
+        waitUntil: 'networkidle2',
+        timeout: 30000
+      });
+      
+      // Check if the page is an SPA and might need more time to load
+      const isSPA = await this.detectSPA(page);
+      
+      // For SPAs, try waiting longer for content to load
+      if (isSPA) {
+        console.log('Detected SPA, waiting for more content to load...');
+        await page.waitForTimeout(5000);
       }
       
-      response = bestResponse || await got(parentUrl, gotOptions);
+      // Clean up the page before extracting links
+      await this.cleanupPage(page);
       
-      if (!response || !response.body) {
-        throw new AppError(`Failed to load parent URL: No valid response`, 400);
-      }
-
-      if (response.statusCode >= 400) {
-        throw new AppError(`Failed to load parent URL: ${response.statusCode}`, 400);
-      }
-
-      const $ = cheerio.load(response.body);
+      // Extract all links from the page
       const parentUrlObj = new URL(parentUrl);
-      const chunks = [];
-      let currentChunk = [];
-      
-      // Track URL priorities (higher = more important)
+      const urlMetadata = new Map();
       const urlPriorities = new Map();
       
-      // Track URL metadata for better prioritization
-      const urlMetadata = new Map();
+      // Find all links on the page
+      const links = await page.evaluate((parentHostname) => {
+        return Array.from(document.querySelectorAll('a[href]'))
+          .map(a => {
+            try {
+              const href = a.href;
+              if (!href || href === '#' || href === '/' || 
+                  href.startsWith('javascript:') || href.startsWith('mailto:') || 
+                  href.startsWith('tel:')) {
+                return null;
+              }
+              
+              const url = new URL(href);
+              if (url.hostname !== parentHostname) return null;
+              
+              return {
+                url: href,
+                text: a.textContent.trim(),
+                isInNavigation: !!a.closest('nav, .nav, .menu, .navigation, header'),
+                isInMain: !!a.closest('main, article, .content, #content'),
+                pathDepth: url.pathname.split('/').filter(Boolean).length
+              };
+            } catch (e) {
+              return null;
+            }
+          })
+          .filter(Boolean);
+      }, parentUrlObj.hostname);
       
-      // First pass: collect all URLs and their metadata
-      console.log(`🔍 First pass: collecting all URLs and metadata...`);
-      
-      // Find all <a> tags with href
-      $('a[href]').each((_, element) => {
+      // Process links
+      for (const link of links) {
         try {
-          let href = $(element).attr('href');
+          // Normalize URL to avoid duplicates
+          const normalizedUrl = normalizeUrl(link.url);
           
-          // Skip empty hrefs
-          if (!href || href === '#' || href === '/') {
-            return;
-          }
+          if (this.childUrls.has(normalizedUrl)) continue;
+          if (this.shouldExcludeUrl(link.url)) continue;
           
-          // Clean and normalize URL
-          href = href.trim()
-            .replace(/[\n\r\t]/g, '')
-            .split('#')[0]; // Remove hash
-          
-          // Skip invalid protocols
-          if (href.match(/^(mailto:|tel:|javascript:|data:|file:|blob:)/i)) {
-            return;
-          }
-
-          // Convert to absolute URL
-          const absoluteUrl = new URL(href, parentUrl).href;
-          const urlObj = new URL(absoluteUrl);
-          
-          // Only process URLs from same domain
-          if (urlObj.hostname !== parentUrlObj.hostname) {
-            return;
-          }
-          
-          // Skip excluded patterns
-          if (CONFIG.excludePatterns.some(pattern => pattern.test(absoluteUrl))) {
-            return;
-          }
-          
-          // Remove query parameters for deduplication
-          const normalizedUrl = absoluteUrl.split('?')[0];
-          
-          // Skip if already processed
-          if (this.childUrls.has(normalizedUrl)) {
-            return;
-          }
-          
-          // Add to our set of discovered URLs
           this.childUrls.add(normalizedUrl);
+          this.normalizedUrlMap.set(normalizedUrl, link.url); // Store original URL
           
-          // Collect metadata about this URL
-          const $element = $(element);
-          const linkText = $element.text().trim();
-          const isInNavigation = $element.closest('nav, .nav, .menu, .navigation, header, .header').length > 0;
-          const isInMain = $element.closest('main, article, .content, #content, .post, .entry').length > 0;
-          const isInSidebar = $element.closest('aside, .sidebar, .widget, .supplementary').length > 0;
-          const isInFooter = $element.closest('footer, .footer').length > 0;
-          const hasImage = $element.find('img').length > 0;
-          const hasIcon = $element.find('i, svg, .icon').length > 0;
-          const pathDepth = urlObj.pathname.split('/').filter(Boolean).length;
-          const queryParams = urlObj.search ? urlObj.search.split('&').length : 0;
-          const isPagination = /\/page\/\d+|[?&]page=\d+|[?&]p=\d+|[?&]offset=|[?&]limit=|[?&]start=/.test(absoluteUrl);
-          const isArchive = /\/archive|\/category|\/tag|\/author|\/date|\/\d{4}\/\d{2}/.test(urlObj.pathname);
-          
-          // Store metadata
+          // Store metadata for priority calculation
           urlMetadata.set(normalizedUrl, {
-            url: normalizedUrl,
-            linkText,
-            isInNavigation,
-            isInMain,
-            isInSidebar,
-            isInFooter,
-            hasImage,
-            hasIcon,
-            pathDepth,
-            queryParams,
-            isPagination,
-            isArchive
+            ...link,
+            normalizedUrl
           });
         } catch (error) {
           console.log(`⚠️ Skipping invalid URL: ${error.message}`);
         }
-      });
+      }
       
-      // Second pass: calculate priorities and organize into chunks
-      console.log(`🔍 Second pass: calculating priorities for ${urlMetadata.size} URLs...`);
+      console.log(`🔍 Calculating priorities for ${urlMetadata.size} URLs...`);
       
-      // Process all collected URLs
-      for (const [url, metadata] of urlMetadata.entries()) {
+      // Calculate priorities and organize into chunks
+      const chunks = [];
+      let currentChunk = [];
+      
+      for (const [normalizedUrl, metadata] of urlMetadata.entries()) {
         try {
-          // Calculate URL priority based on various factors
-          let priority = 0;
+          let priority = 50; // Base priority
           
-          // Content location factors
+          // Adjust based on location
           if (metadata.isInMain) priority += 30;
           if (metadata.isInNavigation) priority += 20;
-          if (metadata.isInSidebar) priority -= 10;
-          if (metadata.isInFooter) priority -= 15;
-          
-          // URL structure factors
           priority -= metadata.pathDepth * 5;
-          priority -= metadata.queryParams * 8;
           
-          // Link appearance factors
-          if (metadata.linkText && metadata.linkText.length > 3) priority += 10;
-          if (metadata.hasImage) priority += 5;
-          if (metadata.hasIcon) priority -= 5;
-          
-          // Content type factors
-          if (metadata.isPagination) priority -= 20;
-          if (metadata.isArchive) priority -= 15;
-          
-          // Special case for index/home page
-          const urlObj = new URL(url);
+          // Adjust for home page and important sections
+          const urlObj = new URL(metadata.url);
           if (urlObj.pathname === '/' || urlObj.pathname === '/index.html') {
             priority += 50;
           }
-          
-          // Special case for important content pages
-          if (/\/about|\/contact|\/faq|\/help|\/support|\/guide|\/tutorial|\/docs|\/documentation/.test(urlObj.pathname)) {
+          if (/\/(about|contact|docs)/.test(urlObj.pathname)) {
             priority += 40;
           }
           
-          // Store the URL with its priority
-          urlPriorities.set(url, priority);
+          urlPriorities.set(normalizedUrl, priority);
+          currentChunk.push(normalizedUrl);
           
-          // Add to current chunk
-          currentChunk.push(url);
-          
-          // When chunk is full, add it to chunks and start a new one
           if (currentChunk.length >= chunkSize) {
-            // Sort URLs by priority before creating chunk
             currentChunk.sort((a, b) => (urlPriorities.get(b) || 0) - (urlPriorities.get(a) || 0));
-            
-            console.log(`📦 Creating chunk of ${currentChunk.length} URLs`);
             chunks.push([...currentChunk]);
             currentChunk = [];
-            
-            // Force garbage collection if available
-            if (global.gc) {
-              console.log('🧹 Running garbage collection after chunk');
-              global.gc();
-            }
           }
         } catch (error) {
-          console.log(`⚠️ Error processing URL ${url}: ${error.message}`);
+          console.log(`⚠️ Error processing URL ${normalizedUrl}: ${error.message}`);
         }
       }
 
-      // Add any remaining URLs as the final chunk
       if (currentChunk.length > 0) {
-        // Sort URLs by priority
         currentChunk.sort((a, b) => (urlPriorities.get(b) || 0) - (urlPriorities.get(a) || 0));
-        
-        console.log(`📦 Creating final chunk of ${currentChunk.length} URLs`);
         chunks.push([...currentChunk]);
       }
 
-      // Log the top 10 URLs by priority for debugging
-      const topUrls = Array.from(urlPriorities.entries())
-        .sort((a, b) => b[1] - a[1])
-        .slice(0, 10);
-      
+      // Log top URLs
       console.log(`🔝 Top 10 URLs by priority:`);
-      topUrls.forEach(([url, priority]) => {
-        console.log(`   ${priority}: ${url}`);
-      });
+      Array.from(urlPriorities.entries())
+        .sort((a, b) => b[1] - a[1])
+        .slice(0, 10)
+        .forEach(([normalizedUrl, priority]) => {
+          console.log(`   ${priority}: ${this.normalizedUrlMap.get(normalizedUrl)}`);
+        });
 
-      console.log(`✅ Found total of ${this.childUrls.size} child pages in ${chunks.length} chunks`);
+      console.log(`✅ Found ${this.childUrls.size} pages in ${chunks.length} chunks`);
       return chunks;
+
     } catch (error) {
       throw new AppError(`Failed to find child pages: ${error.message}`, 500);
-    }
-  }
-  
-  /**
-   * Score HTML content for URL discovery quality
-   * @param {string} html - The HTML content to score
-   * @returns {number} - A quality score (higher is better)
-   */
-  scoreUrlDiscoveryContent(html) {
-    if (!html) return 0;
-    
-    try {
-      const $ = cheerio.load(html);
-      
-      // Count links
-      const linkCount = $('a[href]').length;
-      
-      // Count links with text
-      const linksWithText = $('a[href]').filter(function() {
-        return $(this).text().trim().length > 0;
-      }).length;
-      
-      // Count links in navigation
-      const navLinks = $('nav a[href], header a[href], .navigation a[href], .menu a[href]').length;
-      
-      // Count links in main content
-      const contentLinks = $('main a[href], article a[href], .content a[href], #content a[href]').length;
-      
-      // Count links with images
-      const linksWithImages = $('a[href] img').length;
-      
-      // Calculate final score
-      const score = linkCount * 2 + 
-                   linksWithText * 3 + 
-                   navLinks * 5 + 
-                   contentLinks * 10 + 
-                   linksWithImages * 3;
-      
-      return score;
-    } catch (error) {
-      console.error('Error scoring HTML content for URL discovery:', error);
-      return 0;
-    }
-  }
-  
-  /**
-   * Detects if a URL is likely a Single Page Application
-   * @param {string} url - The URL to check
-   * @param {Object} options - Request options
-   * @returns {Promise<boolean>} - True if the URL is likely an SPA
-   */
-  async detectSPA(url, options) {
-    try {
-      // Do a quick HEAD request first
-      const headResponse = await got.head(url, {
-        ...options,
-        timeout: {
-          request: 5000,
-          response: 5000
-        }
-      });
-      
-      // Check content type - we only care about HTML
-      const contentType = headResponse.headers['content-type'] || '';
-      if (!contentType.includes('text/html')) {
-        return false;
+    } finally {
+      // Close the page but keep the browser instance
+      if (page) {
+        await page.close().catch(err => console.error('Error closing page:', err));
       }
-      
-      // Do a GET request to check the content
-      const response = await got(url, {
-        ...options,
-        timeout: {
-          request: 10000,
-          response: 10000
-        }
+    }
+  }
+  
+  shouldExcludeUrl(url) {
+    return DEFAULT_PARENT_URL_CONVERTER_OPTIONS.skipUrlPatterns.some(pattern => 
+      pattern.test(url)
+    );
+  }
+
+  async detectSPA(page) {
+    try {
+      return await page.evaluate(() => {
+        const spaIndicators = [
+          !!document.querySelector('#root'),
+          !!document.querySelector('#app'),
+          !!document.querySelector('#__next'),
+          !!document.querySelector('#gatsby-focus-wrapper'),
+          !!document.querySelector('[data-reactroot]'),
+          !!document.querySelector('[data-react-app]'),
+          !!document.querySelector('[ng-app]'),
+          !!document.querySelector('[ng-controller]'),
+          !!document.querySelector('[v-app]'),
+          !!document.querySelector('[data-v-]'),
+          document.querySelectorAll('script').length > 15,
+          document.body.innerHTML.length < 20000 && document.querySelectorAll('script').length > 5
+        ];
+        
+        return spaIndicators.some(indicator => indicator);
       });
-      
-      // Check for SPA indicators in the HTML
-      const spaIndicators = [
-        // Framework root elements
-        /<div[^>]*(?:id=['"]app['"]|id=['"]root['"])/i,
-        /<div[^>]*(?:data-reactroot|data-react-app)/i,
-        /<div[^>]*(?:ng-app|ng-controller|ng-view)/i,
-        /<div[^>]*(?:v-app|data-v-|vue-app)/i,
-        /<div[^>]*(?:data-svelte|svelte-app)/i,
-        
-        // Framework scripts
-        /<script[^>]*(?:react|vue|angular|svelte|next|nuxt|gatsby)/i,
-        
-        // Common SPA patterns
-        /<div[^>]*(?:router-view|ui-view|page-view)/i,
-        /<div[^>]*(?:data-router|data-page|data-view)/i,
-        
-        // Empty content containers that will be filled by JS
-        /<div[^>]*(?:id=['"]content['"]|class=['"]content['"])[^>]*>\s*<\/div>/i,
-        /<div[^>]*(?:id=['"]main['"]|class=['"]main['"])[^>]*>\s*<\/div>/i,
-        
-        // Loading indicators
-        /<div[^>]*(?:loading|spinner|skeleton)/i
-      ];
-      
-      // Check if any SPA indicators are present
-      const isSPA = spaIndicators.some(pattern => pattern.test(response.body));
-      
-      // Also check if the page has minimal content but lots of scripts
-      const hasMinimalContent = response.body.length < 20000 && 
-                               (response.body.match(/<script/g) || []).length > 5;
-      
-      return isSPA || hasMinimalContent;
     } catch (error) {
       console.log(`⚠️ Error detecting SPA: ${error.message}`);
       return false;
     }
   }
+  
+  // Get the original URL for a normalized URL
+  getOriginalUrl(normalizedUrl) {
+    return this.normalizedUrlMap.get(normalizedUrl) || normalizedUrl;
+  }
+  
+  // Method to close the browser instance
+  async closeBrowser() {
+    // Only close the browser if it's not an external one
+    if (browserInstance && !this.externalBrowser) {
+      await browserInstance.close();
+      browserInstance = null;
+    }
+  }
+  
+  // Static method to close the browser instance
+  static async closeBrowser() {
+    if (browserInstance) {
+      await browserInstance.close();
+      browserInstance = null;
+    }
+  }
 }
 
-/**
- * URL Processor class to handle conversion of discovered URLs
- */
 class UrlProcessor {
-  async processUrlsInChunks(urls, options = {}) {
+  async processUrlsInChunks(urls, finder, options = {}) {
     const limit = pLimit(CONFIG.concurrentLimit);
     const results = [];
-    let totalMemoryStart = process.memoryUsage().heapUsed;
+    const processedUrls = new Set(); // Track processed URLs to avoid duplicates
 
-    console.log(`🔄 Starting conversion with memory usage: ${Math.round(totalMemoryStart / 1024 / 1024)}MB`);
-
-    for (const url of urls) {
+    for (const normalizedUrl of urls) {
       try {
-        // Extract handleDynamicContent from options to avoid passing it directly to got
-        const { handleDynamicContent, ...filteredOptions } = options;
+        // Get the original URL for fetching
+        const url = finder.getOriginalUrl(normalizedUrl);
         
-        // Create clean options object for URL conversion
+        // Skip if we've already processed this normalized URL
+        if (processedUrls.has(normalizedUrl)) {
+          console.log(`⏭️ Skipping duplicate URL: ${url}`);
+          continue;
+        }
+        
+        processedUrls.add(normalizedUrl);
+        
         const conversionOptions = {
-          ...filteredOptions,
+          ...options,
           includeImages: true,
           includeMeta: true,
-          handleDynamicContent: handleDynamicContent !== false, // Preserve this option for SPA handling
-          got: {
-            retry: CONFIG.http.retry,
-            timeout: CONFIG.http.timeout,
-            headers: CONFIG.http.headers,
-            decompress: CONFIG.http.decompress,
-            followRedirect: true,
-            throwHttpErrors: false,
-            responseType: 'text'
-          },
-          spa: CONFIG.http.spa
+          handleDynamicContent: options.handleDynamicContent !== false
         };
+        
+        // Pass the browser instance to child URL conversions
+        if (finder.externalBrowser) {
+          conversionOptions.browser = finder.externalBrowser;
+        }
 
         const result = await limit(async () => {
           const convertResult = await convertUrlToMarkdown(url, conversionOptions);
           const urlPath = new URL(url).pathname || '/';
           const name = this.sanitizeFilename(urlPath);
-          console.log(`✅ Converted: ${url} -> ${name}`);
           
           return {
             success: true,
             name: `${name}.md`,
             content: convertResult.content,
+            rawContent: convertResult.content, // Store raw content without frontmatter
             images: convertResult.images || [],
             url,
-            metadata: convertResult.metadata
+            normalizedUrl,
+            metadata: {
+              ...convertResult.metadata,
+              url: url,
+              date_scraped: new Date().toISOString()
+            }
           };
         });
 
+        console.log(`✅ Converted: ${url}`);
         results.push(result);
 
-        // Check memory usage and run GC if needed
-        const currentMemory = process.memoryUsage().heapUsed;
-        const memoryUsageMB = Math.round(currentMemory / 1024 / 1024);
-        console.log(`📊 Current memory usage: ${memoryUsageMB}MB`);
-
-        if (global.gc && memoryUsageMB > 512) { // Trigger GC if memory exceeds 512MB
-          console.log('🧹 Running garbage collection...');
-          global.gc();
-          const afterGC = Math.round(process.memoryUsage().heapUsed / 1024 / 1024);
-          console.log(`📊 Memory after GC: ${afterGC}MB`);
-        }
-
       } catch (error) {
-        console.log(`❌ Failed to convert: ${url}`);
-        results.push({ success: false, url, error: error.message });
+        console.log(`❌ Failed to convert: ${finder.getOriginalUrl(normalizedUrl)}`);
+        results.push({ 
+          success: false, 
+          url: finder.getOriginalUrl(normalizedUrl),
+          normalizedUrl,
+          error: error.message 
+        });
       }
     }
-
-    const totalMemoryEnd = process.memoryUsage().heapUsed;
-    const memoryDiffMB = Math.round((totalMemoryEnd - totalMemoryStart) / 1024 / 1024);
-    console.log(`📊 Total memory change: ${memoryDiffMB}MB`);
 
     return results;
   }
 
   sanitizeFilename(input) {
     if (!input) return 'index';
-
-    // Extract meaningful parts from the path
+    
     const parts = input.split('/').filter(Boolean);
     const lastPart = parts.pop() || 'index';
     
-    // Clean up the filename
-    const sanitized = lastPart
+    return lastPart
       .toLowerCase()
-      // Remove file extensions
       .replace(/\.[^.]+$/, '')
-      // Remove query parameters
       .split('?')[0]
-      // Remove special characters
       .replace(/[^a-z0-9]+/g, '-')
-      // Clean up dashes
       .replace(/^-+|-+$/g, '')
-      // Limit length but try to keep words intact
       .split('-')
       .reduce((acc, part) => {
         if ((acc + (acc ? '-' : '') + part).length <= 100) {
           return acc + (acc ? '-' : '') + part;
         }
         return acc;
-      }, '');
-
-    return sanitized || 'index';
+      }, '') || 'index';
   }
 
-  /**
-   * Collects unique image references from pages
-   */
-  collectImageReferences(pages) {
-    const seenUrls = new Set();
-    const images = [];
-
-    pages.filter(p => p.success).forEach(page => {
-      if (page.images) {
-        page.images.forEach(img => {
-          if (img?.url && !seenUrls.has(img.url)) {
-            seenUrls.add(img.url);
-            images.push({
-              ...img,
-              referenceUrl: page.url
-            });
-          }
-        });
-      }
-    });
-
-    return images;
-  }
-
-  generateIndex(parentUrl, pages, imageData) {
+  generateIndex(parentUrl, pages, hostname) {
     const successfulPages = pages.filter(p => p.success);
     const failedPages = pages.filter(p => !p.success);
-    const hostname = new URL(parentUrl).hostname;
     const timestamp = new Date().toISOString();
     
-    // Remove temp_ prefix from hostname if present
     let cleanHostname = hostname;
     if (cleanHostname.startsWith('temp_')) {
-      // Extract original hostname by removing 'temp_timestamp_' prefix
       cleanHostname = cleanHostname.replace(/^temp_\d+_/, '');
     }
 
-    // Group pages by their primary sections
+    // Group pages by sections
     const sections = new Map();
+    const processedPaths = new Set(); // Track processed paths to avoid duplicates
+    
     successfulPages.forEach(page => {
       try {
         const url = new URL(page.url);
         const pathParts = url.pathname.split('/').filter(Boolean);
         const section = pathParts[0] || 'main';
+        
         if (!sections.has(section)) {
           sections.set(section, []);
         }
+        
+        // Create a unique path key
+        const pathKey = url.pathname;
+        
+        // Skip if we've already processed this path
+        if (processedPaths.has(pathKey)) {
+          return;
+        }
+        
+        processedPaths.add(pathKey);
         sections.get(section).push(page);
       } catch (error) {
         console.error('Error processing page section:', error);
       }
     });
 
-    // Generate section content
-    const sectionContent = Array.from(sections.entries())
-      .sort(([a], [b]) => a.localeCompare(b))
-      .map(([section, pages]) => [
-        `### ${section.charAt(0).toUpperCase() + section.slice(1)}`,
-        '',
-        ...pages.map(page => {
-          const name = page.name.replace(/\.md$/, '');
-          return `- [[pages/${name}|${name}]] - [Original](${page.url})`;
-        }),
-        ''
-      ].join('\n'));
-
-    // Collect all image references
-    const allImages = new Set();
-    pages.filter(p => p.success).forEach(page => {
-      if (page.images) {
-        page.images.forEach(img => {
-          if (img.url) allImages.add(img);
-        });
-      }
-    });
-
-    const imageList = Array.from(allImages)
-      .sort((a, b) => (b.addedAt || '').localeCompare(a.addedAt || ''))
-      .map(img => `- [${img.alt || 'Image'}](${img.url}) (from ${img.referenceUrl})`);
-
-    return [
-      `---`,
-      `title: "${cleanHostname} Archive"`,
-      `description: "Website archive of ${cleanHostname}"`,
-      `date: "${timestamp}"`,
-      `source: "${parentUrl}"`,
-      `archived_at: "${timestamp}"`,
-      `page_count: ${successfulPages.length}`,
-      `tags:`,
-      `  - website-archive`,
-      `  - ${hostname.replace(/\./g, '-')}`,
-      `---`,
-      '',
+    // Generate index content without frontmatter
+    const content = [
       `# ${cleanHostname} Website Archive`,
       '',
       '## Site Information',
@@ -680,41 +526,78 @@ class UrlProcessor {
       '',
       '## Successfully Converted Pages',
       '',
-      ...sectionContent,
+      ...Array.from(sections.entries())
+        .sort(([a], [b]) => a.localeCompare(b))
+        .map(([section, sectionPages]) => [
+          `### ${section.charAt(0).toUpperCase() + section.slice(1)}`,
+          '',
+          ...sectionPages.map(page => {
+            const name = page.name.replace(/\.md$/, '');
+            return `- [[pages/${name}|${name}]] - [Original](${page.url})`;
+          }),
+          ''
+        ].join('\n')),
       '',
       failedPages.length ? [
         '## Failed Conversions',
         '',
         ...failedPages.map(page => `- ${page.url}: ${page.error}`),
         ''
-      ].join('\n') : '',
-      '## Referenced Images',
-      '',
-      'The following images are referenced in the archive:',
-      '',
-      ...imageList.slice(0, 30), // Limit to first 30 images to keep the list manageable
-      '',
-      '## Notes',
-      '',
-      '- All pages are stored in the `pages/` folder',
-      '- Internal links are preserved as wiki-links',
-      '- Original URLs are preserved in page metadata',
-      '- Images are linked to their original source URLs',
-      '- Generated with Obsidian Note Converter'
+      ].join('\n') : ''
     ].join('\n');
+
+    // Return metadata separately
+    const metadata = {
+      title: `${cleanHostname} Archive`,
+      description: `Website archive of ${cleanHostname}`,
+      date: timestamp,
+      source: parentUrl,
+      archived_at: timestamp,
+      page_count: successfulPages.length,
+      tags: [
+        'website-archive',
+        hostname.replace(/\./g, '-')
+      ]
+    };
+
+    return { content, metadata };
+  }
+  
+  /**
+   * Add frontmatter to page content
+   */
+  addFrontmatterToPage(page) {
+    if (!page.success) return page;
+    
+    // Create metadata for the page
+    const pageMetadata = {
+      type: 'url',
+      converted: new Date().toISOString(),
+      ...page.metadata,
+      pageCount: 1
+    };
+    
+    // Add frontmatter to content
+    const contentWithFrontmatter = formatMetadata(pageMetadata) + page.rawContent;
+    
+    return {
+      ...page,
+      content: contentWithFrontmatter
+    };
   }
 }
 
-/**
- * Converts a parent URL and its child pages to Markdown
- * @param {string} parentUrl - The URL normalized by the frontend
- */
-export async function convertParentUrlToMarkdown(parentUrl) {
+export async function convertParentUrlToMarkdown(parentUrl, options = {}) {
   const finder = new UrlFinder();
   const processor = new UrlProcessor();
+  
+  // Initialize browser if provided in options
+  if (options.browser) {
+    await finder.getBrowser(options.browser);
+    console.log('Using provided browser instance for parent URL conversion');
+  }
 
   try {
-    // Basic URL validation
     let urlObj;
     try {
       urlObj = new URL(parentUrl);
@@ -725,104 +608,90 @@ export async function convertParentUrlToMarkdown(parentUrl) {
     const hostname = urlObj.hostname;
     console.log(`🚀 Starting conversion of ${parentUrl}`);
 
-    // Initialize the result structure
-    const result = {
-      url: parentUrl,
-      type: 'parenturl',
-      name: hostname,
-      files: [],
-      stats: {
-        totalPages: 0,
-        successfulPages: 0,
-        failedPages: 0,
-        totalImages: 0
-      }
-    };
-
     // Process parent URL first
     console.log(`📄 Processing parent URL`);
-    const parentPageResult = await processor.processUrlsInChunks([parentUrl]);
-    if (parentPageResult[0].success) {
-      result.files.push({
-        name: `web/${hostname}/pages/${parentPageResult[0].name}`,
-        content: parentPageResult[0].content,
-        type: 'text'
-      });
-    }
+    const normalizedParentUrl = normalizeUrl(parentUrl);
+    finder.childUrls.add(normalizedParentUrl);
+    finder.normalizedUrlMap.set(normalizedParentUrl, parentUrl);
+    
+    const parentPageResult = await processor.processUrlsInChunks([normalizedParentUrl], finder);
 
     // Process child URLs in chunks
-    let processedPages = [parentPageResult[0]];
+    let processedPages = [...parentPageResult];
     const urlChunks = await finder.findChildUrlsInChunks(parentUrl);
     
     for (const urlChunk of urlChunks) {
       console.log(`🔄 Processing chunk of ${urlChunk.length} URLs`);
-      
-      const chunkResults = await processor.processUrlsInChunks(urlChunk);
-      
-      // Update stats
-      result.stats.totalPages += chunkResults.length;
-      result.stats.successfulPages += chunkResults.filter(p => p.success).length;
-      result.stats.failedPages += chunkResults.filter(p => !p.success).length;
-      
-      // Add successful conversions to files
-      const chunkFiles = chunkResults
-        .filter(p => p.success)
-        .map(({ name, content }) => ({
-          name: `web/${hostname}/pages/${name}`,
-          content,
-          type: 'text'
-        }));
-      
-      result.files.push(...chunkFiles);
+      const chunkResults = await processor.processUrlsInChunks(urlChunk, finder);
       processedPages.push(...chunkResults);
-      
-      // Force garbage collection after each chunk if available
-      if (global.gc) {
-        console.log('🧹 Running garbage collection after chunk processing');
-        global.gc();
-      }
     }
 
-    // Collect image references and generate index
-    console.log(`📊 Collecting image references and generating index`);
-    const imageRefs = processor.collectImageReferences(processedPages);
-    const index = processor.generateIndex(parentUrl, processedPages, { images: imageRefs });
+    // Generate index content and metadata
+    const { content: indexContent, metadata } = processor.generateIndex(parentUrl, processedPages, hostname);
 
-    // Create files array with markdown content
+    // Create files array with actual content
     const files = [
       {
-        name: `web/${hostname}/index.md`,
-        content: index,
+        name: `index.md`,
+        content: indexContent,
         type: 'text'
-      },
-      ...processedPages
-        .filter(p => p.success)
-        .map(({ name, content }) => ({
-          name: `web/${hostname}/pages/${name}`,
-          content,
-          type: 'text'
-        }))
+      }
     ];
+    
+    // Add individual page files with frontmatter
+    const uniquePages = new Map(); // Use Map to ensure unique pages by normalized URL
+    
+    processedPages.filter(p => p.success).forEach(page => {
+      // Add frontmatter to page content
+      const pageWithFrontmatter = processor.addFrontmatterToPage(page);
+      
+      // Use normalized URL as key to avoid duplicates
+      if (!uniquePages.has(page.normalizedUrl)) {
+        uniquePages.set(page.normalizedUrl, {
+          name: `pages/${page.name}`,
+          content: pageWithFrontmatter.content,
+          type: 'text'
+        });
+      }
+    });
+    
+    // Add unique pages to files array
+    files.push(...uniquePages.values());
 
     return {
       url: parentUrl,
       type: 'parenturl',
-      content: index,
       name: hostname,
+      content: indexContent,
+      metadata,
       files,
       success: true,
       stats: {
         totalPages: processedPages.length,
         successfulPages: processedPages.filter(p => p.success).length,
         failedPages: processedPages.filter(p => !p.success).length,
-        totalImages: imageRefs.length
+        totalImages: processedPages.reduce((sum, p) => sum + (p.images?.length || 0), 0)
       }
     };
+
   } catch (error) {
-    console.error('URL conversion failed:', error);
+    console.error('Parent URL conversion failed:', error);
     throw new AppError(
-      error instanceof AppError ? error.message : `Failed to convert URL: ${error.message}`,
+      error instanceof AppError ? error.message : `Failed to convert parent URL: ${error.message}`,
       error instanceof AppError ? error.statusCode : 500
     );
+  } finally {
+    // Close the browser instance when done
+    try {
+      // Use instance method to respect external browser
+      await finder.closeBrowser();
+    } catch (error) {
+      console.error('Error closing browser:', error);
+    }
   }
 }
+
+const CONFIG = {
+  concurrentLimit: 30,
+  validProtocols: ['http:', 'https:']
+};

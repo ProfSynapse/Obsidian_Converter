@@ -1,38 +1,24 @@
 /**
  * Parent URL Converter Adapter
- * 
- * Adapts the backend parent URL converter for use in the Electron main process.
- * This eliminates code duplication by reusing the existing parent URL conversion logic.
- * Adds page number markers between different pages when combining them into a single document.
- * 
- * Related files:
- * - backend/src/services/converter/web/parentUrlConverter.js: Original implementation
- * - src/electron/services/ElectronConversionService.js: Service using this adapter
- * - src/electron/services/PageMarkerService.js: Service for adding page markers
  */
 
-// Import required modules
 const path = require('path');
 const fs = require('fs');
 const { pathToFileURL } = require('url');
 const PageMarkerService = require('../services/PageMarkerService');
+const BrowserService = require('../services/BrowserService');
 
-// Create a function to dynamically load the ES module
 async function loadParentUrlConverter() {
   try {
-    // Get the absolute path to the backend parent URL converter
     const parentUrlConverterPath = path.resolve(__dirname, '../../../backend/src/services/converter/web/parentUrlConverter.js');
     
-    // Check if the file exists
     if (!fs.existsSync(parentUrlConverterPath)) {
       throw new Error(`Parent URL converter module not found at: ${parentUrlConverterPath}`);
     }
     
-    // Convert the path to a file URL
     const fileUrl = pathToFileURL(parentUrlConverterPath).href;
     console.log('Loading parent URL converter from:', fileUrl);
     
-    // Import the ES module dynamically using the file URL
     const { convertParentUrlToMarkdown } = await import(fileUrl);
     return { convertParentUrlToMarkdown };
   } catch (error) {
@@ -41,62 +27,94 @@ async function loadParentUrlConverter() {
   }
 }
 
-// Create a promise that resolves to the loaded module
 const modulePromise = loadParentUrlConverter();
 
 /**
- * Adapts the backend parent URL converter for use in Electron with enhanced options
- * @param {string} url Parent URL to convert
- * @param {Object} options Conversion options
- * @returns {Promise<{content: string, success: boolean, files: Array, stats: Object, pageCount: number}>}
+ * Adapts the backend parent URL converter for use in Electron
  */
 async function convertParentUrl(url, options = {}) {
   try {
-    // Normalize the URL if needed
     if (!url.startsWith('http://') && !url.startsWith('https://')) {
       url = 'https://' + url;
     }
     
-    // Set default options with enhanced settings for better content extraction
+    // Define common encodings and formats
+    const acceptEncodings = 'gzip, deflate, br';
+    const acceptFormats = 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8';
+    const acceptLanguage = 'en-US,en;q=0.9';
+    
+    // Standard browser-like headers
+    const defaultHeaders = {
+      'accept': acceptFormats,
+      'accept-encoding': acceptEncodings,
+      'accept-language': acceptLanguage,
+      'cache-control': 'no-cache',
+      'dnt': '1',
+      'pragma': 'no-cache',
+      'sec-ch-ua': '"Chromium";v="122", "Not(A:Brand";v="24", "Google Chrome";v="122"',
+      'sec-ch-ua-mobile': '?0',
+      'sec-ch-ua-platform': '"Windows"',
+      'sec-fetch-dest': 'document',
+      'sec-fetch-mode': 'navigate',
+      'sec-fetch-site': 'none',
+      'sec-fetch-user': '?1',
+      'upgrade-insecure-requests': '1',
+      'user-agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36'
+    };
+    
     const defaultOptions = {
-      // Enhanced options for better content extraction
-      concurrentLimit: 30, // Limit concurrent requests to avoid overwhelming the server
-      waitBetweenRequests: 500, // Add a small delay between requests to be more respectful
-      maxDepth: 3, // Limit crawling depth to avoid excessive processing
-      maxPages: 100, // Limit total pages to process
+      concurrentLimit: 30,
+      waitBetweenRequests: 500,
+      maxDepth: 3,
+      maxPages: 100,
       includeImages: true,
       includeMeta: true,
       handleDynamicContent: true,
-      // HTTP request options
       got: {
-        headers: {
-          'accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7',
-          'accept-encoding': 'gzip, deflate, br',
-          'accept-language': 'en-US,en;q=0.9',
-          'cache-control': 'no-cache',
-          'pragma': 'no-cache',
-          'sec-ch-ua': '"Google Chrome";v="123", "Not:A-Brand";v="8", "Chromium";v="123"',
-          'sec-ch-ua-mobile': '?0',
-          'sec-ch-ua-platform': '"Windows"',
-          'sec-fetch-dest': 'document',
-          'sec-fetch-mode': 'navigate',
-          'sec-fetch-site': 'none',
-          'sec-fetch-user': '?1',
-          'upgrade-insecure-requests': '1',
-          'user-agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36'
-        },
+        headers: defaultHeaders,
         timeout: {
-          request: 45000,
-          response: 45000
+          lookup: 3000,    // DNS lookup timeout
+          connect: 5000,   // TCP connection timeout
+          secureConnect: 5000, // TLS handshake timeout
+          socket: 30000,   // Socket inactivity timeout
+          send: 30000,     // Time to send request
+          response: 30000  // Time to receive response headers
         },
         retry: {
-          limit: 5,
-          statusCodes: [408, 413, 429, 500, 502, 503, 504, 520, 521, 522, 523, 524]
-        }
+          limit: 3,
+          methods: ['GET', 'HEAD'],
+          statusCodes: [408, 413, 429, 500, 502, 503, 504, 520, 521, 522, 523, 524],
+          errorCodes: [
+            'ETIMEDOUT',
+            'ECONNRESET',
+            'EADDRINUSE',
+            'ECONNREFUSED',
+            'EPIPE',
+            'ENOTFOUND',
+            'ENETUNREACH',
+            'EAI_AGAIN'
+          ]
+        },
+        hooks: {
+          beforeRequest: [
+            // Add random delay between requests
+            async options => {
+              const delay = Math.floor(Math.random() * 1000) + 500; // 500-1500ms
+              await new Promise(resolve => setTimeout(resolve, delay));
+            }
+          ]
+        },
+        decompress: true,
+        responseType: 'text',
+        followRedirect: true,
+        throwHttpErrors: false,
+        searchParams: new URLSearchParams({
+          '_': Date.now().toString()
+        })
       }
     };
     
-    // Merge options, preserving any user-provided settings
+    // Deep merge options
     const mergedOptions = {
       ...defaultOptions,
       ...options,
@@ -105,58 +123,47 @@ async function convertParentUrl(url, options = {}) {
         ...(options.got || {}),
         headers: {
           ...(defaultOptions.got?.headers || {}),
-          ...(options.got?.headers || {})
+          ...(options.got?.headers || {}),
+        },
+        retry: {
+          ...(defaultOptions.got?.retry || {}),
+          ...(options.got?.retry || {})
+        },
+        timeout: {
+          ...(defaultOptions.got?.timeout || {}),
+          ...(options.got?.timeout || {})
+        },
+        hooks: {
+          beforeRequest: [
+            ...(defaultOptions.got?.hooks?.beforeRequest || []),
+            ...(options.got?.hooks?.beforeRequest || [])
+          ]
         }
-      },
-      // Add option to combine pages into a single document with page markers
-      combinePages: options.combinePages !== undefined ? options.combinePages : true
+      }
     };
     
-    // Get the loaded module
     const { convertParentUrlToMarkdown } = await modulePromise;
     
     console.log(`🔄 Converting parent URL with enhanced options: ${url}`);
     console.log(`📊 Using concurrent limit: ${mergedOptions.concurrentLimit}`);
     console.log(`⏱️ Using wait between requests: ${mergedOptions.waitBetweenRequests}ms`);
     
-    // Call the backend parent URL converter with the enhanced options
-    const result = await convertParentUrlToMarkdown(url, mergedOptions);
-    
-    // Process the result to add page markers if combining pages
-    if (mergedOptions.combinePages && result.pages && result.pages.length > 0) {
-      console.log(`📄 [ParentUrlConverter] Combining ${result.pages.length} pages with page markers`);
+    // Get the browser instance from BrowserService
+    try {
+      const browser = await BrowserService.getBrowser();
       
-      // Start with the first page's content
-      let combinedContent = result.pages[0].content;
-      const pageBreaks = [];
+      // Add the browser instance to the options
+      mergedOptions.browser = browser;
       
-      // Add each subsequent page with a page marker
-      for (let i = 1; i < result.pages.length; i++) {
-        const page = result.pages[i];
-        pageBreaks.push({
-          pageNumber: i + 1,
-          position: combinedContent.length,
-          url: page.url
-        });
-        
-        // Add page marker and content
-        combinedContent += PageMarkerService.formatPageMarker(i + 1, page.url) + page.content;
-      }
-      
-      // Update the result
-      result.content = combinedContent;
-      result.pageCount = result.pages.length;
-      
-      console.log(`✅ [ParentUrlConverter] Combined ${result.pageCount} pages with markers`);
-    } else if (result.pages && result.pages.length > 0) {
-      // If not combining, still set the page count
-      result.pageCount = result.pages.length;
-    } else {
-      // Single page or no pages
-      result.pageCount = 1;
+      console.log('Using shared browser instance for parent URL conversion');
+    } catch (error) {
+      console.warn('Failed to get shared browser instance, will create a new one:', error.message);
+      // Continue without shared browser - the converter will create its own
     }
     
-    // Return the result in a format compatible with ElectronConversionService
+    const result = await convertParentUrlToMarkdown(url, mergedOptions);
+    
+    // Return the result with metadata properly structured
     return {
       content: result.content,
       success: true,
@@ -164,7 +171,8 @@ async function convertParentUrl(url, options = {}) {
       files: result.files,
       stats: result.stats,
       url: result.url,
-      pageCount: result.pageCount
+      type: 'parenturl',
+      metadata: result.metadata || {}
     };
   } catch (error) {
     console.error('Parent URL conversion failed in adapter:', error);
@@ -172,6 +180,7 @@ async function convertParentUrl(url, options = {}) {
       success: false,
       error: error.message || 'Parent URL conversion failed',
       url,
+      type: 'parenturl',
       stats: {
         totalPages: 0,
         successfulPages: 0,
@@ -182,7 +191,6 @@ async function convertParentUrl(url, options = {}) {
   }
 }
 
-// Export the adapter function
 module.exports = {
   convertParentUrl
 };

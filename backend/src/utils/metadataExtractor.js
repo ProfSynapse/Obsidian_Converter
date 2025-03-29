@@ -2,7 +2,7 @@ import fetch from 'node-fetch';
 import * as cheerio from 'cheerio';
 
 /**
- * Extracts and formats metadata from a webpage
+ * Extracts metadata from a webpage
  * @param {string} url - URL of the webpage
  * @returns {Promise<object>} - Extracted metadata
  */
@@ -22,8 +22,8 @@ export async function extractMetadata(url) {
       description: '',
       author: '',
       date: '',
-      tags: [],
       source: url,
+      site: '',
       captured: new Date().toISOString()
     };
 
@@ -53,19 +53,6 @@ export async function extractMetadata(url) {
       $('meta[name="publication_date"]').attr('content') ||
       '';
 
-    // Extract keywords/tags
-    const keywords = 
-      $('meta[name="keywords"]').attr('content') ||
-      $('meta[property="article:tag"]').attr('content') ||
-      '';
-    
-    if (keywords) {
-      metadata.tags = keywords
-        .split(/,|;/)
-        .map(tag => tag.trim().toLowerCase())
-        .filter(tag => tag.length > 0);
-    }
-
     // Extract site name
     metadata.site = 
       $('meta[property="og:site_name"]').attr('content') ||
@@ -81,18 +68,9 @@ export async function extractMetadata(url) {
       }
     });
 
-    // Format tags for YAML
-    if (metadata.tags.length > 0) {
-      metadata.tags = metadata.tags
-        .map(tag => tag.replace(/[^\w\s-]/g, ''))
-        .filter(tag => tag.length > 0);
-    }
-
     // Remove empty fields
     Object.keys(metadata).forEach(key => {
-      if (Array.isArray(metadata[key]) && metadata[key].length === 0) {
-        delete metadata[key];
-      } else if (metadata[key] === '' || metadata[key] === null || metadata[key] === undefined) {
+      if (metadata[key] === '' || metadata[key] === null || metadata[key] === undefined) {
         delete metadata[key];
       }
     });

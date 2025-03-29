@@ -33,6 +33,9 @@ export const DEFAULT_HTTP_OPTIONS = {
  * These are used to find the main content of a page
  */
 export const DEFAULT_CONTENT_SELECTORS = [
+  // Body as fallback (highest priority to ensure we get everything if needed)
+  'body',
+  
   // Common article/content containers
   'article',
   'main',
@@ -45,6 +48,54 @@ export const DEFAULT_CONTENT_SELECTORS = [
   '.article-content',
   '.blog-post',
   '.blog-content',
+  
+  // Modern framework root elements
+  '#root',
+  '#app',
+  '#__next',
+  '#gatsby-focus-wrapper',
+  '#svelte',
+  '#nuxt',
+  '[data-reactroot]',
+  '[data-react-app]',
+  '[data-vue-app]',
+  '[data-svelte]',
+  '[data-angular-app]',
+  
+  // Modern component patterns
+  '.page',
+  '.page-container',
+  '.page-content',
+  '.page-wrapper',
+  '.view',
+  '.view-container',
+  '.component',
+  '.component-container',
+  '.layout',
+  '.layout-container',
+  
+  // Common UI patterns
+  '.hero',
+  '.hero-section',
+  '.banner',
+  '.banner-section',
+  '.jumbotron',
+  '.showcase',
+  '.feature',
+  '.feature-section',
+  '.features',
+  '.pricing',
+  '.pricing-section',
+  '.pricing-table',
+  '.pricing-plans',
+  '.cards',
+  '.card-container',
+  '.card-section',
+  '.grid',
+  '.grid-container',
+  '.flex-container',
+  '.columns',
+  '.rows',
   
   // Documentation specific
   '.documentation',
@@ -68,7 +119,7 @@ export const DEFAULT_CONTENT_SELECTORS = [
   '#content',
   '#main',
   '.container',
-  '.page-content',
+  '.container-fluid',
   '.site-content',
   
   // Fallbacks
@@ -80,7 +131,56 @@ export const DEFAULT_CONTENT_SELECTORS = [
   '.center',
   '.wrapper',
   '.inner',
-  '.body'
+  '.body',
+  
+  // Specific content sections
+  '[role="main"]',
+  '[role="article"]',
+  '[role="contentinfo"]',
+  '[role="region"]',
+  '[data-content]',
+  '[data-main]',
+  '[data-page]',
+  '[data-article]',
+  
+  // Tailwind CSS patterns
+  '.prose',
+  '.mx-auto',
+  '.container',
+  '.content-wrapper',
+  
+  // Bootstrap patterns
+  '.container',
+  '.container-fluid',
+  '.row',
+  '.col',
+  '.card',
+  '.card-body',
+  '.jumbotron',
+  
+  // Material UI patterns
+  '.MuiContainer-root',
+  '.MuiGrid-root',
+  '.MuiCard-root',
+  '.MuiCardContent-root',
+  '.MuiPaper-root',
+  
+  // Chakra UI patterns
+  '.chakra-container',
+  '.chakra-stack',
+  '.chakra-card',
+  '.chakra-box',
+  
+  // Ant Design patterns
+  '.ant-layout-content',
+  '.ant-card',
+  '.ant-card-body',
+  
+  // Semantic UI patterns
+  '.ui.container',
+  '.ui.segment',
+  '.ui.card',
+  '.ui.grid'
 ];
 
 /**
@@ -165,13 +265,72 @@ export const DEFAULT_EXCLUDE_SELECTORS = [
   '.email',
   '.bookmark',
   '.save',
-  '.toolbar'
+  '.toolbar',
+  
+  // Scripts and styles
+  'script',
+  'style',
+  'noscript',
+  'iframe',
+  
+  // Cookie and consent related
+  '[id*="cookie"]',
+  '[class*="cookie"]',
+  '[id*="consent"]',
+  '[class*="consent"]',
+  '[id*="gdpr"]',
+  '[class*="gdpr"]',
+  '#hs-eu-cookie-confirmation',
+  '.hs-cookie-notification',
+  
+  // Popups and modals
+  '[id*="popup"]',
+  '[class*="popup"]',
+  '[id*="modal"]',
+  '[class*="modal"]',
+  '[id*="dialog"]',
+  '[class*="dialog"]',
+  '[id*="overlay"]',
+  '[class*="overlay"]',
+  '[id*="banner"]',
+  '[class*="banner"]',
+  '[id*="notification"]',
+  '[class*="notification"]',
+  
+  // Widget and dynamic content
+  '[data-widget]',
+  '[data-analytics]',
+  '[data-tracking]',
+  '[data-ad]',
+  '[data-testid*="banner"]',
+  '[data-testid*="popup"]',
+  
+  // JavaScript-specific elements
+  '[onclick]',
+  '[data-reactroot]',
+  '[data-react-app]',
+  '[data-react-component]',
+  '[ng-app]',
+  '[ng-controller]',
+  '[v-app]',
+  '[data-v-]',
+  
+  // HubSpot specific
+  '[class*="hs-"]',
+  '[id*="hs-"]',
+  '[data-hs-]',
+  '.hubspot-wrapper',
+  '.hbspt-form',
+  '.hs-form',
+  '#hsForm',
+  '.hs-cta-wrapper',
+  '.hs-cta-button'
 ];
 
 /**
  * Wait times for SPA content loading (in milliseconds)
  */
-export const WAIT_TIMES = [500, 1000, 2000, 3000, 5000];
+export const WAIT_TIMES = [500, 1000, 2000, 3000, 5000, 8000];
 
 /**
  * Supported image extensions
@@ -204,7 +363,11 @@ export const DEFAULT_URL_CONVERTER_OPTIONS = {
   includeOriginalUrl: true,
   timeout: 60000, // Overall timeout for the entire conversion process
   retryDelay: 1000,
-  maxRetries: 3
+  maxRetries: 3,
+  // Add option to use body as fallback if no content is found with selectors
+  useBodyFallback: true,
+  // Minimum content length to consider valid (characters)
+  minContentLength: 100
 };
 
 /**
