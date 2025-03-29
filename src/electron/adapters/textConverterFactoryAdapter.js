@@ -8,6 +8,7 @@
  * - backend/src/services/converter/textConverterFactory.js: Original implementation
  * - src/electron/adapters/pdfConverterAdapter.js: PDF converter adapter
  * - src/electron/adapters/docxConverterAdapter.js: DOCX converter adapter
+ * - src/electron/adapters/pptxConverterAdapter.js: PPTX converter adapter
  * - src/electron/adapters/audioConverterAdapter.js: Audio converter adapter
  * - src/electron/adapters/videoConverterAdapter.js: Video converter adapter
  * - src/electron/adapters/BaseModuleAdapter.js: Base adapter class
@@ -15,6 +16,7 @@
 const BaseModuleAdapter = require('./BaseModuleAdapter');
 const { convertPdfToMarkdown } = require('./pdfConverterAdapter');
 const { convertDocxToMarkdown } = require('./docxConverterAdapter');
+const { convertPptxToMarkdown } = require('./pptxConverterAdapter');
 const { convertUrl } = require('./urlConverterAdapter');
 const { convertAudioToMarkdown } = require('./audioConverterAdapter');
 const { convertVideoToMarkdown } = require('./videoConverterAdapter');
@@ -36,6 +38,7 @@ class TextConverterFactoryAdapter extends BaseModuleAdapter {
     this.converters = {
       pdf: convertPdfToMarkdown,
       docx: convertDocxToMarkdown,
+      pptx: convertPptxToMarkdown,
       url: convertUrl,
       audio: convertAudioToMarkdown,
       video: convertVideoToMarkdown
@@ -88,6 +91,12 @@ class TextConverterFactoryAdapter extends BaseModuleAdapter {
         if (normalizedType === 'docx') {
           console.log(`🔄 [TextConverterFactory] Delegating to DOCX converter`);
           return await this.converters.docx(content, options.name);
+        }
+        
+        // For PPTX files
+        if (normalizedType === 'pptx') {
+          console.log(`🔄 [TextConverterFactory] Delegating to PPTX converter`);
+          return await this.converters.pptx(content, options.name);
         }
         
         // For URLs

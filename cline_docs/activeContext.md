@@ -4,6 +4,22 @@
 Transitioning to Phase 4: Desktop Features - Implementing system tray integration, native notifications, file associations, and auto-updates while enhancing frontend components for native file operations and completing the IPC implementation for all conversion types.
 
 ## Recent Changes
+- Enhanced PPTX Conversion Diagnostics:
+  - Added detailed logging throughout the PPTX conversion process
+  - Implemented file integrity validation in pptxConverter.js
+  - Added ZIP signature (PK header) verification for PPTX files
+  - Enhanced base64 encoding/decoding with size verification
+  - Improved temporary file handling with detailed stats logging
+  - Added comprehensive error handling for binary data transmission
+  - Fixed "Corrupted zip: missing bytes" error by validating file integrity
+  - Aligned PPTX converter structure with other converters like PDF
+
+- Added PPTX Support:
+  - Added 'pptx' to the supported file types in frontend/src/lib/api/electron/utils.js
+  - Fixed "Unsupported file type: pptx" error in file uploader
+  - Ensured PPTX files can be properly converted to Markdown
+  - Leveraged existing PPTX converter implementation in backend
+
 - Fixed PDF Conversion Error with determineCategory:
   - Fixed "determineCategory is not a function" error in PDF conversion
   - Updated fileTypeUtilsAdapter.js to properly handle asynchronous module loading

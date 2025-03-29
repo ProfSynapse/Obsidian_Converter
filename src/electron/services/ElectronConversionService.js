@@ -13,6 +13,8 @@
  * - urlConverter.js: URL conversion
  * - parentUrlConverter.js: Parent URL conversion
  * - youtubeConverter.js: YouTube conversion
+ * - pptxConverterAdapter.js: PPTX conversion with slide markers
+ * - PageMarkerService.js: Service for adding page/slide markers
  */
 
 const path = require('path');
@@ -134,7 +136,7 @@ class ElectronConversionService {
 
       // Read file content with proper encoding for binary files
       let fileContent;
-      const isBinaryFile = ['pdf', 'jpg', 'jpeg', 'png', 'gif', 'mp3', 'mp4', 'wav', 'webm', 'avi'].includes(fileType.toLowerCase());
+      const isBinaryFile = ['pdf', 'pptx', 'jpg', 'jpeg', 'png', 'gif', 'mp3', 'mp4', 'wav', 'webm', 'avi'].includes(fileType.toLowerCase());
       
       if (isBinaryFile) {
         // For binary files, read as buffer (null encoding)
@@ -276,6 +278,12 @@ class ElectronConversionService {
       if (conversionResult.pageCount) {
         metadata.pageCount = conversionResult.pageCount;
         console.log(`📄 [ElectronConversionService] Document has ${conversionResult.pageCount} pages`);
+      }
+      
+      // Add slide count to metadata if available (for PPTX files)
+      if (conversionResult.slideCount) {
+        metadata.slideCount = conversionResult.slideCount;
+        console.log(`📊 [ElectronConversionService] Presentation has ${conversionResult.slideCount} slides`);
       }
       
       console.log('📊 Metadata (included in markdown frontmatter):', metadata);

@@ -104,48 +104,108 @@ class FileSystemService {
    * @param {string} filePath - Path to write the file
    * @param {string|Buffer} data - Data to write
    * @param {string} encoding - File encoding (default: 'utf8')
-   * @returns {Promise<{success: boolean, error?: string}>}
+   * @returns {Promise<{success: boolean, error?: string, stats?: Object}>}
    */
   async writeFile(filePath, data, encoding = 'utf8') {
-    console.log(`💾 Writing file: ${filePath}`);
-    console.log(`📊 Data type: ${typeof data}, ${Buffer.isBuffer(data) ? 'Buffer' : 'Not Buffer'}, Length: ${data ? data.length : 'null'}`);
+    console.log(`💾 [FileSystemService] Writing file: ${filePath}`);
+    console.log(`📊 [FileSystemService] Data type: ${typeof data}, ${Buffer.isBuffer(data) ? 'Buffer' : 'Not Buffer'}, Length: ${data ? data.length : 'null'}`);
     
     try {
       const validPath = await this.validatePath(filePath, false);
-      console.log(`✓ Path validated: ${validPath}`);
+      console.log(`✓ [FileSystemService] Path validated: ${validPath}`);
       
       // Ensure directory exists
       const dirPath = path.dirname(validPath);
       await fs.mkdir(dirPath, { recursive: true });
-      console.log(`📁 Ensured directory exists: ${dirPath}`);
+      console.log(`📁 [FileSystemService] Ensured directory exists: ${dirPath}`);
       
       // Check if this is base64 data that needs to be decoded
       let dataToWrite = data;
       let dataEncoding = encoding;
+      let originalDataLength = data ? data.length : 0;
+      let isBase64 = false;
       
       if (typeof data === 'string' && data.startsWith('BASE64:')) {
-        console.log(`🔄 Detected BASE64 prefix, decoding binary data`);
+        console.log(`🔄 [FileSystemService] Detected BASE64 prefix, decoding binary data`);
+        isBase64 = true;
+        
         // Remove the prefix and decode base64 to binary
         const base64Data = data.substring(7); // Remove 'BASE64:' prefix
-        dataToWrite = Buffer.from(base64Data, 'base64');
-        dataEncoding = null; // Use null encoding for binary data
-        console.log(`📊 Decoded base64 data to binary buffer: ${dataToWrite.length} bytes`);
+        console.log(`📊 [FileSystemService] Base64 data length: ${base64Data.length} characters`);
+        
+        // Check if base64 data is valid
+        if (base64Data.length % 4 !== 0) {
+          console.warn(`⚠️ [FileSystemService] Base64 data length is not a multiple of 4: ${base64Data.length}`);
+        }
+        
+        // Calculate expected decoded size
+        const expectedSize = Math.ceil(base64Data.length * 0.75);
+        console.log(`📊 [FileSystemService] Expected decoded size: ~${expectedSize} bytes`);
+        
+        try {
+          dataToWrite = Buffer.from(base64Data, 'base64');
+          dataEncoding = null; // Use null encoding for binary data
+          console.log(`📊 [FileSystemService] Decoded base64 data to binary buffer: ${dataToWrite.length} bytes`);
+          
+          // Verify buffer integrity
+          if (dataToWrite.length < expectedSize * 0.9) {
+            console.warn(`⚠️ [FileSystemService] Decoded size (${dataToWrite.length}) is significantly smaller than expected (${expectedSize})`);
+          }
+          
+          // Check for ZIP signature (PK header) for PPTX, DOCX, etc.
+          if (dataToWrite.length >= 4) {
+            const signature = dataToWrite.slice(0, 4);
+            if (signature[0] === 0x50 && signature[1] === 0x4B) {
+              console.log(`✅ [FileSystemService] Valid ZIP signature detected (PK header)`);
+            } else {
+              console.warn(`⚠️ [FileSystemService] No ZIP signature found in binary data: ${signature.toString('hex')}`);
+            }
+          }
+        } catch (decodeError) {
+          console.error(`❌ [FileSystemService] Base64 decoding failed: ${decodeError.message}`);
+          throw new Error(`Base64 decoding failed: ${decodeError.message}`);
+        }
       }
       
       // Write the file
+      const writeStartTime = Date.now();
       await fs.writeFile(validPath, dataToWrite, { encoding: dataEncoding });
+      const writeTime = Date.now() - writeStartTime;
+      console.log(`⏱️ [FileSystemService] Write operation took ${writeTime}ms`);
       
       // Verify the file was written
       try {
         const stats = await fs.stat(validPath);
-        console.log(`✅ File written successfully: ${validPath} (${stats.size} bytes)`);
-        return { success: true };
+        console.log(`✅ [FileSystemService] File written successfully: ${validPath} (${stats.size} bytes)`);
+        
+        // Verify file size
+        if (isBase64) {
+          // For base64 data, compare with the decoded buffer size
+          if (Buffer.isBuffer(dataToWrite) && stats.size !== dataToWrite.length) {
+            console.warn(`⚠️ [FileSystemService] File size mismatch! Expected: ${dataToWrite.length}, Actual: ${stats.size}`);
+          }
+        } else if (typeof data === 'string') {
+          // For text data, compare with original string length
+          if (stats.size < originalDataLength * 0.9) {
+            console.warn(`⚠️ [FileSystemService] File size smaller than expected! Original data: ${originalDataLength}, File size: ${stats.size}`);
+          }
+        }
+        
+        // Return success with file stats
+        return { 
+          success: true,
+          stats: {
+            size: stats.size,
+            created: stats.birthtime,
+            modified: stats.mtime
+          }
+        };
       } catch (verifyError) {
-        console.error(`⚠️ File written but verification failed: ${verifyError.message}`);
+        console.error(`⚠️ [FileSystemService] File written but verification failed: ${verifyError.message}`);
         return { success: true }; // Still return success since write succeeded
       }
     } catch (error) {
-      console.error(`❌ Failed to write file: ${filePath}`, error);
+      console.error(`❌ [FileSystemService] Failed to write file: ${filePath}`, error);
       return { 
         success: false, 
         error: `Failed to write file: ${error.message}` 

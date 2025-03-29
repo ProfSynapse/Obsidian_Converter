@@ -7,6 +7,7 @@
  * Related files:
  * - src/electron/adapters/pdfConverterAdapter.js: Uses this service for PDF page markers
  * - src/electron/adapters/docxConverterAdapter.js: Uses this service for DOCX page markers
+ * - src/electron/adapters/pptxConverterAdapter.js: Uses this service for PPTX slide markers
  * - src/electron/adapters/audioConverterAdapter.js: Uses this service for audio word-based page markers
  * - src/electron/adapters/videoConverterAdapter.js: Uses this service for video word-based page markers
  * - src/electron/adapters/parentUrlConverterAdapter.js: Uses this service for parent URL page markers
@@ -17,29 +18,31 @@ class PageMarkerService {
    * Format a page marker
    * @param {number} pageNumber - The page number
    * @param {string} [url] - Optional URL for parent URL pages
+   * @param {string} [markerType='Page'] - Type of marker ('Page' or 'Slide')
    * @returns {string} Formatted page marker
    */
-  static formatPageMarker(pageNumber, url = null) {
+  static formatPageMarker(pageNumber, url = null, markerType = 'Page') {
     if (url) {
-      return `\n\n[Page ${pageNumber}: ${url}]\n\n`;
+      return `\n\n[${markerType} ${pageNumber}: ${url}]\n\n`;
     }
-    return `\n\n[Page ${pageNumber}]\n\n`;
+    return `\n\n[${markerType} ${pageNumber}]\n\n`;
   }
   
   /**
    * Insert page markers into content
    * @param {string} content - The content to process
    * @param {Array<{pageNumber: number, position: number, url?: string}>} pageBreaks - Array of page break positions
+   * @param {string} [markerType='Page'] - Type of marker ('Page' or 'Slide')
    * @returns {string} Content with page markers
    */
-  static insertPageMarkers(content, pageBreaks) {
+  static insertPageMarkers(content, pageBreaks, markerType = 'Page') {
     // Sort page breaks by position (descending)
     const sortedBreaks = [...pageBreaks].sort((a, b) => b.position - a.position);
     
     // Insert markers from end to beginning to avoid position shifts
     let result = content;
     for (const {pageNumber, position, url} of sortedBreaks) {
-      const marker = this.formatPageMarker(pageNumber, url);
+      const marker = this.formatPageMarker(pageNumber, url, markerType);
       result = result.slice(0, position) + marker + result.slice(position);
     }
     
@@ -89,6 +92,19 @@ class PageMarkerService {
     return {
       ...metadata,
       pageCount
+    };
+  }
+  
+  /**
+   * Add slide count to metadata
+   * @param {Object} metadata - The metadata object
+   * @param {number} slideCount - The total slide count
+   * @returns {Object} Updated metadata
+   */
+  static addSlideMetadata(metadata, slideCount) {
+    return {
+      ...metadata,
+      slideCount
     };
   }
 }

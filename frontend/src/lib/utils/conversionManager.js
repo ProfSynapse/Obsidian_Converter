@@ -49,6 +49,9 @@ async function saveTempFile(file) {
     throw new Error('Cannot save temporary file: Not running in Electron environment');
   }
   
+  console.log(`📊 [saveTempFile] Starting file transfer for: ${file.name}`);
+  console.log(`📊 [saveTempFile] File size: ${file.size} bytes, Type: ${file.type}`);
+  
   // Create a unique filename based on the original filename
   const fileExt = file.name.split('.').pop().toLowerCase();
   const tempFileName = `temp_${Date.now()}_${file.name}`;
@@ -63,34 +66,71 @@ async function saveTempFile(file) {
   const tempFilePath = `${tempDir}/${tempFileName}`;
   
   // For binary files like PDFs, we need to handle them differently
-  const isBinaryFile = ['pdf', 'jpg', 'jpeg', 'png', 'gif', 'mp3', 'mp4', 'wav', 'webm', 'avi'].includes(fileExt.toLowerCase());
+  const isBinaryFile = ['pdf', 'pptx', 'docx', 'xlsx', 'jpg', 'jpeg', 'png', 'gif', 'mp3', 'mp4', 'wav', 'webm', 'avi'].includes(fileExt.toLowerCase());
   
   if (isBinaryFile) {
+    console.log(`📊 [saveTempFile] Handling as binary file: ${fileExt}`);
+    
     // For binary files, we need to convert the base64 to a binary format
     // First read as base64
+    console.log(`📊 [saveTempFile] Reading file as base64...`);
+    const startTime = Date.now();
     const base64Data = await readFileAsBase64(file);
+    const readTime = Date.now() - startTime;
+    
+    console.log(`📊 [saveTempFile] Base64 conversion complete in ${readTime}ms`);
+    console.log(`📊 [saveTempFile] Base64 data length: ${base64Data.length} characters`);
+    
+    // Calculate expected decoded size (approximate)
+    const expectedDecodedSize = Math.ceil(base64Data.length * 0.75);
+    console.log(`📊 [saveTempFile] Expected decoded size: ~${expectedDecodedSize} bytes`);
     
     // Add a special prefix to indicate this is base64 data that needs to be decoded
     // The main process will recognize this prefix and decode it
     const prefixedData = `BASE64:${base64Data}`;
     
     // Write the file with the prefix
+    console.log(`📊 [saveTempFile] Writing to temporary file: ${tempFilePath}`);
+    const writeStartTime = Date.now();
     const writeResult = await fileSystemOperations.writeFile(tempFilePath, prefixedData);
+    const writeTime = Date.now() - writeStartTime;
     
     if (!writeResult.success) {
+      console.error(`❌ [saveTempFile] Write failed: ${writeResult.error}`);
       throw new Error(`Failed to write temporary binary file: ${writeResult.error}`);
+    }
+    
+    console.log(`📊 [saveTempFile] File written in ${writeTime}ms`);
+    
+    // Verify file was written correctly
+    try {
+      const stats = await fileSystemOperations.getStats(tempFilePath);
+      if (stats.success) {
+        console.log(`📊 [saveTempFile] Temporary file stats: Size=${stats.stats.size} bytes`);
+        
+        // Check if file size is reasonable (should be at least close to original size)
+        if (stats.stats.size < file.size * 0.9) {
+          console.warn(`⚠️ [saveTempFile] File size mismatch! Original: ${file.size}, Written: ${stats.stats.size}`);
+        }
+      }
+    } catch (error) {
+      console.warn(`⚠️ [saveTempFile] Could not verify file stats: ${error.message}`);
     }
   } else {
     // For text files, just read as text and write directly
+    console.log(`📊 [saveTempFile] Handling as text file: ${fileExt}`);
     const textData = await file.text();
+    console.log(`📊 [saveTempFile] Text data length: ${textData.length} characters`);
+    
     const writeResult = await fileSystemOperations.writeFile(tempFilePath, textData);
     
     if (!writeResult.success) {
+      console.error(`❌ [saveTempFile] Write failed: ${writeResult.error}`);
       throw new Error(`Failed to write temporary text file: ${writeResult.error}`);
     }
   }
   
-  console.log(`Temporary file saved to: ${tempFilePath}`);
+  console.log(`✅ [saveTempFile] Temporary file saved to: ${tempFilePath}`);
   return tempFilePath;
 }
 
@@ -103,11 +143,42 @@ async function cleanupTempFile(filePath) {
     return;
   }
   
+  console.log(`🧹 [cleanupTempFile] Cleaning up temporary file: ${filePath}`);
+  
+  // Verify file exists and get stats before deletion
   try {
-    await fileSystemOperations.deleteItem(filePath, false);
-    console.log(`Temporary file deleted: ${filePath}`);
+    const stats = await fileSystemOperations.getStats(filePath);
+    if (stats.success) {
+      console.log(`📊 [cleanupTempFile] File stats before deletion: Size=${stats.stats.size} bytes, isFile=${stats.stats.isFile}`);
+    } else {
+      console.warn(`⚠️ [cleanupTempFile] Could not get stats for file: ${stats.error}`);
+    }
+  } catch (statsError) {
+    console.warn(`⚠️ [cleanupTempFile] Error checking file stats: ${statsError.message}`);
+  }
+  
+  try {
+    const deleteResult = await fileSystemOperations.deleteItem(filePath, false);
+    if (deleteResult.success) {
+      console.log(`✅ [cleanupTempFile] Temporary file deleted successfully: ${filePath}`);
+    } else {
+      console.warn(`⚠️ [cleanupTempFile] Delete operation returned error: ${deleteResult.error}`);
+    }
   } catch (error) {
-    console.warn(`Failed to delete temporary file: ${filePath}`, error);
+    console.warn(`❌ [cleanupTempFile] Failed to delete temporary file: ${filePath}`, error);
+  }
+  
+  // Verify file was actually deleted
+  try {
+    const checkStats = await fileSystemOperations.getStats(filePath);
+    if (checkStats.success) {
+      console.error(`❌ [cleanupTempFile] File still exists after deletion attempt: ${filePath}`);
+    } else {
+      console.log(`✅ [cleanupTempFile] Confirmed file no longer exists`);
+    }
+  } catch (error) {
+    // This is expected - file should not exist
+    console.log(`✅ [cleanupTempFile] Confirmed file no longer exists (error accessing file)`);
   }
 }
 

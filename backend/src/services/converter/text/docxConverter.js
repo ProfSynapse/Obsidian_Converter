@@ -368,3 +368,11 @@ export async function convertDocxToMarkdown(buffer, originalName, options = {}) 
     throw new Error(`DOCX conversion failed: ${error.message}`);
   }
 }
+
+/**
+ * Default export for the DOCX converter
+ * Follows the same pattern as other converters for consistency
+ */
+export default {
+  convert: convertDocxToMarkdown
+};
