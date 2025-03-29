@@ -1,159 +1,170 @@
 /**
- * textConverterFactoryAdapter.js
+ * Text Converter Factory Adapter
  * 
- * This adapter provides a CommonJS wrapper around the ES module textConverterFactory.
- * It allows the Electron code (which uses CommonJS) to import the backend code
- * (which uses ES modules) without compatibility issues.
+ * Provides a unified adapter for all text converters.
+ * Uses individual adapters for each converter type.
  * 
  * Related files:
- * - backend/src/services/converter/textConverterFactory.js: The original ES module
- * - src/electron/services/ElectronConversionService.js: The consumer of this adapter
+ * - backend/src/services/converter/textConverterFactory.js: Original implementation
+ * - src/electron/adapters/pdfConverterAdapter.js: PDF converter adapter
+ * - src/electron/adapters/docxConverterAdapter.js: DOCX converter adapter
+ * - src/electron/adapters/audioConverterAdapter.js: Audio converter adapter
+ * - src/electron/adapters/videoConverterAdapter.js: Video converter adapter
+ * - src/electron/adapters/BaseModuleAdapter.js: Base adapter class
  */
+const BaseModuleAdapter = require('./BaseModuleAdapter');
+const { convertPdfToMarkdown } = require('./pdfConverterAdapter');
+const { convertDocxToMarkdown } = require('./docxConverterAdapter');
+const { convertUrl } = require('./urlConverterAdapter');
+const { convertAudioToMarkdown } = require('./audioConverterAdapter');
+const { convertVideoToMarkdown } = require('./videoConverterAdapter');
 
-// Create a fallback implementation of the textConverterFactory
-const fallbackTextConverterFactory = {
+// Create the text converter factory adapter
+class TextConverterFactoryAdapter extends BaseModuleAdapter {
+  constructor() {
+    super(
+      'src/services/converter/textConverterFactory.js',
+      'textConverterFactory'
+    );
+    
+    // Run diagnostics
+    BaseModuleAdapter.diagnoseEnvironment().catch(error => {
+      console.error(`❌ [DIAGNOSTICS] Failed to run diagnostics:`, error);
+    });
+    
+    // Initialize specialized converters
+    this.converters = {
+      pdf: convertPdfToMarkdown,
+      docx: convertDocxToMarkdown,
+      url: convertUrl,
+      audio: convertAudioToMarkdown,
+      video: convertVideoToMarkdown
+      // Add other converters as needed
+    };
+    
+    console.log(`📋 [TextConverterFactory] Initialized with converters:`, Object.keys(this.converters));
+  }
+  
   /**
-   * Fallback implementation of convertToMarkdown
-   * @param {string} type - The type of content
-   * @param {Buffer|string|Object} content - The content to convert
+   * Convert content to Markdown
+   * @param {string} type - Content type (pdf, docx, etc.)
+   * @param {Buffer|string} content - Content to convert
    * @param {Object} options - Conversion options
-   * @returns {Promise<{ content: string, images: Array }>} - Converted content and images
+   * @returns {Promise<{content: string, images: Array}>}
    */
-  convertToMarkdown: async (type, content, options = {}) => {
-    console.warn('⚠️ Using fallback textConverterFactory.convertToMarkdown');
-    console.log('Conversion request:', { 
-      type, 
-      contentType: typeof content, 
+  async convertToMarkdown(type, content, options = {}) {
+    console.log(`🔄 [TextConverterFactory] Converting ${type} to Markdown`);
+    console.log(`📊 [TextConverterFactory] Content stats:`, {
+      type,
+      contentType: typeof content,
       isBuffer: Buffer.isBuffer(content),
       contentLength: content ? (Buffer.isBuffer(content) ? content.length : (typeof content === 'string' ? content.length : 'unknown')) : 'null',
-      options,
-      optionsKeys: Object.keys(options || {})
+      options: Object.keys(options)
     });
     
-    // Log the first few bytes if it's a buffer to help diagnose format issues
-    if (Buffer.isBuffer(content) && content.length > 0) {
-      console.log('Content preview (first 20 bytes):', content.slice(0, 20).toString('hex'));
+    try {
+      // Normalize type to lowercase
+      const normalizedType = type.toLowerCase();
       
-      // Check for PDF signature
-      if (content.length >= 5 && content.slice(0, 5).toString() === '%PDF-') {
-        console.log('Content appears to be a valid PDF (has %PDF- signature)');
-      } else {
-        console.log('Content does not have a PDF signature');
+      // Check if we have a specialized converter for this type
+      if (this.converters[normalizedType]) {
+        console.log(`📦 [TextConverterFactory] Using specialized converter for ${normalizedType}`);
+        
+        // For PDF files
+        if (normalizedType === 'pdf') {
+          console.log(`🔄 [TextConverterFactory] Delegating to PDF converter`);
+          const result = await this.converters.pdf(content, options.name);
+          
+          // Validate result
+          if (!result || !result.content || result.content.trim() === '') {
+            console.error(`❌ [TextConverterFactory] PDF converter returned empty content`);
+            throw new Error('PDF conversion produced empty content');
+          }
+          
+          return result;
+        }
+        
+        // For DOCX files
+        if (normalizedType === 'docx') {
+          console.log(`🔄 [TextConverterFactory] Delegating to DOCX converter`);
+          return await this.converters.docx(content, options.name);
+        }
+        
+        // For URLs
+        if (normalizedType === 'url') {
+          console.log(`🔄 [TextConverterFactory] Delegating to URL converter`);
+          return await this.converters.url(content, options);
+        }
+        
+        // For audio files
+        if (normalizedType === 'audio' || 
+            ['mp3', 'wav', 'ogg', 'm4a', 'flac', 'mpeg', 'mpga', 'webm'].includes(normalizedType)) {
+          console.log(`🔄 [TextConverterFactory] Delegating to Audio converter`);
+          return await this.converters.audio(content, options.name);
+        }
+        
+        // For video files
+        if (normalizedType === 'video' || 
+            ['mp4', 'webm', 'avi', 'mov', 'mkv'].includes(normalizedType)) {
+          console.log(`🔄 [TextConverterFactory] Delegating to Video converter`);
+          return await this.converters.video(content, options.name);
+        }
       }
-    }
-    
-    // Create a simple markdown representation based on the file type
-    const fileName = options.name || 'unknown';
-    const timestamp = new Date().toISOString();
-    
-    // Basic markdown content with file info
-    const markdown = [
-      '---',
-      `title: ${fileName}`,
-      `date: ${timestamp}`,
-      `type: ${type}`,
-      '---',
-      '',
-      `# ${fileName}`,
-      '',
-      '> This file was processed by the fallback converter while the main converter was loading.',
-      '> Please try again in a moment.',
-      '',
-      '## File Information',
-      '',
-      `- **File Type**: ${type}`,
-      `- **Processed**: ${timestamp}`,
-      `- **Size**: ${Buffer.isBuffer(content) ? content.length : (typeof content === 'string' ? content.length : 'unknown')} bytes`,
-      '',
-      '## Content Preview',
-      '',
-      '```',
-      Buffer.isBuffer(content) 
-        ? 'Binary content (not displayed)'
-        : (typeof content === 'string' 
-            ? content.substring(0, 100) + (content.length > 100 ? '...' : '')
-            : 'Content not available'),
-      '```'
-    ].join('\n');
-    
-    console.log('Fallback conversion complete for:', fileName);
-    
-    return {
-      content: markdown,
-      images: [],
-      success: true
-    };
-  },
-  
-  /**
-   * Fallback implementation of validateInput
-   */
-  validateInput: (type, input) => {
-    console.warn('⚠️ Using fallback textConverterFactory.validateInput');
-    console.log('Validating input:', { 
-      type, 
-      inputType: typeof input,
-      isBuffer: Buffer.isBuffer(input),
-      inputLength: input ? (Buffer.isBuffer(input) ? input.length : (typeof input === 'string' ? input.length : 'unknown')) : 'null'
-    });
-    return true; // Always pass validation in fallback mode
-  },
-  
-  /**
-   * Fallback implementation of validateFileSignature
-   */
-  validateFileSignature: (type, buffer) => {
-    console.warn('⚠️ Using fallback textConverterFactory.validateFileSignature');
-    console.log('Validating file signature:', { 
-      type, 
-      isBuffer: Buffer.isBuffer(buffer),
-      bufferLength: buffer ? (Buffer.isBuffer(buffer) ? buffer.length : 'not a buffer') : 'null'
-    });
-    return true; // Always pass validation in fallback mode
-  }
-};
-
-// Export the fallback implementation directly
-const exportedFactory = { textConverterFactory: fallbackTextConverterFactory };
-
-// Use dynamic import to load the ES module
-(async function loadModule() {
-  try {
-    console.log('🔄 Attempting to load textConverterFactory module...');
-    
-    // Import the ES module
-    const module = await import('../../../backend/src/services/converter/textConverterFactory.js');
-    
-    console.log('📦 Module import result:', {
-      hasTextConverterFactory: !!module.textConverterFactory,
-      moduleKeys: Object.keys(module),
-      isObject: typeof module === 'object',
-      isNull: module === null
-    });
-    
-    // Replace the fallback with the real implementation
-    if (module.textConverterFactory) {
-      console.log('🔍 Real textConverterFactory found, checking methods:', {
-        hasConvertToMarkdown: typeof module.textConverterFactory.convertToMarkdown === 'function',
-        hasValidateInput: typeof module.textConverterFactory.validateInput === 'function',
-        hasValidateFileSignature: typeof module.textConverterFactory.validateFileSignature === 'function'
+      
+      // For other types, use the factory from the backend
+      console.log(`📦 [TextConverterFactory] Using backend factory for ${normalizedType}`);
+      return await this.executeMethod('convertToMarkdown', [normalizedType, content, options]);
+    } catch (error) {
+      console.error(`❌ [TextConverterFactory] Conversion error for ${type}:`, error);
+      console.error(`🔍 [TextConverterFactory] Error details:`, {
+        name: error.name,
+        message: error.message,
+        stack: error.stack
       });
       
-      exportedFactory.textConverterFactory = module.textConverterFactory;
-      console.log('✅ Successfully loaded textConverterFactory module');
-    } else {
-      console.error('❌ Module loaded but textConverterFactory property is missing');
+      // Throw the error instead of returning an error object
+      throw new Error(`Failed to convert ${type} to Markdown: ${error.message}`);
     }
-  } catch (error) {
-    console.error('❌ Failed to load textConverterFactory module:', error);
-    console.error('Error details:', {
-      message: error.message,
-      stack: error.stack,
-      name: error.name
-    });
-    // Fallback is already in place, so no additional action needed
   }
-})();
+  
+  /**
+   * Validate input for conversion
+   * @param {string} type - Content type
+   * @param {Buffer|string} input - Content to validate
+   * @returns {Promise<boolean>}
+   */
+  async validateInput(type, input) {
+    try {
+      return await this.executeMethod('validateInput', [type, input]);
+    } catch (error) {
+      console.error(`❌ Validation error for ${type}:`, error);
+      return false;
+    }
+  }
+  
+  /**
+   * Validate file signature
+   * @param {string} type - File type
+   * @param {Buffer} buffer - File buffer
+   * @returns {Promise<boolean>}
+   */
+  async validateFileSignature(type, buffer) {
+    try {
+      return await this.executeMethod('validateFileSignature', [type, buffer]);
+    } catch (error) {
+      console.error(`❌ Signature validation error for ${type}:`, error);
+      return false;
+    }
+  }
+}
 
-// Export the factory object
-module.exports = exportedFactory;
+// Create and export a singleton instance
+const textConverterFactoryAdapter = new TextConverterFactoryAdapter();
+
+module.exports = {
+  textConverterFactory: {
+    convertToMarkdown: (...args) => textConverterFactoryAdapter.convertToMarkdown(...args),
+    validateInput: (...args) => textConverterFactoryAdapter.validateInput(...args),
+    validateFileSignature: (...args) => textConverterFactoryAdapter.validateFileSignature(...args)
+  }
+};

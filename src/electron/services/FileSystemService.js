@@ -119,8 +119,21 @@ class FileSystemService {
       await fs.mkdir(dirPath, { recursive: true });
       console.log(`📁 Ensured directory exists: ${dirPath}`);
       
+      // Check if this is base64 data that needs to be decoded
+      let dataToWrite = data;
+      let dataEncoding = encoding;
+      
+      if (typeof data === 'string' && data.startsWith('BASE64:')) {
+        console.log(`🔄 Detected BASE64 prefix, decoding binary data`);
+        // Remove the prefix and decode base64 to binary
+        const base64Data = data.substring(7); // Remove 'BASE64:' prefix
+        dataToWrite = Buffer.from(base64Data, 'base64');
+        dataEncoding = null; // Use null encoding for binary data
+        console.log(`📊 Decoded base64 data to binary buffer: ${dataToWrite.length} bytes`);
+      }
+      
       // Write the file
-      await fs.writeFile(validPath, data, { encoding });
+      await fs.writeFile(validPath, dataToWrite, { encoding: dataEncoding });
       
       // Verify the file was written
       try {

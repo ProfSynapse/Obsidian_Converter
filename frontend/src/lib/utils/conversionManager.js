@@ -62,14 +62,32 @@ async function saveTempFile(file) {
   // Full path to the temporary file
   const tempFilePath = `${tempDir}/${tempFileName}`;
   
-  // Read the file as base64 - this is more efficient for binary data over IPC
-  const base64Data = await readFileAsBase64(file);
+  // For binary files like PDFs, we need to handle them differently
+  const isBinaryFile = ['pdf', 'jpg', 'jpeg', 'png', 'gif', 'mp3', 'mp4', 'wav', 'webm', 'avi'].includes(fileExt.toLowerCase());
   
-  // Write the file to disk using base64 encoding
-  const writeResult = await fileSystemOperations.writeFile(tempFilePath, base64Data);
-  
-  if (!writeResult.success) {
-    throw new Error(`Failed to write temporary file: ${writeResult.error}`);
+  if (isBinaryFile) {
+    // For binary files, we need to convert the base64 to a binary format
+    // First read as base64
+    const base64Data = await readFileAsBase64(file);
+    
+    // Add a special prefix to indicate this is base64 data that needs to be decoded
+    // The main process will recognize this prefix and decode it
+    const prefixedData = `BASE64:${base64Data}`;
+    
+    // Write the file with the prefix
+    const writeResult = await fileSystemOperations.writeFile(tempFilePath, prefixedData);
+    
+    if (!writeResult.success) {
+      throw new Error(`Failed to write temporary binary file: ${writeResult.error}`);
+    }
+  } else {
+    // For text files, just read as text and write directly
+    const textData = await file.text();
+    const writeResult = await fileSystemOperations.writeFile(tempFilePath, textData);
+    
+    if (!writeResult.success) {
+      throw new Error(`Failed to write temporary text file: ${writeResult.error}`);
+    }
   }
   
   console.log(`Temporary file saved to: ${tempFilePath}`);

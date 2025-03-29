@@ -59,6 +59,14 @@ class ElectronConversionService {
       const baseName = path.basename(fileName, path.extname(fileName));
       const category = getFileCategory(fileType, fileType);
       
+      // Extract original name if it's a temporary file - do this BEFORE creating directories
+      let finalBaseName = baseName;
+      if (baseName.startsWith('temp_')) {
+        // Extract original filename by removing 'temp_timestamp_' prefix
+        finalBaseName = baseName.replace(/^temp_\d+_/, '');
+        console.log(`🔄 [ElectronConversionService] Extracted original filename: ${finalBaseName} from temporary file: ${baseName}`);
+      }
+      
       // Check if user provided an output directory
       const userProvidedOutputDir = !!options.outputDir;
       
@@ -66,23 +74,32 @@ class ElectronConversionService {
       const outputDir = options.outputDir || this.defaultOutputDir;
       
       // Determine if we should create a subdirectory or use the output directory directly
-      // Always use direct output when user has specified a directory
-      const createSubdirectory = userProvidedOutputDir ? false : 
-                               (options.createSubdirectory !== undefined ? options.createSubdirectory : true);
+      // Always use direct output when user has specified a directory or for PDF files
+      const isPdf = fileType.toLowerCase() === 'pdf';
+      const createSubdirectory = isPdf ? false : 
+                               (userProvidedOutputDir ? false : 
+                               (options.createSubdirectory !== undefined ? options.createSubdirectory : true));
+      
+      console.log('File type detection:', {
+        fileType,
+        isPdf,
+        createSubdirectory
+      });
       
       console.log('Conversion options:', {
         userProvidedOutputDir,
         outputDir,
         createSubdirectory,
-        fileName
+        fileName,
+        finalBaseName
       });
       
       let outputBasePath;
       if (createSubdirectory) {
-        // Create a timestamped subdirectory (original behavior)
+        // Create a timestamped subdirectory using the ORIGINAL filename (not temp)
         outputBasePath = path.join(
           outputDir,
-          `${baseName}_${Date.now()}`
+          `${finalBaseName}_${Date.now()}`
         );
       } else {
         // Use the output directory directly
@@ -115,8 +132,20 @@ class ElectronConversionService {
         }
       };
 
-      // Read file content
-      const fileContent = await this.fileSystem.readFile(filePath);
+      // Read file content with proper encoding for binary files
+      let fileContent;
+      const isBinaryFile = ['pdf', 'jpg', 'jpeg', 'png', 'gif', 'mp3', 'mp4', 'wav', 'webm', 'avi'].includes(fileType.toLowerCase());
+      
+      if (isBinaryFile) {
+        // For binary files, read as buffer (null encoding)
+        console.log(`🔍 [ElectronConversionService] Reading binary file with null encoding: ${fileType}`);
+        fileContent = await this.fileSystem.readFile(filePath, null);
+      } else {
+        // For text files, use default encoding (utf8)
+        console.log(`🔍 [ElectronConversionService] Reading text file with utf8 encoding: ${fileType}`);
+        fileContent = await this.fileSystem.readFile(filePath);
+      }
+      
       if (!fileContent.success) {
         throw new Error(`Failed to read file: ${fileContent.error}`);
       }
@@ -124,7 +153,7 @@ class ElectronConversionService {
       updateProgress(20);
 
       // Add detailed logging before conversion
-      console.log('🔄 Starting conversion with textConverterFactory:', {
+      console.log('🔄 [ElectronConversionService] Starting conversion with textConverterFactory:', {
         fileType,
         fileName,
         contentType: typeof fileContent.data,
@@ -136,17 +165,22 @@ class ElectronConversionService {
       
       // If content is a buffer, log the first few bytes to help diagnose format issues
       if (Buffer.isBuffer(fileContent.data) && fileContent.data.length > 0) {
-        console.log('Content preview (first 20 bytes):', fileContent.data.slice(0, 20).toString('hex'));
+        console.log('📊 [ElectronConversionService] Content preview (first 20 bytes):', fileContent.data.slice(0, 20).toString('hex'));
         
         // Check for PDF signature
-        if (fileContent.data.length >= 5 && fileContent.data.slice(0, 5).toString() === '%PDF-') {
-          console.log('Content appears to be a valid PDF (has %PDF- signature)');
-        } else {
-          console.log('Content does not have a PDF signature');
+        if (fileContent.data.length >= 5) {
+          const signature = fileContent.data.slice(0, 5).toString();
+          console.log(`🔍 [ElectronConversionService] File signature: ${signature}`);
+          if (signature === '%PDF-') {
+            console.log('✅ [ElectronConversionService] Content appears to be a valid PDF (has %PDF- signature)');
+          } else {
+            console.warn('⚠️ [ElectronConversionService] Content does not have a PDF signature');
+          }
         }
       }
 
-      // Convert content
+      // Convert content with enhanced error handling
+      console.log(`🔄 [ElectronConversionService] Starting conversion...`);
       let conversionResult;
       try {
         conversionResult = await this.converter.convertToMarkdown(
@@ -163,49 +197,52 @@ class ElectronConversionService {
           }
         );
 
-        console.log('📄 Conversion result:', {
+        console.log('📊 [ElectronConversionService] Conversion result:', {
           success: !!conversionResult,
           hasContent: conversionResult && !!conversionResult.content,
           contentLength: conversionResult && conversionResult.content ? conversionResult.content.length : 'null',
+          contentPreview: conversionResult && conversionResult.content ? 
+            conversionResult.content.substring(0, 100) + '...' : 'null',
           hasImages: conversionResult && Array.isArray(conversionResult.images),
           imageCount: conversionResult && Array.isArray(conversionResult.images) ? conversionResult.images.length : 0
         });
 
-        if (!conversionResult || !conversionResult.content) {
-          throw new Error('Conversion failed: Invalid result');
+        // Validate conversion result
+        if (!conversionResult || !conversionResult.content || conversionResult.content.trim() === '') {
+          console.error(`❌ [ElectronConversionService] Empty conversion result`);
+          throw new Error('Conversion produced empty content');
         }
       } catch (conversionError) {
-        console.error('❌ Conversion error:', {
+        console.error('❌ [ElectronConversionService] Conversion error:', {
           error: conversionError.message,
           stack: conversionError.stack,
           fileType,
           fileName
         });
-        throw conversionError;
+        throw new Error(`Conversion failed: ${conversionError.message}`);
       }
 
       updateProgress(90);
 
       // Determine file paths based on whether we're using subdirectories
-      let mainFilePath, imagesPath, metadataPath;
+      let mainFilePath, imagesPath;
+      
+      // We already extracted the original filename earlier, no need to do it again
       
       if (createSubdirectory) {
         // Original behavior with subdirectories
         mainFilePath = path.join(outputBasePath, 'document.md');
         imagesPath = path.join(outputBasePath, 'assets/images');
-        metadataPath = path.join(outputBasePath, 'metadata.json');
       } else {
         // Save directly to output directory with original filename
-        mainFilePath = path.join(outputBasePath, `${baseName}.md`);
+        mainFilePath = path.join(outputBasePath, `${finalBaseName}.md`);
         imagesPath = outputBasePath;
-        metadataPath = path.join(outputBasePath, `${baseName}_metadata.json`);
       }
       
       // Log file paths
       console.log('💾 Saving conversion results to:', {
         mainFilePath,
-        imagesPath,
-        metadataPath
+        imagesPath
       });
       
       // Save markdown content
@@ -216,7 +253,8 @@ class ElectronConversionService {
       if (conversionResult.images && conversionResult.images.length > 0) {
         console.log(`🖼️ Saving ${conversionResult.images.length} images...`);
         for (const [index, image] of conversionResult.images.entries()) {
-          const imageFileName = `${baseName}_image_${index}${path.extname(image.name || '') || '.png'}`;
+          // Use the final base name for image filenames too
+          const imageFileName = `${finalBaseName}_image_${index}${path.extname(image.name || '') || '.png'}`;
           const imagePath = path.join(imagesPath, imageFileName);
           await this.fileSystem.writeFile(imagePath, image.data);
           console.log(`  - Image ${index + 1}/${conversionResult.images.length} saved to: ${imagePath}`);
@@ -225,21 +263,16 @@ class ElectronConversionService {
         console.log('ℹ️ No images to save');
       }
 
-      // Save metadata
+      // Create metadata object for return value but don't save it as a separate file
       const metadata = {
-        originalFile: fileName,
+        originalFile: baseName.startsWith('temp_') ? `${finalBaseName}.${fileType}` : fileName,
         type: fileType,
         category,
         converted: new Date().toISOString(),
         imageCount: conversionResult.images?.length || 0
       };
       
-      console.log('📊 Saving metadata:', metadata);
-
-      await this.fileSystem.writeFile(
-        metadataPath,
-        JSON.stringify(metadata, null, 2)
-      );
+      console.log('📊 Metadata (included in markdown frontmatter):', metadata);
 
       updateProgress(100);
 
@@ -455,22 +488,20 @@ class ElectronConversionService {
       updateProgress(90);
 
       // Determine file paths based on whether we're using subdirectories
-      let mainFilePath, metadataPath;
+      let mainFilePath;
       
       if (createSubdirectory) {
         // Original behavior with subdirectories
         mainFilePath = path.join(outputBasePath, 'document.md');
-        metadataPath = path.join(outputBasePath, 'metadata.json');
       } else {
         // Save directly to output directory with hostname as filename
         mainFilePath = path.join(outputBasePath, `${baseName}.md`);
-        metadataPath = path.join(outputBasePath, `${baseName}_metadata.json`);
       }
       
       // Save markdown content
       await this.fileSystem.writeFile(mainFilePath, conversionResult.content);
 
-      // Save metadata
+      // Create metadata object for return value but don't save it as a separate file
       const metadataObj = {
         originalUrl: url,
         title: conversionResult.metadata?.title || hostname,
@@ -478,11 +509,8 @@ class ElectronConversionService {
         converted: new Date().toISOString(),
         imageCount: conversionResult.images?.length || 0
       };
-
-      await this.fileSystem.writeFile(
-        metadataPath,
-        JSON.stringify(metadataObj, null, 2)
-      );
+      
+      console.log('📊 Metadata (included in markdown frontmatter):', metadataObj);
 
       updateProgress(100);
 
