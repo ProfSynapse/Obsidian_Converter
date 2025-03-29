@@ -100,8 +100,8 @@
 
   .avatar-bubble {
     position: absolute;
-    width: 55px;
-    height: 55px;
+    width: 65px;
+    height: 65px;
     border-radius: 50%;
     display: flex;
     align-items: center;
@@ -153,7 +153,7 @@
   }
 
   .avatar {
-    font-size: 32px;
+    font-size: 38px;
     line-height: 1;
   }
 
@@ -235,8 +235,8 @@
     }
 
     .avatar-bubble {
-      width: 45px;
-      height: 45px;
+      width: 55px;
+      height: 55px;
       top: -12px;
     }
 

@@ -31,6 +31,8 @@
   /* Colors - Feedback */
   --color-success: #23d160;
   --color-error: #ff3860;
+  --color-error-light: #ff6b8e;
+  --color-error-rgb: 255, 56, 96;
   --color-warning: #ffdd57;
   --color-disabled: #cccccc;
 

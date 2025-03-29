@@ -72,6 +72,14 @@ app.whenReady().then(async () => {
     const encryptionKey = await generateStoreKey();
     store = new Store({ encryptionKey });
     process.env.STORE_ENCRYPTION_KEY = encryptionKey;
+    
+    // Set up default settings if they don't exist
+    if (!store.has('tempDirectory')) {
+      // Create a temp directory in the app's user data folder
+      const tempDir = path.join(app.getPath('userData'), 'temp');
+      store.set('tempDirectory', tempDir);
+      console.log('Set default temp directory:', tempDir);
+    }
 
     // Then create the window
     const mainWindow = createWindow();

@@ -17,7 +17,7 @@ import { files } from '$lib/stores/files.js';
 import { apiKey } from '$lib/stores/apiKey.js';
 import { conversionStatus } from '$lib/stores/conversionStatus.js';
 import client from '$lib/api/client.js';
-import electronClient from '$lib/api/electron';
+import electronClient, { fileSystemOperations } from '$lib/api/electron';
 import FileSaver from 'file-saver';
 import { CONFIG } from '$lib/config'; 
 import { conversionResult } from '$lib/stores/conversionResult.js';
@@ -37,6 +37,60 @@ function readFileAsBase64(file) {
     reader.onload = () => resolve(reader.result.split(',')[1]);
     reader.onerror = error => reject(error);
   });
+}
+
+/**
+ * Saves a File object to a temporary file in Electron
+ * @param {File} file - The File object to save
+ * @returns {Promise<string>} - Path to the temporary file
+ */
+async function saveTempFile(file) {
+  if (!isElectron || !window.electronAPI) {
+    throw new Error('Cannot save temporary file: Not running in Electron environment');
+  }
+  
+  // Create a unique filename based on the original filename
+  const fileExt = file.name.split('.').pop().toLowerCase();
+  const tempFileName = `temp_${Date.now()}_${file.name}`;
+  
+  // Use a default temp directory
+  const tempDir = 'temp';
+  
+  // Create the temp directory if it doesn't exist
+  await fileSystemOperations.createDirectory(tempDir);
+  
+  // Full path to the temporary file
+  const tempFilePath = `${tempDir}/${tempFileName}`;
+  
+  // Read the file as base64 - this is more efficient for binary data over IPC
+  const base64Data = await readFileAsBase64(file);
+  
+  // Write the file to disk using base64 encoding
+  const writeResult = await fileSystemOperations.writeFile(tempFilePath, base64Data);
+  
+  if (!writeResult.success) {
+    throw new Error(`Failed to write temporary file: ${writeResult.error}`);
+  }
+  
+  console.log(`Temporary file saved to: ${tempFilePath}`);
+  return tempFilePath;
+}
+
+/**
+ * Cleans up a temporary file
+ * @param {string} filePath - Path to the temporary file
+ */
+async function cleanupTempFile(filePath) {
+  if (!isElectron || !window.electronAPI) {
+    return;
+  }
+  
+  try {
+    await fileSystemOperations.deleteItem(filePath, false);
+    console.log(`Temporary file deleted: ${filePath}`);
+  } catch (error) {
+    console.warn(`Failed to delete temporary file: ${filePath}`, error);
+  }
 }
 
 /**
@@ -179,9 +233,30 @@ async function handleElectronConversion(items, apiKey, outputDir) {
           conversionStatus.setProgress(progress);
         });
       } else if (item.file instanceof File) {
-        // Convert File object (need to save to temp file first)
-        // This would be handled by the Electron main process
-        throw new Error('File object conversion not implemented yet in Electron');
+        // Convert File object by saving to a temporary file first
+        conversionStatus.setStatus('preparing');
+        conversionStatus.setProgress(10);
+        
+        // Save the file to a temporary location
+        const tempFilePath = await saveTempFile(item.file);
+        
+        try {
+          // Convert the temporary file
+          result = await electronClient.convertFile(tempFilePath, {
+            ...item.options,
+            ...options,
+            isTemporary: true // Flag to indicate this is a temporary file
+          }, (progress) => {
+            // Scale progress from 20-90% to account for temp file operations
+            conversionStatus.setProgress(20 + (progress * 0.7));
+          });
+          
+          conversionStatus.setProgress(90);
+        } finally {
+          // Clean up the temporary file regardless of success/failure
+          await cleanupTempFile(tempFilePath);
+          conversionStatus.setProgress(95);
+        }
       }
       
       // Update status and store result

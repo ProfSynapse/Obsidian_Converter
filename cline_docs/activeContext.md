@@ -4,6 +4,54 @@
 Transitioning to Phase 4: Desktop Features - Implementing system tray integration, native notifications, file associations, and auto-updates while enhancing frontend components for native file operations and completing the IPC implementation for all conversion types.
 
 ## Recent Changes
+- Fixed PDF Conversion Error with determineCategory:
+  - Fixed "determineCategory is not a function" error in PDF conversion
+  - Updated fileTypeUtilsAdapter.js to properly handle asynchronous module loading
+  - Added robust fallback functions for when the module hasn't loaded yet
+  - Implemented more comprehensive file type detection in the fallback
+  - Ensured PDF files can be properly converted even during module loading
+  - Improved error handling for ES module imports in CommonJS environment
+
+- Fixed Binary Data Transmission Error:
+  - Fixed "Failed to write temporary file: The first argument must be of type string or an instance of Buffer, ArrayBuffer, or Array or an Array-like Object. Received type number (37)" error
+  - Fixed "Buffer is not defined" error in browser environment
+  - Updated saveTempFile function in conversionManager.js to properly handle binary data
+  - Changed to use base64 encoding for binary data transmission over IPC
+  - Simplified temp directory handling by using a default value
+  - Ensured proper binary data handling for all file types (docx, audio, video, etc.)
+  - Leveraged browser-compatible approach for binary data transmission
+
+- Fixed File System Operations in Electron:
+  - Fixed "electronClient.createDirectory is not a function" error
+  - Updated imports to include fileSystemOperations from electron API
+  - Modified saveTempFile to use fileSystemOperations.createDirectory instead of electronClient.createDirectory
+  - Modified saveTempFile to use fileSystemOperations.writeFile for writing temporary files
+  - Updated cleanupTempFile to use fileSystemOperations.deleteItem for cleanup
+  - Ensured proper separation of concerns between client and file system operations
+
+- Fixed File Object Conversion in Electron:
+  - Implemented support for converting browser File objects in Electron environment
+  - Added saveTempFile function to save File objects to temporary files on disk
+  - Added cleanupTempFile function to remove temporary files after conversion
+  - Updated handleElectronConversion to handle File objects properly
+  - Added proper progress tracking for temporary file operations
+  - Ensured cleanup happens even if conversion fails
+
+- Fixed PDF Conversion Error:
+  - Fixed "Unsupported type: pdf" error in file conversion
+  - Updated validateAndNormalizeItem function in utils.js to properly handle specific file types
+  - Added getFileCategory helper function to map file extensions to categories
+  - Improved validation logic to check both category names and specific file types
+  - Ensured PDF files can be properly converted to Markdown
+
+- Fixed Chat Bubble Persistence Issue:
+  - Created a new welcomeState store to track if welcome messages have been shown
+  - Modified CodexMdConverter.svelte to only show welcome messages on first app load
+  - Added subscription cleanup in component unmount to prevent memory leaks
+  - Updated stores/index.js to export the new welcomeState store
+  - Ensured chat bubbles don't reappear when navigating between pages
+  - Implemented session-based persistence for welcome message state
+
 - Fixed Event Handling Error:
   - Fixed "Cannot destructure property 'type' of 'event.data' as it is undefined" error
   - Added null/undefined checks in eventHandlers.js for all event handlers

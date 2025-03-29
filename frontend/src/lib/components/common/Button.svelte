@@ -13,7 +13,7 @@
 <button
   {type}
   {disabled}
-  class="button {variant} {size}"
+  class="button {variant} {size} {$$restProps.class || ''}"
   class:full-width={fullWidth}
   on:click
   {...$$restProps}
@@ -44,7 +44,7 @@
   }
 
   .button.primary {
-    background: linear-gradient(90deg, var(--color-prime), var(--color-second));
+    background: linear-gradient(90deg, var(--color-prime), var(--color-fourth));
     color: white;
     background-size: 200% 200%;
     animation: breathe 3s ease-in-out infinite;
@@ -65,7 +65,7 @@
     bottom: 0;
     border-radius: var(--rounded-lg);
     padding: 2px;
-    background: linear-gradient(135deg, var(--color-prime), var(--color-second));
+    background: linear-gradient(135deg, var(--color-prime), var(--color-fourth));
     -webkit-mask: 
         linear-gradient(#fff 0 0) content-box, 
         linear-gradient(#fff 0 0);
@@ -92,7 +92,7 @@
   }
 
   .button.secondary:not(:disabled):hover::before {
-    background: linear-gradient(135deg, var(--color-second), var(--color-prime));
+    background: linear-gradient(135deg, var(--color-fourth), var(--color-prime));
   }
 
   .full-width {

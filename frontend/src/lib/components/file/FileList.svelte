@@ -115,7 +115,7 @@
       bottom: 0;
       border-radius: var(--rounded-lg);
       padding: 2px;
-      background: linear-gradient(135deg, var(--color-prime), var(--color-second));
+      background: linear-gradient(135deg, var(--color-prime), var(--color-fourth));
       -webkit-mask: 
           linear-gradient(#fff 0 0) content-box, 
           linear-gradient(#fff 0 0);
@@ -138,7 +138,7 @@
       padding: var(--spacing-xs) var(--spacing-md);
       border-radius: var(--rounded-md);
       position: relative;
-      background: linear-gradient(135deg, var(--color-prime), var(--color-second));
+      background: linear-gradient(135deg, var(--color-prime), var(--color-fourth));
       color: white;
       font-weight: 500;
       cursor: pointer;
@@ -155,12 +155,27 @@
   }
 
   .delete-button {
-      background: linear-gradient(135deg, var(--color-error), var(--color-error-light));
+      background: var(--color-error);
+      color: white;
+      font-weight: 700;
+      opacity: 1;
+      border: 2px solid rgba(var(--color-error-rgb), 0.8);
+      box-shadow: 0 3px 6px rgba(var(--color-error-rgb), 0.3);
+      padding-left: var(--spacing-md);
+      padding-right: var(--spacing-md);
+  }
+
+  .delete-button::before {
+      content: "🗑️";
+      margin-right: var(--spacing-xs);
+      font-size: 1.1em;
   }
 
   .delete-button:hover {
       transform: translateY(-1px);
-      box-shadow: var(--shadow-sm);
+      box-shadow: 0 4px 8px rgba(var(--color-error-rgb), 0.4);
+      border: 2px solid var(--color-error);
+      background: linear-gradient(135deg, var(--color-error), var(--color-error-light));
   }
 
   .file-list {
@@ -216,7 +231,7 @@
       bottom: 0;
       border-radius: var(--rounded-lg);
       padding: 2px;
-      background: linear-gradient(135deg, var(--color-prime), var(--color-second));
+      background: linear-gradient(135deg, var(--color-prime), var(--color-fourth));
       -webkit-mask: 
           linear-gradient(#fff 0 0) content-box, 
           linear-gradient(#fff 0 0);

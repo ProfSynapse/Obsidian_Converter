@@ -50,7 +50,7 @@
     bottom: 0;
     border-radius: 9999px;
     padding: 2px;
-    background: linear-gradient(135deg, var(--color-prime), var(--color-second));
+    background: linear-gradient(135deg, var(--color-prime), var(--color-fourth));
     -webkit-mask: 
         linear-gradient(#fff 0 0) content-box, 
         linear-gradient(#fff 0 0);
@@ -65,7 +65,7 @@
     transition: background-color 0.3s ease;
     border-radius: 9999px;
     position: relative;
-    background: linear-gradient(90deg, var(--color-prime), var(--color-second)) !important;
+    background: linear-gradient(90deg, var(--color-prime), var(--color-fourth)) !important;
   }
 
   .progress-fill.with-glow {

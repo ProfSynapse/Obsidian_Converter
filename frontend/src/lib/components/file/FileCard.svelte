@@ -95,7 +95,7 @@
   }
 
   .select-checkbox:checked {
-      background: linear-gradient(135deg, var(--color-prime), var(--color-second));
+      background: linear-gradient(135deg, var(--color-prime), var(--color-fourth));
       border-color: transparent;
   }
 

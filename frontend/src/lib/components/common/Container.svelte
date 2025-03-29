@@ -45,7 +45,7 @@
     bottom: 0;
     border-radius: var(--rounded-lg);
     padding: 2px; /* Border width */
-    background: linear-gradient(135deg, var(--color-prime), var(--color-second));
+    background: linear-gradient(135deg, var(--color-prime), var(--color-fourth));
     -webkit-mask: 
       linear-gradient(#fff 0 0) content-box, 
       linear-gradient(#fff 0 0);

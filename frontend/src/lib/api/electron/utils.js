@@ -79,6 +79,25 @@ export function isVideoType(ext) {
 }
 
 /**
+ * Gets the category for a specific file type
+ * @param {string} fileType The file extension or type
+ * @returns {string|null} The category name or null if not found
+ */
+export function getFileCategory(fileType) {
+  if (!fileType) return null;
+  
+  const normalizedType = fileType.toLowerCase();
+  
+  for (const [category, types] of Object.entries(fileCategories)) {
+    if (types.includes(normalizedType)) {
+      return category;
+    }
+  }
+  
+  return null;
+}
+
+/**
  * Validates and normalizes an item for conversion
  * @param {Object} item The item to validate and normalize
  * @param {Array<string>} supportedTypes Array of supported types (defaults to all supported types if not provided)
@@ -91,8 +110,13 @@ export function validateAndNormalizeItem(item, supportedTypes = ['url', 'parent'
   }
 
   const type = item.type.toLowerCase();
-
-  if (!supportedTypes.includes(type)) {
+  
+  // Get all specific file types from fileCategories
+  const allFileTypes = Object.values(fileCategories).flat();
+  
+  // Check if the type is a specific file type (like 'pdf') or a category (like 'document')
+  if (!supportedTypes.includes(type) && !allFileTypes.includes(type)) {
+    // If it's neither a supported category nor a specific file type, reject it
     throw new Error(`Unsupported type: ${type}`);
   }
 

@@ -9,6 +9,7 @@
   import { triggerDownload } from '$lib/utils/conversionManager.js';
   import electronClient from '$lib/api/electron';
   import fileSystemOperations from '$lib/api/electron/fileSystem.js';
+  import { files } from '$lib/stores/files.js';
 
   const dispatch = createEventDispatcher();
 
@@ -21,6 +22,11 @@
   // Reactive declarations for status
   $: isConverting = ['converting', 'selecting_output', 'initializing'].includes($conversionStatus.status);
   $: isCompleted = $conversionStatus.status === 'completed';
+  
+  // Force the completed state to be shown when we have a result path
+  $: if (isElectron && $conversionResult?.outputPath && !isCompleted) {
+    isCompleted = true;
+  }
   $: hasError = $conversionStatus.error !== null;
   
   // Format current file name for display
@@ -55,19 +61,6 @@
         return '⏳ Preparing conversion...';
     }
   }
-
-  /**
-   * Opens the file in the default application
-   */
-  async function openFile() {
-    if (!isElectron || !$conversionResult?.outputPath) return;
-    
-    try {
-      await fileSystemOperations.openFile($conversionResult.outputPath);
-    } catch (error) {
-      console.error('Error opening file:', error);
-    }
-  }
   
   /**
    * Shows the file in the file explorer
@@ -83,16 +76,17 @@
   }
   
   /**
-   * Copies the file path to the clipboard
+   * Resets the application state to allow converting more files
+   * without reloading the page
    */
-  function copyPath() {
-    if (!$conversionResult?.outputPath) return;
+  function handleConvertMore() {
+    // Reset all stores to their initial state
+    files.clearFiles();
+    conversionStatus.reset();
+    conversionResult.clearResult();
     
-    try {
-      navigator.clipboard.writeText($conversionResult.outputPath);
-    } catch (error) {
-      console.error('Error copying path:', error);
-    }
+    // Dispatch event to parent component to switch mode
+    dispatch('convertMore');
   }
 </script>
 
@@ -102,12 +96,12 @@
       <!-- Conversion in progress or completed -->
       <div class="status-card {isCompleted ? 'success' : hasError ? 'error' : ''}">
         <div class="status-icon">
-          {#if isCompleted}
-            <div class="icon-success" in:fly={{ y: -20, duration: 400 }}>✓</div>
-          {:else if hasError}
-            <div class="icon-error" in:fly={{ y: -20, duration: 400 }}>✗</div>
+          {#if hasError}
+            <div class="icon-error">✗</div>
           {:else}
-            <div class="icon-converting">🔄</div>
+            <div class="{isCompleted ? 'icon-success' : 'icon-converting'}">
+              {isCompleted ? '✓' : '🔄'}
+            </div>
           {/if}
         </div>
         
@@ -128,13 +122,6 @@
             <div class="path-display">
               <span class="path-label">Output:</span>
               <span class="path-value">{$conversionResult.outputPath}</span>
-              <button 
-                class="copy-button" 
-                on:click={copyPath}
-                title="Copy path to clipboard"
-              >
-                📋
-              </button>
             </div>
           {/if}
         </div>
@@ -154,44 +141,26 @@
         </div>
       </div>
 
-      <!-- Action buttons -->
+      <!-- Action buttons - only show when completed -->
       {#if isCompleted}
         <div class="action-section">
           <div class="button-container">
-            {#if $conversionResult}
-              {#if isElectron && hasNativeResult}
-                <!-- Electron-specific buttons for native file system -->
-                <Button 
-                  variant="primary"
-                  size="large"
-                  on:click={openFile}
-                >
-                  <span class="button-icon">📄</span> Open File
-                </Button>
-                <Button 
-                  variant="secondary"
-                  size="large"
-                  on:click={showInFolder}
-                >
-                  <span class="button-icon">📂</span> Show in Folder
-                </Button>
-              {:else}
-                <!-- Web download button -->
-                <Button 
-                  variant="primary"
-                  size="large"
-                  on:click={() => triggerDownload()}
-                >
-                  <span class="button-icon">⬇️</span> Download Files
-                </Button>
-              {/if}
+            {#if $conversionResult && isElectron && hasNativeResult}
+              <!-- Electron-specific button for native file system -->
+              <Button 
+                variant="secondary"
+                size="large"
+                on:click={showInFolder}
+              >
+                <span class="button-icon">📂</span> Open Folder
+              </Button>
             {/if}
             <Button 
-              variant={$conversionResult ? "secondary" : "primary"}
+              variant="secondary"
               size="large"
-              on:click={() => window.location.reload()}
+              on:click={handleConvertMore}
             >
-              <span class="button-icon">🔄</span> Convert More Files
+              <span class="button-icon">🔄</span> Convert More
             </Button>
           </div>
         </div>
@@ -201,8 +170,7 @@
             <Button 
               variant="primary"
               size="large"
-              fullWidth
-              on:click={() => window.location.reload()}
+              on:click={handleConvertMore}
             >
               <span class="button-icon">🔄</span> Try Again
             </Button>
@@ -210,35 +178,7 @@
         </div>
       {/if}
     {:else}
-      <!-- Initial state - Redirect to resources page -->
-      <div class="button-container">
-        {#if isElectron && $conversionResult?.outputPath}
-          <Button
-            variant="primary"
-            size="large"
-            fullWidth
-            on:click={showInFolder}
-          >
-            <span class="button-icon">📂</span> Show in Folder
-          </Button>
-        {:else}
-          <Button
-            variant="primary"
-            size="large"
-            fullWidth
-            on:click={() => {
-              // Auto-trigger the completed state to show resources
-              if ($conversionStatus.status !== 'error' && $conversionStatus.status !== 'cancelled') {
-                conversionStatus.setStatus('completed');
-                conversionStatus.setProgress(100);
-              }
-              dispatch('startConversion');
-            }}
-          >
-            <span class="button-icon">🚀</span> Continue to Resources
-          </Button>
-        {/if}
-      </div>
+      <!-- Initial state - Show nothing -->
     {/if}
   </div>
 </Container>
@@ -423,20 +363,6 @@
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
-  }
-
-  .copy-button {
-    background: none;
-    border: none;
-    cursor: pointer;
-    padding: 0;
-    font-size: var(--font-size-base);
-    opacity: 0.7;
-    transition: opacity var(--transition-duration-normal) ease;
-  }
-
-  .copy-button:hover {
-    opacity: 1;
   }
 
   /* Mobile Adjustments */

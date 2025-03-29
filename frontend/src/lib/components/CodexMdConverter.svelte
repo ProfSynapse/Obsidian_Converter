@@ -8,10 +8,17 @@
   import { startConversion, triggerDownload } from '$lib/utils/conversionManager.js';
   import { conversionResult } from '$lib/stores/conversionResult.js';
   import { conversionStatus } from '$lib/stores/conversionStatus.js';
+  import welcomeState from '$lib/stores/welcomeState.js';
   import ResultDisplay from './ResultDisplay.svelte';
 
   let mode = 'upload';
   let visibleMessages = [];
+  let hasSeenWelcome = false;
+  
+  // Subscribe to the welcome state store
+  const unsubscribe = welcomeState.subscribe(value => {
+    hasSeenWelcome = value;
+  });
   const allMessages = [
     {
       type: 'received',
@@ -42,12 +49,8 @@
   // Subscribe to conversion status changes
   $: if ($conversionStatus.status === 'completed') {
     mode = 'converted';
-    // Attempt auto-download
-    setTimeout(() => {
-      if ($conversionResult) {
-        triggerDownload();
-      }
-    }, 500);
+    // No longer auto-download - let user choose when to download
+    scrollToTop();
   }
 
   function handleStartConversion() {
@@ -59,21 +62,43 @@
 
   function handleConvertMore() {
     scrollToTop();
-    window.location.reload();
+    // Reset application state instead of reloading the page
+    files.clearFiles();
+    conversionStatus.reset();
+    conversionResult.clearResult();
+    mode = 'upload';
   }
 
-  // Animate messages appearance
+  // Animate messages appearance only if user hasn't seen them before
   onMount(() => {
-    let delay = 500;
-    const animateMessages = async () => {
-      for (const message of allMessages) {
-        await new Promise(resolve => setTimeout(resolve, delay));
-        visibleMessages = [...visibleMessages, message];
-        delay = 800; // Subsequent messages appear faster
-      }
+    // Clean up subscription when component is destroyed
+    return () => {
+      unsubscribe();
     };
-    animateMessages();
   });
+
+  // Only show welcome messages if this is the first time opening the app
+  $: if (mode === 'upload' && !hasSeenWelcome) {
+    showWelcomeMessages();
+  }
+
+  // Function to show welcome messages with animation
+  async function showWelcomeMessages() {
+    let delay = 500;
+    
+    // Reset visible messages
+    visibleMessages = [];
+    
+    // Animate messages appearance
+    for (const message of allMessages) {
+      await new Promise(resolve => setTimeout(resolve, delay));
+      visibleMessages = [...visibleMessages, message];
+      delay = 800; // Subsequent messages appear faster
+    }
+    
+    // Mark welcome messages as seen
+    welcomeState.markAsSeen();
+  }
 </script>
 
 <div class="app-container">
@@ -86,7 +111,7 @@
             name={message.name}
             message={message.text}
             delay={index * 300}
-            avatarPosition={message.name === 'codex.md' ? 'right' : 'left'}
+            avatarPosition={message.name.includes('codex.md') ? 'right' : 'left'}
             showName={false}
           />
         {/each}
@@ -105,12 +130,15 @@
         </div>
       {/if}
     {:else if mode === 'converting'}
-      <ResultDisplay on:startConversion={handleStartConversion} />
+      <ResultDisplay 
+        on:startConversion={handleStartConversion}
+        on:convertMore={handleConvertMore} 
+      />
     {:else if mode === 'converted'}
-      <ResultDisplay on:startConversion={handleStartConversion} />
-      <Container class="resources-container">
-        <!-- Resources section content remains unchanged -->
-      </Container>
+      <ResultDisplay 
+        on:startConversion={handleStartConversion}
+        on:convertMore={handleConvertMore}
+      />
     {/if}
   </div>
 </div>
