@@ -20,7 +20,7 @@
     </a>
   </div>
   
-  <div class="nav-links">
+<div class="nav-links">
     <a 
       href="/" 
       class="nav-link" 
@@ -35,6 +35,14 @@
       class:active={$page.url.pathname === '/help'}
     >
       Help
+    </a>
+    
+    <a 
+      href="/about" 
+      class="nav-link" 
+      class:active={$page.url.pathname === '/about'}
+    >
+      About
     </a>
     
     {#if isElectron}
