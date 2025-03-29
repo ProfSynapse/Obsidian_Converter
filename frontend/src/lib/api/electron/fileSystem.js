@@ -246,6 +246,25 @@ class FileSystemOperations {
         new ConversionError(error.message || 'Failed to open file');
     }
   }
+
+  /**
+   * Opens a folder with the default file explorer
+   * @param {string} path Path to open
+   * @returns {Promise<void>}
+   */
+  async openFolder(path) {
+    if (!window.electronAPI) {
+      throw new ConversionError('Cannot open folder: Not running in Electron environment');
+    }
+
+    try {
+      await window.electronAPI.openExternal(`file://${path}`);
+    } catch (error) {
+      throw error instanceof ConversionError ? 
+        error : 
+        new ConversionError(error.message || 'Failed to open folder');
+    }
+  }
 }
 
 // Create and export singleton instance

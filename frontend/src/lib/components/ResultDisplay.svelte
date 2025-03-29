@@ -63,15 +63,15 @@
   }
   
   /**
-   * Shows the file in the file explorer
+   * Opens the output folder directly in the file explorer
    */
   async function showInFolder() {
     if (!isElectron || !$conversionResult?.outputPath) return;
     
     try {
-      await fileSystemOperations.showItemInFolder($conversionResult.outputPath);
+      await fileSystemOperations.openFolder($conversionResult.outputPath);
     } catch (error) {
-      console.error('Error showing file in folder:', error);
+      console.error('Error opening folder:', error);
     }
   }
   
