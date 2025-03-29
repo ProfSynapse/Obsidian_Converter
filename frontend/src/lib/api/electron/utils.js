@@ -42,7 +42,7 @@ export function normalizeUrl(url) {
  * Maps file extensions to their appropriate types
  */
 export const fileCategories = {
-  documents: ['pdf', 'docx', 'pptx'],
+  documents: ['pdf', 'docx', 'pptx', 'html', 'htm'],
   audio: ['mp3', 'wav', 'm4a', 'flac', 'ogg'],
   video: ['mp4', 'webm', 'avi', 'mov', 'mkv'],
   data: ['csv', 'xlsx']

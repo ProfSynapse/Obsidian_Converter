@@ -3,6 +3,7 @@
 import { convertPdfToMarkdown } from './text/pdfConverter.js';
 import { convertDocxToMarkdown } from './text/docxConverter.js';
 import { convertPptxToMarkdown } from './text/pptxConverter.js';
+import { convertHtmlToMarkdown } from './text/htmlConverter.js';
 import { convertCsvToMarkdown } from './data/csvConverter.js';
 import { convertXlsxToMarkdown } from './data/xlsxConverter.js';
 import { convertUrlToMarkdown } from './web/urlConverter.js';
@@ -44,6 +45,8 @@ class TextConverterFactory {
       pdf: convertPdfToMarkdown,
       docx: convertDocxToMarkdown,
       pptx: convertPptxToMarkdown,
+      html: convertHtmlToMarkdown,
+      htm: convertHtmlToMarkdown, // Also support .htm extension
 
       // Data converters
       csv: convertCsvToMarkdown,
@@ -63,6 +66,8 @@ class TextConverterFactory {
       docx: ['buffer'],
       pdf: ['buffer'],
       pptx: ['buffer'],
+      html: ['buffer', 'string'],
+      htm: ['buffer', 'string'],
       url: ['string'],
       parenturl: ['string', 'object'],
       audio: ['buffer'],
@@ -280,6 +285,10 @@ class TextConverterFactory {
         case 'pptx':
           console.log('📄 Converting PPTX presentation');
           return await convertPptxToMarkdown(content, options.name);
+        case 'html':
+        case 'htm':
+          console.log('🌐 Converting HTML document');
+          return await convertHtmlToMarkdown(content, options.name);
         case 'csv':
           console.log('📊 Converting CSV data');
           return await convertCsvToMarkdown(content, options.name);

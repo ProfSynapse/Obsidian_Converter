@@ -3,6 +3,8 @@
 import mammoth from 'mammoth';
 import path from 'path';
 import { v4 as uuidv4 } from 'uuid';
+import { htmlToMarkdown, cleanMarkdown } from '../web/utils/htmlToMarkdown.js';
+import { JSDOM } from 'jsdom';
 
 /**
  * Converts a DOCX buffer to Markdown format while properly handling images
@@ -137,23 +139,33 @@ export async function convertDocxToMarkdown(buffer, originalName, options = {}) 
         let pageNumber = 1;
         
         return mammoth.transforms.paragraph((paragraph) => {
-          // Check if this paragraph has a page break
-          const hasPageBreak = paragraph.alignment === 'center' && 
-                              paragraph.styleId === 'Normal' && 
-                              paragraph.numbering === undefined;
-          
-          if (hasPageBreak) {
-            pageNumber++;
-            pageBreaks.push({
-              pageNumber,
-              position: currentPosition
-            });
+          try {
+            // Check if this paragraph has a page break
+            const hasPageBreak = paragraph.alignment === 'center' && 
+                                paragraph.styleId === 'Normal' && 
+                                paragraph.numbering === undefined;
+            
+            if (hasPageBreak) {
+              pageNumber++;
+              pageBreaks.push({
+                pageNumber,
+                position: currentPosition
+              });
+            }
+            
+            // Update current position with null check
+            if (paragraph.content) {
+              currentPosition += paragraph.content.length;
+            } else {
+              console.log('⚠️ Paragraph without content encountered in transformDocument');
+            }
+            
+            return paragraph;
+          } catch (transformError) {
+            console.error('❌ Error in paragraph transform:', transformError);
+            // Return the paragraph unchanged if there's an error
+            return paragraph;
           }
-          
-          // Update current position
-          currentPosition += paragraph.content.length;
-          
-          return paragraph;
         })(document);
       };
     }
@@ -165,7 +177,7 @@ export async function convertDocxToMarkdown(buffer, originalName, options = {}) 
       preservePageInfo: !!options.preservePageInfo
     });
 
-    // Convert to markdown with enhanced error handling, timeout, and memory management
+      // Convert to HTML with enhanced error handling, timeout, and memory management
     let result;
     try {
       // Log initial memory state
@@ -184,7 +196,7 @@ export async function convertDocxToMarkdown(buffer, originalName, options = {}) 
           global.gc && global.gc(); // Run garbage collection if available
         }
 
-        mammoth.convertToMarkdown(workingBuffer, mammothOptions)
+        mammoth.convertToHtml(workingBuffer, mammothOptions)
           .then(result => {
             // Check memory usage after conversion
             const afterMemory = process.memoryUsage();
@@ -250,6 +262,23 @@ export async function convertDocxToMarkdown(buffer, originalName, options = {}) 
         console.error('❌ Empty conversion result');
         throw new Error('Conversion produced empty content');
       }
+      
+      // Convert HTML to Markdown
+      console.log('🔄 Converting HTML to Markdown');
+      const htmlContent = result.value;
+      
+      // Create a DOM from the HTML
+      const dom = new JSDOM(htmlContent);
+      const document = dom.window.document;
+      
+      // Convert HTML to Markdown
+      let markdownContent = htmlToMarkdown(document.body);
+      
+      // Clean up the Markdown
+      markdownContent = cleanMarkdown(markdownContent);
+      
+      // Replace the HTML content with the Markdown content
+      result.value = markdownContent;
 
     } catch (conversionError) {
       const errorDetails = {

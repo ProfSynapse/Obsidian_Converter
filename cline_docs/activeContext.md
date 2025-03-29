@@ -3,7 +3,44 @@
 ## Current Focus
 Transitioning to Phase 4: Desktop Features - Implementing system tray integration, native notifications, file associations, and auto-updates while enhancing frontend components for native file operations and completing the IPC implementation for all conversion types.
 
+- Implementing a standardized attachment folder structure for images extracted from PDFs and slides
+
 ## Recent Changes
+- Fixed Batch Conversion and DOCX Handling Issues:
+  - Fixed "ConversionError: An object could not be cloned" error in batch conversion
+  - Modified batch conversion process to properly handle File objects
+  - Implemented temporary file handling for browser File objects in batch conversion
+  - Added proper cleanup of temporary files after batch conversion
+  - Ensured serializable data is passed through IPC channels
+  - Added detailed progress tracking for batch conversion
+  - Improved error handling with proper cleanup in failure cases
+  - Added batch output path to conversion result to fix "No output path returned" error
+  - Created batch summary file with conversion details
+  - Fixed "Invalid input: Expected buffer or Uint8Array, got string" error in DOCX conversion
+  - Added DOCX to the list of binary file types to ensure proper handling
+  - Fixed "Cannot read properties of undefined (reading 'length')" error in DOCX conversion
+  - Added robust null/undefined checks in DocxConverterAdapter
+  - Enhanced PageMarkerService with comprehensive error handling
+  - Improved validation of inputs in page marker insertion
+  - Added fallback mechanisms for page break calculation
+  - Fixed transformDocument function in docxConverter.js to handle paragraphs without content
+  - Added try/catch blocks to prevent errors in paragraph transforms
+  - Improved error logging for DOCX conversion issues
+  - Changed DOCX conversion to use HTML output and then convert to Markdown
+  - Added HTML to Markdown conversion using existing web converter code
+  - Added new HTML file converter for direct HTML to Markdown conversion
+  - Added HTML converter adapter for Electron integration
+  - Updated textConverterFactory to support HTML files
+  - Added HTML and HTM file types to supported file types in frontend
+
+- Fixed Page Numbering Issues:
+  - Fixed duplicate page/slide numbering in PPTX and PDF conversions
+  - Modified PPTX converter adapter to keep original "## Slide X" headers and not add duplicate "[Slide X]" markers
+  - Updated PDF converter to standardize page marking approach
+  - Modified backend PDF converter to track page break positions without adding markers directly
+  - Updated PDF converter adapter to use PageMarkerService for consistent page marking
+  - Ensured consistent page numbering across all document types
+
 - Enhanced PPTX Conversion Diagnostics:
   - Added detailed logging throughout the PPTX conversion process
   - Implemented file integrity validation in pptxConverter.js

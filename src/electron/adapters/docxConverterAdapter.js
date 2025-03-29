@@ -33,55 +33,97 @@ class DocxConverterAdapter extends BaseModuleAdapter {
     try {
       console.log(`📝 [DOCXConverter] Starting DOCX conversion for: ${originalName}`);
       
+      // Validate input
+      if (!input) {
+        console.error(`❌ [DOCXConverter] Invalid input: input is ${input === null ? 'null' : 'undefined'}`);
+        throw new Error('Invalid input: DOCX data is missing');
+      }
+      
+      if (!Buffer.isBuffer(input)) {
+        console.error(`❌ [DOCXConverter] Invalid input type: ${typeof input}, isBuffer: ${Buffer.isBuffer(input)}`);
+        throw new Error(`Invalid input: Expected buffer or Uint8Array, got ${typeof input}`);
+      }
+      
+      console.log(`📊 [DOCXConverter] Input validation passed: Buffer of ${input.length} bytes`);
+      
       // Call the backend converter with a flag to preserve page information
       const result = await this.executeMethod('convert', [
         input, 
-        originalName,
+        originalName || 'document.docx',
         { preservePageInfo: true } // New option to preserve page info
       ]);
       
-      console.log(`✅ [DOCXConverter] Conversion successful:`, {
-        hasContent: !!result?.content,
-        contentLength: result?.content?.length || 0,
-        hasImages: Array.isArray(result?.images),
-        imageCount: Array.isArray(result?.images) ? result.images.length : 0,
-        hasPageBreaks: Array.isArray(result?.pageBreaks),
-        pageBreakCount: Array.isArray(result?.pageBreaks) ? result.pageBreaks.length : 0
-      });
-      
-      // Validate the result
-      if (!result || !result.content || result.content.trim() === '') {
-        console.error(`❌ [DOCXConverter] Empty conversion result`);
-        throw new Error('DOCX conversion produced empty content');
+      // Enhanced result validation and logging
+      if (!result) {
+        console.error(`❌ [DOCXConverter] Conversion returned null or undefined result`);
+        throw new Error('DOCX conversion failed: Converter returned no result');
       }
       
-      // Process the result to add page markers
-      if (result.pageBreaks && result.pageBreaks.length > 0) {
-        // Insert page markers into content
-        result.content = PageMarkerService.insertPageMarkers(
-          result.content, 
-          result.pageBreaks
-        );
-        
-        // Add page count to metadata
-        result.pageCount = result.pageBreaks.length + 1;
-        
-        console.log(`📄 [DOCXConverter] Added ${result.pageCount} page markers from DOCX structure`);
-      } else {
-        console.log(`ℹ️ [DOCXConverter] No page breaks detected, using word-based pagination`);
-        
-        // Fall back to word-based pagination if no page breaks were detected
-        const pageBreaks = PageMarkerService.calculateWordBasedPageBreaks(result.content);
-        
-        if (pageBreaks.length > 0) {
-          result.content = PageMarkerService.insertPageMarkers(result.content, pageBreaks);
-          result.pageCount = pageBreaks.length + 1;
-          console.log(`📄 [DOCXConverter] Added ${result.pageCount} word-based page markers`);
+      console.log(`✅ [DOCXConverter] Conversion returned result:`, {
+        resultType: typeof result,
+        hasContent: !!result.content,
+        contentType: typeof result.content,
+        contentLength: result.content ? result.content.length : 0,
+        hasImages: Array.isArray(result.images),
+        imageCount: Array.isArray(result.images) ? result.images.length : 0,
+        hasPageBreaks: Array.isArray(result.pageBreaks),
+        pageBreakCount: Array.isArray(result.pageBreaks) ? result.pageBreaks.length : 0,
+        success: !!result.success
+      });
+      
+      // Validate the result content
+      if (!result.content || typeof result.content !== 'string' || result.content.trim() === '') {
+        console.error(`❌ [DOCXConverter] Empty or invalid content in conversion result`);
+        throw new Error('DOCX conversion produced empty or invalid content');
+      }
+      
+      // Ensure images array exists
+      if (!result.images) {
+        console.log(`ℹ️ [DOCXConverter] No images in result, initializing empty array`);
+        result.images = [];
+      }
+      
+      // Process the result to add page markers with enhanced error handling
+      try {
+        if (Array.isArray(result.pageBreaks) && result.pageBreaks.length > 0) {
+          console.log(`📄 [DOCXConverter] Using ${result.pageBreaks.length} detected page breaks`);
+          
+          // Insert page markers into content
+          result.content = PageMarkerService.insertPageMarkers(
+            result.content, 
+            result.pageBreaks
+          );
+          
+          // Add page count to metadata
+          result.pageCount = result.pageBreaks.length + 1;
+          
+          console.log(`📄 [DOCXConverter] Added ${result.pageCount} page markers from DOCX structure`);
         } else {
-          // Single page document
-          result.pageCount = 1;
-          console.log(`📄 [DOCXConverter] Document appears to be a single page`);
+          console.log(`ℹ️ [DOCXConverter] No page breaks detected, using word-based pagination`);
+          
+          // Fall back to word-based pagination if no page breaks were detected
+          try {
+            const pageBreaks = PageMarkerService.calculateWordBasedPageBreaks(result.content);
+            
+            if (Array.isArray(pageBreaks) && pageBreaks.length > 0) {
+              result.content = PageMarkerService.insertPageMarkers(result.content, pageBreaks);
+              result.pageCount = pageBreaks.length + 1;
+              console.log(`📄 [DOCXConverter] Added ${result.pageCount} word-based page markers`);
+            } else {
+              // Single page document
+              result.pageCount = 1;
+              console.log(`📄 [DOCXConverter] Document appears to be a single page`);
+            }
+          } catch (pageBreakError) {
+            // If word-based pagination fails, just set page count to 1
+            console.warn(`⚠️ [DOCXConverter] Word-based pagination failed: ${pageBreakError.message}`);
+            result.pageCount = 1;
+          }
         }
+      } catch (pageMarkerError) {
+        // If page marker insertion fails, log but continue with the conversion
+        console.warn(`⚠️ [DOCXConverter] Page marker insertion failed: ${pageMarkerError.message}`);
+        result.pageCount = 1;
       }
       
       return result;

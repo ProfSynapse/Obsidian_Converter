@@ -309,20 +309,21 @@ async function extractText(pdfPath, preservePageInfo = false) {
           }
         }
         
-        // Add page marker at the beginning of each page (except the first)
-        if (i > 1) {
-          // Add a page break before adding the page marker
-          pageBreaks.push({
-            pageNumber: i,
-            position: combinedText.length
-          });
-          
-          // Add the page text with proper spacing
-          combinedText += `\n\n[Page ${i}]\n\n${pageText}`;
-        } else {
-          // For the first page, just add the text
-          combinedText += pageText;
-        }
+      // Track page break positions but don't add page markers directly
+      // The adapter will use PageMarkerService to add markers consistently
+      if (i > 1) {
+        // Add a page break position
+        pageBreaks.push({
+          pageNumber: i,
+          position: combinedText.length
+        });
+        
+        // Add the page text with proper spacing
+        combinedText += `\n\n${pageText}`;
+      } else {
+        // For the first page, just add the text
+        combinedText += pageText;
+      }
       }
       
       text = combinedText;

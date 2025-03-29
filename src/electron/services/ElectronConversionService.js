@@ -26,6 +26,15 @@ const { textConverterFactory } = require('../adapters/textConverterFactoryAdapte
 const { getFileCategory } = require('../adapters/fileTypeUtilsAdapter');
 const { extractMetadata } = require('../adapters/metadataExtractorAdapter');
 
+/**
+ * Helper function to escape special characters in strings for use in regular expressions
+ * @param {string} string - The string to escape
+ * @returns {string} - The escaped string
+ */
+function escapeRegExp(string) {
+  return string.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); // $& means the whole matched string
+}
+
 class ElectronConversionService {
   constructor() {
     this.fileSystem = FileSystemService;
@@ -136,7 +145,7 @@ class ElectronConversionService {
 
       // Read file content with proper encoding for binary files
       let fileContent;
-      const isBinaryFile = ['pdf', 'pptx', 'jpg', 'jpeg', 'png', 'gif', 'mp3', 'mp4', 'wav', 'webm', 'avi'].includes(fileType.toLowerCase());
+      const isBinaryFile = ['pdf', 'docx', 'pptx', 'xlsx', 'jpg', 'jpeg', 'png', 'gif', 'mp3', 'mp4', 'wav', 'webm', 'avi'].includes(fileType.toLowerCase());
       
       if (isBinaryFile) {
         // For binary files, read as buffer (null encoding)
@@ -254,13 +263,46 @@ class ElectronConversionService {
       // Save images if present
       if (conversionResult.images && conversionResult.images.length > 0) {
         console.log(`🖼️ Saving ${conversionResult.images.length} images...`);
+        
+        // Create a {{filename}}_attachments folder for images
+        const attachmentsFolder = path.join(outputBasePath, `${finalBaseName}_attachments`);
+        await this.fileSystem.createDirectory(attachmentsFolder);
+        console.log(`📁 Created attachments folder: ${attachmentsFolder}`);
+        
+        // Update markdown content to reference the new attachment folder
+        let updatedContent = conversionResult.content;
+        
         for (const [index, image] of conversionResult.images.entries()) {
           // Use the final base name for image filenames too
           const imageFileName = `${finalBaseName}_image_${index}${path.extname(image.name || '') || '.png'}`;
-          const imagePath = path.join(imagesPath, imageFileName);
+          const imagePath = path.join(attachmentsFolder, imageFileName);
           await this.fileSystem.writeFile(imagePath, image.data);
           console.log(`  - Image ${index + 1}/${conversionResult.images.length} saved to: ${imagePath}`);
+          
+          // Update image references in markdown content if they exist
+          // Look for both Markdown and Obsidian image syntax
+          const originalPath = image.path || `assets/images/${image.name}`;
+          const newRelativePath = `${finalBaseName}_attachments/${imageFileName}`;
+          
+          // Replace Markdown image syntax: ![alt](path)
+          updatedContent = updatedContent.replace(
+            new RegExp(`!\\[[^\\]]*\\]\\(${escapeRegExp(originalPath)}\\)`, 'g'),
+            `![${imageFileName}](${newRelativePath})`
+          );
+          
+          // Replace Obsidian image syntax: ![[filename]]
+          updatedContent = updatedContent.replace(
+            new RegExp(`!\\[\\[${escapeRegExp(image.name || '')}\\]\\]`, 'g'),
+            `![[${newRelativePath}]]`
+          );
         }
+        
+        // Write the updated content back to the file
+        await this.fileSystem.writeFile(mainFilePath, updatedContent);
+        console.log(`📝 Updated markdown content with new image paths`);
+        
+        // Update the result content
+        conversionResult.content = updatedContent;
       } else {
         console.log('ℹ️ No images to save');
       }
@@ -375,17 +417,52 @@ class ElectronConversionService {
         }
       }
 
+      // Create a batch output directory if not already specified
+      const outputDir = options.outputDir || this.defaultOutputDir;
+      const batchName = options.batchName || `Batch_${new Date().toISOString().replace(/:/g, '-')}`;
+      const batchOutputPath = path.join(outputDir, batchName);
+      
+      // Ensure the batch directory exists
+      await this.fileSystem.createDirectory(batchOutputPath);
+      
+      // Create a summary file with information about the batch conversion
+      const summaryContent = [
+        '# Batch Conversion Summary',
+        '',
+        `- **Date:** ${new Date().toISOString()}`,
+        `- **Total Files:** ${results.length}`,
+        `- **Successfully Converted:** ${results.filter(r => r.success).length}`,
+        `- **Failed:** ${results.filter(r => !r.success).length}`,
+        `- **Duration:** ${Math.round((Date.now() - startTime)/1000)} seconds`,
+        '',
+        '## Files',
+        '',
+        ...results.map((result, index) => {
+          const fileName = path.basename(filePaths[index]);
+          const status = result.success ? '✅ Success' : `❌ Failed: ${result.error || 'Unknown error'}`;
+          return `- **${fileName}**: ${status}`;
+        })
+      ].join('\n');
+      
+      // Write the summary file
+      await this.fileSystem.writeFile(
+        path.join(batchOutputPath, 'batch-summary.md'),
+        summaryContent
+      );
+      
       const endMemory = process.memoryUsage();
       console.log('✅ Batch conversion completed:', {
         processed: results.length,
         successful: results.filter(r => r.success).length,
         failed: results.filter(r => !r.success).length,
         duration: `${Math.round((Date.now() - startTime)/1000)}s`,
-        memoryUsed: `${Math.round((endMemory.heapUsed - initialMemory.heapUsed) / 1024 / 1024)}MB`
+        memoryUsed: `${Math.round((endMemory.heapUsed - initialMemory.heapUsed) / 1024 / 1024)}MB`,
+        batchOutputPath
       });
 
       return {
         success: true,
+        outputPath: batchOutputPath, // Add the output path to the result
         results,
         stats: {
           total: results.length,

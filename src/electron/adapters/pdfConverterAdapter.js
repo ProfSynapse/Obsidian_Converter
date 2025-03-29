@@ -99,6 +99,18 @@ class PdfConverterAdapter extends BaseModuleAdapter {
         console.log(`📄 [PDFConverter] Calculated page count: ${result.pageCount}`);
       }
       
+      // Add page markers using PageMarkerService if we have page breaks
+      if (result.pageBreaks && result.pageBreaks.length > 0) {
+        console.log(`📄 [PDFConverter] Adding page markers for ${result.pageBreaks.length} page breaks`);
+        
+        // Use PageMarkerService to add page markers
+        result.content = PageMarkerService.insertPageMarkers(
+          result.content,
+          result.pageBreaks,
+          'Page' // Use 'Page' as marker type
+        );
+      }
+      
       return result;
     } catch (error) {
       console.error(`❌ [PDFConverter] Conversion failed:`, error);

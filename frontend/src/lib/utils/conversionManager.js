@@ -367,40 +367,104 @@ async function handleElectronConversion(items, apiKey, outputDir) {
     } 
     // For batch conversion
     else {
-      // Convert batch of files with output directory
-      const result = await electronClient.convertBatch(
-        items.map(item => item.isNative ? item.path : item.file),
-        { 
-          batchName: `Batch_${new Date().toISOString().replace(/:/g, '-')}`,
-          ...options
-        },
-        (progress) => {
-          conversionStatus.setProgress(progress);
-        },
-        (itemId, success, error) => {
-          files.updateFile(itemId, {
-            status: success ? 'completed' : 'error',
-            error: error?.message || null
-          });
-        }
+      // First, handle any File objects by saving them to temporary files
+      conversionStatus.setStatus('preparing');
+      conversionStatus.setProgress(5);
+      
+      // Track temporary files for cleanup
+      const tempFilePaths = [];
+      
+      // Process each item to handle File objects
+      const processedPaths = await Promise.all(
+        items.map(async (item, index) => {
+          // For native files, just use the path
+          if (item.isNative && item.path) {
+            return item.path;
+          }
+          // For File objects, save to temporary file first
+          else if (item.file instanceof File) {
+            conversionStatus.setCurrentFile(`Preparing ${item.file.name}...`);
+            const tempFilePath = await saveTempFile(item.file);
+            tempFilePaths.push({ path: tempFilePath, originalName: item.file.name });
+            return tempFilePath;
+          }
+          // For other types (URLs, etc.), we can't process in batch
+          else {
+            throw new Error(`Unsupported item type in batch: ${item.type || 'unknown'}`);
+          }
+        })
       );
       
-      // Update status and store result
-      if (result && result.outputPath) {
-        conversionStatus.setStatus('completed');
-        conversionStatus.setProgress(100);
+      conversionStatus.setStatus('converting');
+      conversionStatus.setProgress(10);
+      
+      try {
+        // Convert batch of files with output directory
+        const result = await electronClient.convertBatch(
+          processedPaths,
+          { 
+            batchName: `Batch_${new Date().toISOString().replace(/:/g, '-')}`,
+            ...options
+          },
+          (progress) => {
+            // Scale progress from 10-90% to account for temp file operations
+            conversionStatus.setProgress(10 + (progress * 0.8));
+          },
+          (itemId, success, error) => {
+            files.updateFile(itemId, {
+              status: success ? 'completed' : 'error',
+              error: error?.message || null
+            });
+          }
+        );
         
-        // Store the result
-        conversionResult.setNativeResult(result.outputPath, items);
-        
-        // Update all file statuses
-        items.forEach(item => {
-          files.updateFile(item.id, {
-            status: 'completed'
+        conversionStatus.setProgress(90);
+      
+        // Update status and store result
+        if (result && result.outputPath) {
+          // Clean up temporary files
+          conversionStatus.setStatus('cleaning_up');
+          conversionStatus.setProgress(95);
+          
+          await Promise.all(
+            tempFilePaths.map(async (tempFile) => {
+              try {
+                await cleanupTempFile(tempFile.path);
+              } catch (cleanupError) {
+                console.warn(`Failed to clean up temporary file ${tempFile.path}:`, cleanupError);
+              }
+            })
+          );
+          
+          conversionStatus.setStatus('completed');
+          conversionStatus.setProgress(100);
+          
+          // Store the result
+          conversionResult.setNativeResult(result.outputPath, items);
+          
+          // Update all file statuses
+          items.forEach(item => {
+            files.updateFile(item.id, {
+              status: 'completed'
+            });
           });
-        });
-      } else {
-        throw new Error('Batch conversion failed: No output path returned');
+        } else {
+          throw new Error('Batch conversion failed: No output path returned');
+        }
+      } finally {
+        // Ensure cleanup happens even if conversion fails
+        if (tempFilePaths.length > 0) {
+          console.log(`Cleaning up ${tempFilePaths.length} temporary files...`);
+          await Promise.all(
+            tempFilePaths.map(async (tempFile) => {
+              try {
+                await cleanupTempFile(tempFile.path);
+              } catch (cleanupError) {
+                console.warn(`Failed to clean up temporary file ${tempFile.path}:`, cleanupError);
+              }
+            })
+          );
+        }
       }
     }
   } catch (error) {

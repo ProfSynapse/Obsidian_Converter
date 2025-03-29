@@ -17,6 +17,7 @@ const BaseModuleAdapter = require('./BaseModuleAdapter');
 const { convertPdfToMarkdown } = require('./pdfConverterAdapter');
 const { convertDocxToMarkdown } = require('./docxConverterAdapter');
 const { convertPptxToMarkdown } = require('./pptxConverterAdapter');
+const { convertHtmlToMarkdown } = require('./htmlConverterAdapter');
 const { convertUrl } = require('./urlConverterAdapter');
 const { convertAudioToMarkdown } = require('./audioConverterAdapter');
 const { convertVideoToMarkdown } = require('./videoConverterAdapter');
@@ -39,6 +40,8 @@ class TextConverterFactoryAdapter extends BaseModuleAdapter {
       pdf: convertPdfToMarkdown,
       docx: convertDocxToMarkdown,
       pptx: convertPptxToMarkdown,
+      html: convertHtmlToMarkdown,
+      htm: convertHtmlToMarkdown, // Also support .htm extension
       url: convertUrl,
       audio: convertAudioToMarkdown,
       video: convertVideoToMarkdown
@@ -97,6 +100,12 @@ class TextConverterFactoryAdapter extends BaseModuleAdapter {
         if (normalizedType === 'pptx') {
           console.log(`🔄 [TextConverterFactory] Delegating to PPTX converter`);
           return await this.converters.pptx(content, options.name);
+        }
+        
+        // For HTML files
+        if (normalizedType === 'html' || normalizedType === 'htm') {
+          console.log(`🔄 [TextConverterFactory] Delegating to HTML converter`);
+          return await this.converters.html(content, options.name);
         }
         
         // For URLs

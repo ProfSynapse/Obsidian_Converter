@@ -85,20 +85,9 @@ class PptxConverterAdapter extends BaseModuleAdapter {
         });
       }
       
-      // If we found slide breaks, replace the existing slide headers with our standardized markers
-      if (slideBreaks.length > 0) {
-        // First, remove the existing slide headers
-        content = content.replace(/## Slide \d+\n\n/g, '');
-        
-        // Then insert our standardized markers
-        result.content = PageMarkerService.insertPageMarkers(
-          content,
-          slideBreaks,
-          'Slide' // Use 'Slide' as marker type
-        );
-        
-        console.log(`📊 [PPTXConverter] Added ${slideBreaks.length} slide markers`);
-      }
+      // Keep the original slide headers (## Slide X) from the backend converter
+      // We're not replacing them with PageMarkerService markers to avoid duplication
+      console.log(`📊 [PPTXConverter] Keeping original ${slideBreaks.length} slide headers`);
       
       return result;
     } catch (error) {
