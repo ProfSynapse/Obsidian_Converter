@@ -107,11 +107,7 @@
           <p class="primary-text">Drag and drop files or folders here</p>
           <p class="secondary-text">or click to browse your computer</p>
           <p class="file-types">
-            Supported formats: {displayTypes}
-            <br>
-            <span class="size-limits">
-              Size limits: Videos up to {formatFileSize(MAX_VIDEO_SIZE)}, other files up to {formatFileSize(MAX_FILE_SIZE)}
-            </span>
+            <b>Supported formats:</b> {displayTypes}
           </p>
         </div>
       <!-- Drag Over State -->
@@ -148,7 +144,7 @@
       bottom: 0;
       border-radius: var(--rounded-lg);
       padding: 2px;
-      background: linear-gradient(135deg, var(--color-prime), var(--color-second));
+      background: linear-gradient(135deg, var(--color-prime), var(--color-fourth));
       -webkit-mask: 
           linear-gradient(#fff 0 0) content-box, 
           linear-gradient(#fff 0 0);
@@ -169,7 +165,7 @@
 
     .drop-zone.drag-over::before {
       opacity: 1;
-      background: linear-gradient(135deg, var(--color-second), var(--color-prime));
+      background: linear-gradient(135deg, var(--color-fourth), var(--color-prime));
     }
   
     .drop-zone-content {

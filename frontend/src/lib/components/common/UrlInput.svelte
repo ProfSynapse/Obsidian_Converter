@@ -204,7 +204,7 @@
         bottom: 0;
         border-radius: var(--rounded-lg);
         padding: 2px;
-        background: linear-gradient(135deg, var(--color-prime), var(--color-second));
+        background: linear-gradient(135deg, var(--color-prime), var(--color-fourth));
         -webkit-mask: 
             linear-gradient(#fff 0 0) content-box, 
             linear-gradient(#fff 0 0);
@@ -218,7 +218,7 @@
     }
 
     .input-container:focus-within::before {
-        background: linear-gradient(135deg, var(--color-second), var(--color-prime));
+        background: linear-gradient(135deg, var(--color-fourth), var(--color-prime));
     }
 
     .url-input {
@@ -257,7 +257,7 @@
         display: flex;
         align-items: center;
         justify-content: center;
-        background: linear-gradient(135deg, var(--color-prime), var(--color-second));
+        background: linear-gradient(135deg, var(--color-prime), var(--color-fourth));
         color: white;
         border: none;
         border-radius: var(--rounded-md);

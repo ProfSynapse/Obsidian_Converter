@@ -248,7 +248,7 @@
   .section-divider {
     width: 100%;
     height: 1px;
-    background: linear-gradient(90deg, var(--color-prime), var(--color-second));
+    background: linear-gradient(90deg, var(--color-prime), var(--color-fourth));
     opacity: 0.3;
   }
 

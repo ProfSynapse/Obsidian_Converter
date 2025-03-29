@@ -87,6 +87,7 @@
             message={message.text}
             delay={index * 300}
             avatarPosition={message.name === 'codex.md' ? 'right' : 'left'}
+            showName={false}
           />
         {/each}
       </div>

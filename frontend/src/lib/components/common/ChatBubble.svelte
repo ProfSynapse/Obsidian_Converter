@@ -6,6 +6,7 @@
   export let message = '';
   export let delay = 0;
   export let avatarPosition = 'left'; // New prop with default 'left'
+  export let showName = true; // New prop to control name visibility
 </script>
 
 <div 
@@ -32,7 +33,9 @@
   {/if}
   
   <div class="message-content">
-    <div class="name">{name}</div>
+    {#if showName}
+      <div class="name">{name}</div>
+    {/if}
     <div class="message">
       {@html message}
     </div>
@@ -42,7 +45,7 @@
 
 <style>
   .chat-bubble-container {
-    margin-bottom: var(--spacing-lg);
+    margin-bottom: 40px;
     padding-left: 40px;
   }
 
@@ -70,16 +73,29 @@
     padding: 1px;
     background: linear-gradient(135deg,
       var(--color-prime) 0%,
-      var(--color-prime) 50%,
       var(--color-fourth) 50%,
-      var(--color-fourth) 100%
+      var(--color-prime) 100%
     );
+    background-size: 200% 200%;
+    animation: gradientFlow 5s ease infinite;
     -webkit-mask: 
       linear-gradient(#fff 0 0) content-box,
       linear-gradient(#fff 0 0);
     -webkit-mask-composite: xor;
     mask-composite: exclude;
     opacity: 0.5;
+  }
+
+  @keyframes gradientFlow {
+    0% {
+      background-position: 0% 50%;
+    }
+    50% {
+      background-position: 100% 50%;
+    }
+    100% {
+      background-position: 0% 50%;
+    }
   }
 
   .avatar-bubble {
@@ -92,10 +108,11 @@
     justify-content: center;
     background: linear-gradient(135deg,
       var(--color-prime) 0%,
-      var(--color-prime) 50%,
       var(--color-fourth) 50%,
-      var(--color-fourth) 100%
+      var(--color-prime) 100%
     );
+    background-size: 200% 200%;
+    animation: gradientFlow 5s ease infinite;
     box-shadow: 
       0 4px 8px rgba(0, 0, 0, 0.15),
       0 8px 16px rgba(0, 0, 0, 0.1),

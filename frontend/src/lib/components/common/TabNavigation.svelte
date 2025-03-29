@@ -4,8 +4,8 @@
     import { fade } from 'svelte/transition';
     
     const tabs = [
-      { id: 'single', icon: '🔗', label: 'Single URL', description: 'Convert a single webpage' },
-      { id: 'parent', icon: '🗺️', label: 'Parent URL', description: 'Convert multiple linked pages' }
+      { id: 'single', icon: '🔗', label: 'Single Page', description: 'Convert a single webpage' },
+      { id: 'parent', icon: '🗺️', label: 'Full Website', description: 'Convert parent and children URLs' }
       // { id: 'youtube', icon: '🎥', label: 'YouTube', description: 'Convert YouTube videos' }
     ];
 </script>
@@ -63,20 +63,31 @@
       cursor: pointer;
       transition: all var(--transition-duration-normal);
       overflow: hidden;
+      box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
     }
 
     .tab-button::before {
       content: "";
       position: absolute;
       inset: 0;
-      background: linear-gradient(135deg, var(--color-prime), var(--color-second));
+      background: linear-gradient(135deg, var(--color-prime), var(--color-fourth));
       opacity: 0;
       transition: opacity var(--transition-duration-normal);
       border-radius: var(--rounded-lg);
     }
 
+    .tab-button:hover:not(.active) {
+      box-shadow: 0 3px 6px rgba(0, 0, 0, 0.08);
+      transform: translateY(-0.5px);
+    }
+
     .tab-button:hover:not(.active)::before {
       opacity: 0.05;
+    }
+
+    .tab-button.active {
+      box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+      transform: translateY(-1px);
     }
 
     .tab-button.active::before {
