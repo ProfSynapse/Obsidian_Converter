@@ -3,13 +3,16 @@
  * 
  * Adapts the backend PDF converter for use in the Electron main process.
  * Uses the BaseModuleAdapter for consistent module loading and error handling.
+ * Adds page number markers to the converted content.
  * 
  * Related files:
  * - backend/src/services/converter/text/pdfConverter.js: Original implementation
  * - src/electron/services/ElectronConversionService.js: Service using this adapter
  * - src/electron/adapters/BaseModuleAdapter.js: Base adapter class
+ * - src/electron/services/PageMarkerService.js: Service for adding page markers
  */
 const BaseModuleAdapter = require('./BaseModuleAdapter');
+const PageMarkerService = require('../services/PageMarkerService');
 
 // Create the PDF converter adapter
 class PdfConverterAdapter extends BaseModuleAdapter {
@@ -21,11 +24,11 @@ class PdfConverterAdapter extends BaseModuleAdapter {
   }
   
   /**
-   * Convert PDF to Markdown
+   * Convert PDF to Markdown with page markers
    * @param {Buffer} input - PDF file buffer
    * @param {string} originalName - Original filename
    * @param {string} [apiKey] - Optional API key
-   * @returns {Promise<{content: string, images: Array}>}
+   * @returns {Promise<{content: string, images: Array, pageCount: number}>}
    */
   async convertPdfToMarkdown(input, originalName, apiKey) {
     console.log(`🔍 [PDFConverter] Starting PDF conversion for: ${originalName}`);
@@ -58,20 +61,42 @@ class PdfConverterAdapter extends BaseModuleAdapter {
     }
     
     try {
-      console.log(`⏳ [PDFConverter] Executing 'convert' method...`);
-      const result = await this.executeMethod('convert', [input, originalName, apiKey]);
+      console.log(`⏳ [PDFConverter] Executing 'convert' method with preservePageInfo option...`);
+      // Call the backend converter with a flag to preserve page information
+      const result = await this.executeMethod('convert', [
+        input, 
+        originalName, 
+        apiKey,
+        { preservePageInfo: true } // New option to preserve page info
+      ]);
       
       console.log(`✅ [PDFConverter] Conversion successful:`, {
         hasContent: !!result?.content,
         contentLength: result?.content?.length || 0,
         hasImages: Array.isArray(result?.images),
-        imageCount: Array.isArray(result?.images) ? result.images.length : 0
+        imageCount: Array.isArray(result?.images) ? result.images.length : 0,
+        hasPageBreaks: Array.isArray(result?.pageBreaks),
+        pageBreakCount: Array.isArray(result?.pageBreaks) ? result.pageBreaks.length : 0
       });
       
       // Validate the result
       if (!result || !result.content || result.content.trim() === '') {
         console.error(`❌ [PDFConverter] Empty conversion result`);
         throw new Error('PDF conversion produced empty content');
+      }
+      
+      // Use the page count from the backend converter
+      if (result.pageCount) {
+        console.log(`📄 [PDFConverter] PDF has ${result.pageCount} pages`);
+      } else {
+        // If pageCount is not provided, calculate it from page breaks
+        if (result.pageBreaks && result.pageBreaks.length > 0) {
+          result.pageCount = result.pageBreaks.length + 1;
+        } else {
+          // Single page document
+          result.pageCount = 1;
+        }
+        console.log(`📄 [PDFConverter] Calculated page count: ${result.pageCount}`);
       }
       
       return result;

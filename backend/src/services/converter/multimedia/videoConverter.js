@@ -35,15 +35,23 @@ export async function convertVideoToMarkdown(input, options) {
       // Combine transcriptions
       const fullTranscript = transcriptions.join('\n\n');
 
+      // Remove temp_ prefix from title if present
+      let baseName = path.basename(name, path.extname(name));
+      if (baseName.startsWith('temp_')) {
+        // Extract original filename by removing 'temp_timestamp_' prefix
+        baseName = baseName.replace(/^temp_\d+_/, '');
+      }
+      
       // Generate markdown
       const markdown = generateMarkdown({
-        title: `Video Transcription: ${path.basename(name, path.extname(name))}`,
+        title: `Video Transcription: ${baseName}`,
         content: fullTranscript,
         metadata: {
           source: name,
           type: 'video-transcription',
           mimeType: mimeType,
-          created: new Date().toISOString()
+          created: new Date().toISOString(),
+          page_count: 1 // Video files are treated as a single page
         }
       });
 

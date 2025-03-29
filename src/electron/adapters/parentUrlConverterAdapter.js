@@ -3,16 +3,19 @@
  * 
  * Adapts the backend parent URL converter for use in the Electron main process.
  * This eliminates code duplication by reusing the existing parent URL conversion logic.
+ * Adds page number markers between different pages when combining them into a single document.
  * 
  * Related files:
  * - backend/src/services/converter/web/parentUrlConverter.js: Original implementation
  * - src/electron/services/ElectronConversionService.js: Service using this adapter
+ * - src/electron/services/PageMarkerService.js: Service for adding page markers
  */
 
 // Import required modules
 const path = require('path');
 const fs = require('fs');
 const { pathToFileURL } = require('url');
+const PageMarkerService = require('../services/PageMarkerService');
 
 // Create a function to dynamically load the ES module
 async function loadParentUrlConverter() {
@@ -45,7 +48,7 @@ const modulePromise = loadParentUrlConverter();
  * Adapts the backend parent URL converter for use in Electron with enhanced options
  * @param {string} url Parent URL to convert
  * @param {Object} options Conversion options
- * @returns {Promise<{content: string, success: boolean, files: Array, stats: Object}>}
+ * @returns {Promise<{content: string, success: boolean, files: Array, stats: Object, pageCount: number}>}
  */
 async function convertParentUrl(url, options = {}) {
   try {
@@ -104,7 +107,9 @@ async function convertParentUrl(url, options = {}) {
           ...(defaultOptions.got?.headers || {}),
           ...(options.got?.headers || {})
         }
-      }
+      },
+      // Add option to combine pages into a single document with page markers
+      combinePages: options.combinePages !== undefined ? options.combinePages : true
     };
     
     // Get the loaded module
@@ -117,6 +122,40 @@ async function convertParentUrl(url, options = {}) {
     // Call the backend parent URL converter with the enhanced options
     const result = await convertParentUrlToMarkdown(url, mergedOptions);
     
+    // Process the result to add page markers if combining pages
+    if (mergedOptions.combinePages && result.pages && result.pages.length > 0) {
+      console.log(`📄 [ParentUrlConverter] Combining ${result.pages.length} pages with page markers`);
+      
+      // Start with the first page's content
+      let combinedContent = result.pages[0].content;
+      const pageBreaks = [];
+      
+      // Add each subsequent page with a page marker
+      for (let i = 1; i < result.pages.length; i++) {
+        const page = result.pages[i];
+        pageBreaks.push({
+          pageNumber: i + 1,
+          position: combinedContent.length,
+          url: page.url
+        });
+        
+        // Add page marker and content
+        combinedContent += PageMarkerService.formatPageMarker(i + 1, page.url) + page.content;
+      }
+      
+      // Update the result
+      result.content = combinedContent;
+      result.pageCount = result.pages.length;
+      
+      console.log(`✅ [ParentUrlConverter] Combined ${result.pageCount} pages with markers`);
+    } else if (result.pages && result.pages.length > 0) {
+      // If not combining, still set the page count
+      result.pageCount = result.pages.length;
+    } else {
+      // Single page or no pages
+      result.pageCount = 1;
+    }
+    
     // Return the result in a format compatible with ElectronConversionService
     return {
       content: result.content,
@@ -124,7 +163,8 @@ async function convertParentUrl(url, options = {}) {
       name: result.name,
       files: result.files,
       stats: result.stats,
-      url: result.url
+      url: result.url,
+      pageCount: result.pageCount
     };
   } catch (error) {
     console.error('Parent URL conversion failed in adapter:', error);

@@ -83,6 +83,8 @@ async function executePopplerCommand(originalCommand) {
         command = command.replace('pdfimages', `"${path.join(popplerPath, 'pdfimages.exe')}"`);
       } else if (command.startsWith('pdftotext')) {
         command = command.replace('pdftotext', `"${path.join(popplerPath, 'pdftotext.exe')}"`);
+      } else if (command.startsWith('pdfinfo')) {
+        command = command.replace('pdfinfo', `"${path.join(popplerPath, 'pdfinfo.exe')}"`);
       }
     }
 
@@ -264,17 +266,84 @@ async function extractImagesWithFallback(pdfPath, originalName) {
 /**
  * Extract text from PDF using poppler-utils pdftotext
  * @param {string} pdfPath - Path to the PDF file
- * @returns {Promise<string>} - Extracted text content
+ * @param {boolean} preservePageInfo - Whether to preserve page information
+ * @returns {Promise<{text: string, pageBreaks: Array<{pageNumber: number, position: number}>}>} - Extracted text content and page breaks
  */
-async function extractText(pdfPath) {
+async function extractText(pdfPath, preservePageInfo = false) {
   try {
-    // Use pdftotext command from poppler
-    const command = `pdftotext "${pdfPath}" -`;
-    const output = await executePopplerCommand(command);
-    return output.trim();
+    let text = '';
+    let pageBreaks = [];
+    
+    // First, get the number of pages using pdfinfo
+    const pdfInfoCommand = `pdfinfo "${pdfPath}"`;
+    const pdfInfoOutput = await executePopplerCommand(pdfInfoCommand);
+    
+    // Parse the output to get the number of pages
+    const pagesMatch = pdfInfoOutput.match(/Pages:\s+(\d+)/);
+    const numPages = pagesMatch ? parseInt(pagesMatch[1], 10) : 0;
+    
+    console.log(`📄 PDF has ${numPages} pages`);
+    
+    if (preservePageInfo) {
+      // Extract text page by page and add page markers
+      let combinedText = '';
+      
+      for (let i = 1; i <= numPages; i++) {
+        // Extract text for this page only
+        const command = `pdftotext -f ${i} -l ${i} "${pdfPath}" -`;
+        let pageText = await executePopplerCommand(command);
+        
+        // Trim leading/trailing whitespace from the page text
+        pageText = pageText.trim();
+        
+        // Remove standalone page numbers that poppler might extract
+        // Split into lines and check if the last line is just a number
+        const lines = pageText.split('\n');
+        if (lines.length > 0) {
+          const lastLine = lines[lines.length - 1].trim();
+          // Check if the last line is just a number (the page number)
+          if (/^\d+$/.test(lastLine)) {
+            // Remove the last line (page number)
+            lines.pop();
+            pageText = lines.join('\n');
+          }
+        }
+        
+        // Add page marker at the beginning of each page (except the first)
+        if (i > 1) {
+          // Add a page break before adding the page marker
+          pageBreaks.push({
+            pageNumber: i,
+            position: combinedText.length
+          });
+          
+          // Add the page text with proper spacing
+          combinedText += `\n\n[Page ${i}]\n\n${pageText}`;
+        } else {
+          // For the first page, just add the text
+          combinedText += pageText;
+        }
+      }
+      
+      text = combinedText;
+    } else {
+      // Use pdftotext command from poppler to extract all text at once
+      const command = `pdftotext "${pdfPath}" -`;
+      text = await executePopplerCommand(command);
+    }
+    
+    return {
+      text: text.trim(),
+      pageBreaks,
+      pageCount: numPages
+    };
   } catch (error) {
     console.error('Text extraction error:', error);
-    return ''; // Return empty string if text extraction fails
+    return {
+      text: '',
+      pageBreaks: [],
+      pageCount: 0
+    };
   }
 }
 
@@ -340,9 +409,11 @@ export const pdfConverterConfig = {
  * @param {Buffer} input - The PDF file buffer
  * @param {string} originalName - Original filename for context
  * @param {string} [apiKey] - Optional API key (not used for PDF conversion)
- * @returns {Promise<{content: string, images: Array}>} - Converted content and images
+ * @param {Object} [options] - Conversion options
+ * @param {boolean} [options.preservePageInfo=false] - Whether to preserve page information
+ * @returns {Promise<{content: string, images: Array, pageBreaks: Array}>} - Converted content, images, and page breaks
  */
-export async function convertPdfToMarkdown(input, originalName, apiKey) {
+export async function convertPdfToMarkdown(input, originalName, apiKey, options = {}) {
   // Declare tempDir at the top level of the function so it's available in finally block
   let tempDir;
   
@@ -368,8 +439,8 @@ export async function convertPdfToMarkdown(input, originalName, apiKey) {
       throw new Error('PDF file corrupted during write');
     }
 
-    // Extract text using poppler instead of pdf-parse
-    const textContent = await extractText(tempPdfPath);
+    // Extract text using poppler with page information if requested
+    const { text: textContent, pageBreaks } = await extractText(tempPdfPath, options.preservePageInfo);
     
     // Extract images (using existing code)
     const images = await extractImages(tempPdfPath, originalName);
@@ -377,13 +448,21 @@ export async function convertPdfToMarkdown(input, originalName, apiKey) {
     const baseName = path.basename(originalName, '.pdf');
     
     // Create frontmatter (modified to not rely on pdf-parse)
+    // Remove temp_ prefix from title if present
+    let cleanTitle = baseName;
+    if (cleanTitle.startsWith('temp_')) {
+      // Extract original filename by removing 'temp_timestamp_' prefix
+      cleanTitle = cleanTitle.replace(/^temp_\d+_/, '');
+    }
+    
     const frontmatter = [
       '---',
-      `title: ${baseName}`,
+      `title: ${cleanTitle}`,
       `created: ${new Date().toISOString()}`,
       `source: ${originalName}`,
       `type: pdf`,
       `image_count: ${images.length}`,
+      `page_count: ${options.preservePageInfo ? pageBreaks.length + 1 : 1}`,
       '---',
       ''
     ].join('\n');
@@ -414,6 +493,7 @@ export async function convertPdfToMarkdown(input, originalName, apiKey) {
       success: true,
       content: markdownContent,
       images: images,
+      pageBreaks: options.preservePageInfo ? pageBreaks : undefined,
       stats: {
         inputSize: input.length,
         outputSize: markdownContent.length,

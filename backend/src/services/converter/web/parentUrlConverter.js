@@ -605,6 +605,13 @@ class UrlProcessor {
     const failedPages = pages.filter(p => !p.success);
     const hostname = new URL(parentUrl).hostname;
     const timestamp = new Date().toISOString();
+    
+    // Remove temp_ prefix from hostname if present
+    let cleanHostname = hostname;
+    if (cleanHostname.startsWith('temp_')) {
+      // Extract original hostname by removing 'temp_timestamp_' prefix
+      cleanHostname = cleanHostname.replace(/^temp_\d+_/, '');
+    }
 
     // Group pages by their primary sections
     const sections = new Map();
@@ -651,17 +658,18 @@ class UrlProcessor {
 
     return [
       `---`,
-      `title: "${hostname} Archive"`,
-      `description: "Website archive of ${hostname}"`,
+      `title: "${cleanHostname} Archive"`,
+      `description: "Website archive of ${cleanHostname}"`,
       `date: "${timestamp}"`,
       `source: "${parentUrl}"`,
       `archived_at: "${timestamp}"`,
+      `page_count: ${successfulPages.length}`,
       `tags:`,
       `  - website-archive`,
       `  - ${hostname.replace(/\./g, '-')}`,
       `---`,
       '',
-      `# ${hostname} Website Archive`,
+      `# ${cleanHostname} Website Archive`,
       '',
       '## Site Information',
       `- **Source URL:** ${parentUrl}`,

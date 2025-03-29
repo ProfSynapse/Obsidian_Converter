@@ -8,9 +8,11 @@ import { v4 as uuidv4 } from 'uuid';
  * Converts a DOCX buffer to Markdown format while properly handling images
  * @param {Buffer} buffer - The DOCX file buffer
  * @param {string} originalName - Original filename for context
- * @returns {Promise<{content: string, images: Array}>} Markdown content and images
+ * @param {Object} [options] - Conversion options
+ * @param {boolean} [options.preservePageInfo=false] - Whether to preserve page information
+ * @returns {Promise<{content: string, images: Array, pageBreaks: Array}>} Markdown content, images, and page breaks
  */
-export async function convertDocxToMarkdown(buffer, originalName) {
+export async function convertDocxToMarkdown(buffer, originalName, options = {}) {
   const startTime = Date.now();
   
   try {
@@ -78,7 +80,7 @@ export async function convertDocxToMarkdown(buffer, originalName) {
     const baseName = path.basename(originalName, '.docx');
     
     // Configure conversion options with strict settings
-    const options = {
+    const mammothOptions = {
       convertImage: mammoth.images.imgElement(async (image) => {
         try {
           // Enhanced image validation
@@ -124,10 +126,43 @@ export async function convertDocxToMarkdown(buffer, originalName) {
       ]
     };
 
+    // Add custom transform to detect page breaks if preservePageInfo is enabled
+    let pageBreaks = [];
+    if (options.preservePageInfo) {
+      console.log('📄 Page break detection enabled');
+      
+      // Add custom transform to detect page breaks
+      mammothOptions.transformDocument = (document) => {
+        let currentPosition = 0;
+        let pageNumber = 1;
+        
+        return mammoth.transforms.paragraph((paragraph) => {
+          // Check if this paragraph has a page break
+          const hasPageBreak = paragraph.alignment === 'center' && 
+                              paragraph.styleId === 'Normal' && 
+                              paragraph.numbering === undefined;
+          
+          if (hasPageBreak) {
+            pageNumber++;
+            pageBreaks.push({
+              pageNumber,
+              position: currentPosition
+            });
+          }
+          
+          // Update current position
+          currentPosition += paragraph.content.length;
+          
+          return paragraph;
+        })(document);
+      };
+    }
+
     console.log('⚙️ Converting DOCX with options:', {
-      hasImageHandler: !!options.convertImage,
-      styleMapRules: options.styleMap.length,
-      bufferSize: workingBuffer.length
+      hasImageHandler: !!mammothOptions.convertImage,
+      styleMapRules: mammothOptions.styleMap.length,
+      bufferSize: workingBuffer.length,
+      preservePageInfo: !!options.preservePageInfo
     });
 
     // Convert to markdown with enhanced error handling, timeout, and memory management
@@ -149,7 +184,7 @@ export async function convertDocxToMarkdown(buffer, originalName) {
           global.gc && global.gc(); // Run garbage collection if available
         }
 
-        mammoth.convertToMarkdown(workingBuffer, options)
+        mammoth.convertToMarkdown(workingBuffer, mammothOptions)
           .then(result => {
             // Check memory usage after conversion
             const afterMemory = process.memoryUsage();
@@ -276,6 +311,7 @@ export async function convertDocxToMarkdown(buffer, originalName) {
       hasWarnings: result.messages.length > 0,
       warningCount: result.messages.length,
       imageCount: images.length,
+      pageBreakCount: pageBreaks.length,
       contentPreview: result.value.substring(0, 100),
       memoryUsage: process.memoryUsage(),
       conversionTime: Date.now() - startTime
@@ -294,15 +330,23 @@ export async function convertDocxToMarkdown(buffer, originalName) {
     }
 
     // Create enhanced frontmatter and content
+    // Remove temp_ prefix from title if present
+    let cleanTitle = baseName;
+    if (cleanTitle.startsWith('temp_')) {
+      // Extract original filename by removing 'temp_timestamp_' prefix
+      cleanTitle = cleanTitle.replace(/^temp_\d+_/, '');
+    }
+    
     const markdown = [
       '---',
-      `title: ${baseName}`,
+      `title: ${cleanTitle}`,
       `attachmentFolder: attachments/${baseName}`,
       'created: ' + new Date().toISOString(),
       `originalName: ${originalName}`,
       `conversionTime: ${Date.now() - startTime}ms`,
       `imageCount: ${images.length}`,
       `warningCount: ${result.messages.length}`,
+      `page_count: ${options.preservePageInfo && pageBreaks.length > 0 ? pageBreaks.length + 1 : 1}`,
       '---',
       '',
       '<!-- DOCX Conversion Result -->',
@@ -315,6 +359,7 @@ export async function convertDocxToMarkdown(buffer, originalName) {
       success: true,
       content: markdown,
       images: images,
+      pageBreaks: options.preservePageInfo ? pageBreaks : undefined,
       warnings: result.messages
     };
 

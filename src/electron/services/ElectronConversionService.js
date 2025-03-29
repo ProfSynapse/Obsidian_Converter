@@ -272,6 +272,12 @@ class ElectronConversionService {
         imageCount: conversionResult.images?.length || 0
       };
       
+      // Add page count to metadata if available
+      if (conversionResult.pageCount) {
+        metadata.pageCount = conversionResult.pageCount;
+        console.log(`📄 [ElectronConversionService] Document has ${conversionResult.pageCount} pages`);
+      }
+      
       console.log('📊 Metadata (included in markdown frontmatter):', metadata);
 
       updateProgress(100);
@@ -510,6 +516,16 @@ class ElectronConversionService {
         imageCount: conversionResult.images?.length || 0
       };
       
+      // Add page count to metadata if available
+      if (conversionResult.pageCount) {
+        metadataObj.pageCount = conversionResult.pageCount;
+        console.log(`📄 [ElectronConversionService] URL document has ${conversionResult.pageCount} pages`);
+      } else {
+        // For single URLs, set page count to 1
+        metadataObj.pageCount = 1;
+        console.log(`📄 [ElectronConversionService] Single URL document (1 page)`);
+      }
+      
       console.log('📊 Metadata (included in markdown frontmatter):', metadataObj);
 
       updateProgress(100);
@@ -680,18 +696,33 @@ class ElectronConversionService {
         successfulPages: conversionResult.stats?.successfulPages || 1
       });
 
+      // Create metadata object with page count information
+      const metadata = {
+        originalUrl: url,
+        hostname,
+        converted: new Date().toISOString(),
+        totalPages: conversionResult.stats?.totalPages || 1,
+        successfulPages: conversionResult.stats?.successfulPages || 1,
+        failedPages: conversionResult.stats?.failedPages || 0
+      };
+      
+      // Add page count to metadata if available
+      if (conversionResult.pageCount) {
+        metadata.pageCount = conversionResult.pageCount;
+        console.log(`📄 [ElectronConversionService] Parent URL document has ${conversionResult.pageCount} pages`);
+      } else {
+        // Use totalPages as pageCount if not explicitly set
+        metadata.pageCount = conversionResult.stats?.totalPages || 1;
+        console.log(`📄 [ElectronConversionService] Parent URL document has ${metadata.pageCount} pages (from stats)`);
+      }
+      
+      console.log('📊 Metadata (included in markdown frontmatter):', metadata);
+      
       return {
         success: true,
         outputPath: outputBasePath,
         mainFile: mainFilePath,
-        metadata: {
-          originalUrl: url,
-          hostname,
-          converted: new Date().toISOString(),
-          totalPages: conversionResult.stats?.totalPages || 1,
-          successfulPages: conversionResult.stats?.successfulPages || 1,
-          failedPages: conversionResult.stats?.failedPages || 0
-        }
+        metadata
       };
 
     } catch (error) {

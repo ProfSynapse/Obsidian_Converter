@@ -40,11 +40,18 @@ export async function generateMarkdown(content, metadata, images, url, options) 
       markdown += formatMetadata(metadata);
       markdown += `url: ${url}\n`;
       markdown += `date_scraped: ${new Date().toISOString()}\n`;
+      markdown += `page_count: 1\n`; // URLs are treated as a single page
       markdown += '---\n\n';
     }
     
     // Add title
-    const title = metadata.title || document.title || extractTitleFromDocument(document) || '';
+    let title = metadata.title || document.title || extractTitleFromDocument(document) || '';
+    // Remove temp_ prefix from title if present
+    if (title.startsWith('temp_')) {
+      // Extract original filename by removing 'temp_timestamp_' prefix
+      title = title.replace(/^temp_\d+_/, '');
+    }
+    
     if (title) {
       markdown += `# ${title}\n\n`;
     }

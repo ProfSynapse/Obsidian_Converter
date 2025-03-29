@@ -36,16 +36,24 @@ export async function convertAudioToMarkdown(input, originalName, apiKey) {
       throw new Error('No transcription received');
     }
 
+    // Remove temp_ prefix from title if present
+    let cleanTitle = originalName;
+    if (cleanTitle.startsWith('temp_')) {
+      // Extract original filename by removing 'temp_timestamp_' prefix
+      cleanTitle = cleanTitle.replace(/^temp_\d+_/, '');
+    }
+    
     // Generate markdown content
     const markdown = generateMarkdown({
-      title: `Audio Transcription: ${originalName}`,
+      title: `Audio Transcription: ${cleanTitle}`,
       content: transcription,
       metadata: {
         source: originalName,
         type: 'audio-transcription',
         format: fileExt,
         fileSize: audioBuffer.length,
-        created: new Date().toISOString()
+        created: new Date().toISOString(),
+        page_count: 1 // Audio files are treated as a single page
       }
     });
 

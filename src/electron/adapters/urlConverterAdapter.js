@@ -3,13 +3,16 @@
  * 
  * Adapts the backend URL converter for use in the Electron main process.
  * Uses the BaseModuleAdapter for consistent module loading and error handling.
+ * For single URLs, no page markers are added as they represent a single page.
  * 
  * Related files:
  * - backend/src/services/converter/web/urlConverter.js: Original implementation
  * - src/electron/services/ElectronConversionService.js: Service using this adapter
  * - src/electron/adapters/BaseModuleAdapter.js: Base adapter class
+ * - src/electron/services/PageMarkerService.js: Service for adding page markers
  */
 const BaseModuleAdapter = require('./BaseModuleAdapter');
+const PageMarkerService = require('../services/PageMarkerService');
 
 // Create the URL converter adapter
 class UrlConverterAdapter extends BaseModuleAdapter {
@@ -24,7 +27,7 @@ class UrlConverterAdapter extends BaseModuleAdapter {
    * Convert URL to Markdown
    * @param {string} url - URL to convert
    * @param {Object} options - Conversion options
-   * @returns {Promise<{content: string, images: Array}>}
+   * @returns {Promise<{content: string, images: Array, pageCount: number}>}
    */
   async convertUrlToMarkdown(url, options = {}) {
     // Normalize the URL if needed
@@ -72,13 +75,17 @@ class UrlConverterAdapter extends BaseModuleAdapter {
     try {
       const result = await this.executeMethod('convertToMarkdown', [url, mergedOptions]);
       
+      // Add page count to metadata (single URLs are treated as a single page)
+      console.log(`📄 [URLConverter] Setting page count to 1 for single URL`);
+      
       return {
         content: result.content,
         success: true,
         name: result.name,
         metadata: result.metadata,
         url: result.url,
-        images: result.images || []
+        images: result.images || [],
+        pageCount: 1 // Single URLs are treated as a single page
       };
     } catch (error) {
       console.error('URL conversion failed:', error);
