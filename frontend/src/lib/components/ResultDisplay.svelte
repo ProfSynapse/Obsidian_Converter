@@ -37,7 +37,7 @@
     '';
 
   // Get status message
-  $: statusMessage = getStatusMessage($conversionStatus.status, $conversionStatus.error);
+  $: statusMessage = getStatusMessage(isCompleted ? 'completed' : $conversionStatus.status, $conversionStatus.error);
 
   // Check if we have a native file path result
   $: hasNativeResult = $conversionResult && $conversionResult.isNative && $conversionResult.outputPath;
@@ -95,16 +95,6 @@
     {#if isConverting || isCompleted || hasError}
       <!-- Conversion in progress or completed -->
       <div class="status-card {isCompleted ? 'success' : hasError ? 'error' : ''}">
-        <div class="status-icon">
-          {#if hasError}
-            <div class="icon-error">✗</div>
-          {:else}
-            <div class="{isCompleted ? 'icon-success' : 'icon-converting'}">
-              {isCompleted ? '✓' : '🔄'}
-            </div>
-          {/if}
-        </div>
-        
         <div class="status-content">
           <h3 class="status-title">{statusMessage}</h3>
           
@@ -118,12 +108,6 @@
             </p>
           {/if}
           
-          {#if hasNativeResult && isCompleted}
-            <div class="path-display">
-              <span class="path-label">Output:</span>
-              <span class="path-value">{$conversionResult.outputPath}</span>
-            </div>
-          {/if}
         </div>
       </div>
 
@@ -246,34 +230,6 @@
     background: linear-gradient(135deg, var(--color-error), #ff7b7b);
   }
 
-  .status-icon {
-    display: flex;
-    justify-content: center;
-    align-items: center;
-    width: 48px;
-    height: 48px;
-    border-radius: 50%;
-    background: linear-gradient(135deg, var(--color-prime), var(--color-second));
-    color: white;
-    font-size: 24px;
-    flex-shrink: 0;
-  }
-
-  .status-card.success .status-icon {
-    background: linear-gradient(135deg, var(--color-success), #4caf50);
-  }
-
-  .status-card.error .status-icon {
-    background: linear-gradient(135deg, var(--color-error), #ff5252);
-  }
-
-  .icon-success, .icon-error, .icon-converting {
-    display: flex;
-    justify-content: center;
-    align-items: center;
-    width: 100%;
-    height: 100%;
-  }
 
   .status-content {
     flex-grow: 1;
@@ -303,7 +259,6 @@
 
   .progress-section {
     width: 100%;
-    max-width: 600px;
     margin: 0 auto;
     padding: var(--spacing-md);
     border-radius: var(--rounded-lg);
@@ -340,30 +295,6 @@
     margin-right: var(--spacing-xs);
   }
 
-  .path-display {
-    display: flex;
-    align-items: center;
-    gap: var(--spacing-xs);
-    padding: var(--spacing-sm);
-    background-color: rgba(var(--color-prime-rgb), 0.05);
-    border-radius: var(--rounded-md);
-    margin-top: var(--spacing-sm);
-  }
-
-  .path-label {
-    font-weight: var(--font-weight-medium);
-    color: var(--color-text-light);
-  }
-
-  .path-value {
-    flex-grow: 1;
-    font-family: monospace;
-    font-size: var(--font-size-sm);
-    color: var(--color-text);
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
 
   /* Mobile Adjustments */
   @media (max-width: 640px) {
@@ -391,13 +322,5 @@
       flex-direction: column;
     }
 
-    .path-display {
-      flex-direction: column;
-      align-items: flex-start;
-    }
-
-    .path-value {
-      width: 100%;
-    }
   }
 </style>
