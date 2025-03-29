@@ -55,7 +55,6 @@
     "officeparser": "^5.0.0",
     "openai": "^4.77.3",
     "path-browserify": "^1.0.1",
-    "puppeteer": "^23.6.0",
     "sass": "^1.79.4",
     "tmp-promise": "^3.0.3",
     "uuid": "^11.0.4"

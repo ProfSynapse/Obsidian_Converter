@@ -81,6 +81,7 @@
     "chokidar": "^4.0.3",
     "crypto": "^1.0.1",
     "electron-squirrel-startup": "^1.0.0",
+    "puppeteer": "^23.6.0",
     "electron-store": "^8.1.0",
     "electron-updater": "^6.1.7",
     "ffmpeg-static": "^5.2.0",

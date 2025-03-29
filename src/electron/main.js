@@ -82,12 +82,20 @@ app.whenReady().then(async () => {
       console.log('Set default temp directory:', tempDir);
     }
     
+    // Clear any Puppeteer environment variables that might interfere with proper installation
+    delete process.env.PUPPETEER_SKIP_CHROMIUM_DOWNLOAD;
+    delete process.env.PUPPETEER_EXECUTABLE_PATH;
+
     // Initialize the browser service
     console.log('Initializing browser service...');
-    BrowserService.initialize().catch(error => {
+    try {
+      await BrowserService.initialize();
+      console.log('Browser service initialized successfully');
+    } catch (error) {
       console.error('Failed to initialize browser service:', error);
-      // Non-fatal error, continue app initialization
-    });
+      // Non-fatal error, continue app initialization but log the full error
+      console.error('Full error details:', error);
+    }
 
     // Then create the window
     const mainWindow = createWindow();

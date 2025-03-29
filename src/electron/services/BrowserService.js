@@ -56,24 +56,21 @@ class BrowserService {
       try {
         console.log('🌐 Initializing Puppeteer browser...');
         
-        // Dynamically import puppeteer
+        // Import puppeteer from the root node_modules
         if (!this.puppeteer) {
-          const puppeteerPath = path.resolve(__dirname, '../../../backend/node_modules/puppeteer/lib/cjs/puppeteer/puppeteer.js');
-          const fileUrl = pathToFileURL(puppeteerPath).href;
-          this.puppeteer = await import(fileUrl);
+          this.puppeteer = require('puppeteer');
         }
         
-        // Launch the browser
+        // Clear any existing Puppeteer environment variables
+        delete process.env.PUPPETEER_SKIP_CHROMIUM_DOWNLOAD;
+        delete process.env.PUPPETEER_EXECUTABLE_PATH;
+
+        // Launch the browser with minimal required options
         this.browser = await this.puppeteer.launch({
           headless: 'new',
-          args: [
-            '--no-sandbox',
-            '--disable-setuid-sandbox',
-            '--disable-dev-shm-usage',
-            '--disable-accelerated-2d-canvas',
-            '--disable-gpu',
-            '--window-size=1280,800'
-          ]
+          args: ['--no-sandbox', '--disable-setuid-sandbox'],
+          // Let Puppeteer find its own Chrome
+          ignoreDefaultArgs: ['--disable-extensions']
         });
         
         // Set up event listeners
