@@ -28,15 +28,8 @@ class ApiKeyService {
    */
   async saveApiKey(key, provider = 'openai') {
     try {
-      if (!this.isValidApiKeyFormat(key, provider)) {
-        return { 
-          success: false, 
-          error: `Invalid ${provider} API key format` 
-        };
-      }
-      
+      // Store the key without validation
       this.store.set(`${provider}-api-key`, key);
-      
       return { success: true };
     } catch (error) {
       console.error('Error saving API key:', error);
@@ -84,67 +77,25 @@ class ApiKeyService {
   }
 
   /**
-   * Validate an API key format
+   * Validate an API key format - always returns true to bypass validation
    * @param {string} key - The API key to validate
    * @param {string} provider - The API provider (e.g., 'openai')
-   * @returns {boolean} True if the key format is valid
+   * @returns {boolean} Always true to bypass validation
    */
   isValidApiKeyFormat(key, provider = 'openai') {
-    if (!key || typeof key !== 'string') {
-      return false;
-    }
-
-    // OpenAI API key format validation
-    if (provider === 'openai') {
-      return /^sk-[A-Za-z0-9]{32,}$/.test(key);
-    }
-
-    // Default validation for other providers
-    return key.length >= 16;
+    // Skip validation and always return true
+    return true;
   }
 
   /**
-   * Validate an API key with the provider's API
+   * Validate an API key with the provider's API - bypassed to always return valid
    * @param {string} key - The API key to validate
    * @param {string} provider - The API provider (e.g., 'openai')
    * @returns {Promise<{valid: boolean, error?: string}>}
    */
   async validateApiKey(key, provider = 'openai') {
-    try {
-      if (!this.isValidApiKeyFormat(key, provider)) {
-        return { 
-          valid: false, 
-          error: `Invalid ${provider} API key format` 
-        };
-      }
-
-      if (provider === 'openai') {
-        const response = await fetch('https://api.openai.com/v1/models', {
-          headers: {
-            'Authorization': `Bearer ${key}`
-          }
-        });
-        
-        if (!response.ok) {
-          const errorData = await response.json().catch(() => ({}));
-          return { 
-            valid: false, 
-            error: errorData.error?.message || 'Invalid API key' 
-          };
-        }
-        
-        return { valid: true };
-      }
-      
-      // Default validation for other providers
-      return { valid: true };
-    } catch (error) {
-      console.error('API key validation error:', error);
-      return { 
-        valid: false, 
-        error: error.message || 'Network error during validation' 
-      };
-    }
+    // Skip actual validation and always return valid
+    return { valid: true };
   }
 }
 

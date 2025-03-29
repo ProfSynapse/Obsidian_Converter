@@ -4,11 +4,10 @@
 
 <div class="about-container">
   <section class="about-section">
-    <h1>About codex.md</h1>
+    <h1>About <span class="codex-md-brand">codex.md</span></h1>
 
-    <h2>What is codex.md?</h2>
     <p>
-      codex.md is an elegant, cross-platform desktop application designed to convert various file formats into pristine Markdown for seamless integration with Obsidian and other knowledge management systems. Built with Electron and Svelte, codex.md bridges the gap between different content formats and your knowledge base.
+      <span class="codex-md-brand">codex.md</span> is an elegant, cross-platform desktop application designed to convert various file formats into pristine Markdown for seamless integration with Obsidian and other knowledge management systems. Built with Electron and Svelte, <span class="codex-md-brand">codex.md</span> bridges the gap between different content formats and your knowledge base.
     </p>
 
     <h2>Key Features</h2>
@@ -32,6 +31,29 @@
         <strong>OpenAI Integration</strong>: Transcribe audio and video content using state-of-the-art AI technology (requires API key).
       </li>
     </ul>
+
+    <h2>Development</h2>
+    <p>
+      <span class="codex-md-brand">codex.md</span> is an open-source project developed by Synaptic Labs, leveraging modern web technologies to create powerful desktop software. The application combines Electron for native desktop capabilities, Svelte for a responsive user interface, and Node.js for backend processing.
+    </p>
+
+    <h3>Technology Stack</h3>
+    <ul>
+      <li><strong>Electron</strong>: Cross-platform desktop framework</li>
+      <li><strong>Svelte/SvelteKit</strong>: Frontend UI framework</li>
+      <li><strong>Node.js</strong>: Backend processing</li>
+      <li><strong>OpenAI API</strong>: Transcription services (optional)</li>
+    </ul>
+
+    <h3>Contribution</h3>
+    <p>
+      We welcome contributions from the community! Visit our <a href="https://github.com/SynapticLabs/codex-md" target="_blank" rel="noopener noreferrer">GitHub repository</a> to get involved, submit issues, or create pull requests.
+    </p>
+
+    <h3>License</h3>
+    <p>
+      <span class="codex-md-brand">codex.md</span> is released under the MIT License, allowing for free use, modification, and distribution.
+    </p>
   </section>
 
   <hr class="divider" />
@@ -46,15 +68,15 @@
       "Powering equitable access to emerging technologies through education and integration"
     </p>
 
-    <h2>Who We Are</h2>
+    <h2>What We Do</h2>
     <p>
-      Synaptic Labs is a specialized AI integration and implementation service provider founded by Joseph and Daniel Rosenbaum. We focus on delivering scalable solutions across several key areas:
+      Synaptic Labs delivers specialized AI solutions and knowledge management tools to help organizations leverage emerging technologies:
     </p>
     
     <div class="bento-grid services-grid">
       <a href="https://synapticlabs.ai/services/ai-integration" class="bento-card ai-card" target="_blank" rel="noopener noreferrer">
         <div class="card-emoji">🤖</div>
-        <h3>AI Integration & Implementation</h3>
+        <h3>AI Integration</h3>
         <p>Custom AI solutions for businesses and organizations</p>
       </a>
       
@@ -72,8 +94,8 @@
       
       <a href="https://synapticlabs.ai/services/knowledge-management" class="bento-card knowledge-card" target="_blank" rel="noopener noreferrer">
         <div class="card-emoji">📚</div>
-        <h3>Knowledge Management Tools</h3>
-        <p>Solutions like codex.md, Obsidian vault packages, and integration tools</p>
+        <h3>Knowledge Management</h3>
+        <p>Solutions like <span class="codex-md-brand">codex.md</span>, Obsidian vault packages, and integration tools</p>
       </a>
     </div>
 
@@ -115,32 +137,6 @@
     </div>
   </section>
 
-  <hr class="divider" />
-
-  <section class="about-section">
-    <h2>About codex.md Development</h2>
-    <p>
-      codex.md is an open-source project developed by Synaptic Labs, leveraging modern web technologies to create powerful desktop software. The application combines Electron for native desktop capabilities, Svelte for a responsive user interface, and Node.js for backend processing.
-    </p>
-
-    <h3>Technology Stack</h3>
-    <ul>
-      <li><strong>Electron</strong>: Cross-platform desktop framework</li>
-      <li><strong>Svelte/SvelteKit</strong>: Frontend UI framework</li>
-      <li><strong>Node.js</strong>: Backend processing</li>
-      <li><strong>OpenAI API</strong>: Transcription services (optional)</li>
-    </ul>
-
-    <h3>Contribution</h3>
-    <p>
-      We welcome contributions from the community! Visit our <a href="https://github.com/SynapticLabs/codex-md" target="_blank" rel="noopener noreferrer">GitHub repository</a> to get involved, submit issues, or create pull requests.
-    </p>
-
-    <h3>License</h3>
-    <p>
-      codex.md is released under the MIT License, allowing for free use, modification, and distribution.
-    </p>
-  </section>
 
   <div class="copyright">
     © 2025 Synaptic Labs. All rights reserved.
@@ -195,6 +191,34 @@
 
   li {
     margin-bottom: var(--spacing-xs);
+  }
+
+  /* codex.md brand styling */
+  :global(.about-container .codex-md-brand) {
+    font-weight: 700;
+    background: linear-gradient(135deg, 
+      #00A99D 0%,
+      #00A99D 40%,
+      #F7931E 100%
+    );
+    background-size: 400% 400%;
+    animation: gradientFlow 8s ease infinite;
+    -webkit-background-clip: text;
+    background-clip: text;
+    -webkit-text-fill-color: transparent;
+    display: inline-block;
+  }
+
+  @keyframes gradientFlow {
+    0% {
+      background-position: 0% 0%;
+    }
+    50% {
+      background-position: 100% 100%;
+    }
+    100% {
+      background-position: 0% 0%;
+    }
   }
 
   strong {
@@ -257,6 +281,7 @@
     background-color: var(--color-surface);
     border-radius: var(--rounded-lg);
     padding: var(--spacing-lg);
+    padding-bottom: calc(var(--spacing-lg) + 30px); /* Extra space for the "Learn More" text */
     box-shadow: var(--shadow-sm);
     transition: transform 0.3s ease, box-shadow 0.3s ease;
     text-decoration: none;
@@ -266,9 +291,43 @@
     border: 2px solid var(--color-border);
   }
 
+  .bento-card {
+    position: relative;
+  }
+
   .bento-card:hover {
     transform: translateY(-5px);
     box-shadow: var(--shadow-md);
+  }
+
+  .bento-card:hover::after {
+    content: "Learn More →";
+    position: absolute;
+    bottom: var(--spacing-sm);
+    right: var(--spacing-sm);
+    font-size: var(--font-size-xs);
+    color: var(--color-prime);
+    font-weight: var(--font-weight-medium);
+    background-color: rgba(255, 255, 255, 0.9);
+    padding: 4px 8px;
+    border-radius: var(--rounded-sm);
+    box-shadow: var(--shadow-sm);
+  }
+
+  .ai-card:hover::after {
+    color: var(--color-prime);
+  }
+
+  .flow-card:hover::after {
+    color: var(--color-second);
+  }
+
+  .agent-card:hover::after {
+    color: var(--color-fourth);
+  }
+
+  .knowledge-card:hover::after {
+    color: var(--color-fifth);
   }
 
   .card-emoji {

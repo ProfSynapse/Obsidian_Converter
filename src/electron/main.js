@@ -30,17 +30,17 @@ const generateStoreKey = async () => {
 let store;
 let trayManager;
 let notificationManager;
-app.whenReady().then(async () => {
-  const encryptionKey = await generateStoreKey();
-  store = new Store({ encryptionKey });
-  process.env.STORE_ENCRYPTION_KEY = encryptionKey;
-});
 
 /**
  * Creates the main application window with secure configurations
  * @returns {Electron.BrowserWindow} The created window instance
  */
 function createWindow() {
+  // Ensure store is initialized before creating window
+  if (!store) {
+    throw new Error('Store must be initialized before creating window');
+  }
+
   const mainWindow = new BrowserWindow({
     width: 1200,
     height: 800,
@@ -65,29 +65,40 @@ function createWindow() {
   return mainWindow;
 }
 
-// Create window and setup IPC when app is ready
+// Initialize app when ready
 app.whenReady().then(async () => {
-  const mainWindow = createWindow();
-  
-  // Setup IPC handlers
-  setupIPCHandlers(app, mainWindow);
-  
-  // Initialize desktop features
-  trayManager = new TrayManager(mainWindow, store);
-  notificationManager = new NotificationManager();
-  
-  // Make notification manager available to IPC handlers
-  global.notificationManager = notificationManager;
+  try {
+    // First initialize the store
+    const encryptionKey = await generateStoreKey();
+    store = new Store({ encryptionKey });
+    process.env.STORE_ENCRYPTION_KEY = encryptionKey;
 
-  // Handle window creation on macOS when clicking dock icon
-  app.on('activate', () => {
-    if (BrowserWindow.getAllWindows().length === 0) {
-      createWindow();
-    }
-  });
+    // Then create the window
+    const mainWindow = createWindow();
+    
+    // Setup IPC handlers
+    setupIPCHandlers(app, mainWindow);
+    
+    // Initialize desktop features
+    trayManager = new TrayManager(mainWindow, store);
+    notificationManager = new NotificationManager();
+    
+    // Make notification manager available to IPC handlers
+    global.notificationManager = notificationManager;
 
-  // Handle squirrel events for Windows installer
-  if (require('electron-squirrel-startup')) app.quit();
+    // Handle window creation on macOS when clicking dock icon
+    app.on('activate', () => {
+      if (BrowserWindow.getAllWindows().length === 0) {
+        createWindow();
+      }
+    });
+
+    // Handle squirrel events for Windows installer
+    if (require('electron-squirrel-startup')) app.quit();
+  } catch (error) {
+    console.error('Failed to initialize app:', error);
+    app.quit();
+  }
 });
 
 // Quit when all windows are closed (except on macOS)

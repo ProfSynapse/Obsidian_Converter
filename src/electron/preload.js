@@ -74,6 +74,8 @@ contextBridge.exposeInMainWorld(
     // Transcription
     transcribeAudio: (filePath) => ipcRenderer.invoke('mdcode:transcribe:audio', { filePath }),
     transcribeVideo: (filePath) => ipcRenderer.invoke('mdcode:transcribe:video', { filePath }),
+    getTranscriptionModel: () => ipcRenderer.invoke('mdcode:transcription:get-model'),
+    setTranscriptionModel: (model) => ipcRenderer.invoke('mdcode:transcription:set-model', { model }),
     
     // Events with on/off functionality
     onFileDropped: (callback) => ipcRenderer.on('mdcode:file-dropped', callback),

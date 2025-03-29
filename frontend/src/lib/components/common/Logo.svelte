@@ -10,7 +10,7 @@
   </div>
   {#if showText}
     <div class="logo-text">
-      <span class="logo-text-codex">codex</span><span class="logo-text-md">.md</span>
+      <span class="codex-md-brand">codex.md</span>
     </div>
   {/if}
 </div>
@@ -58,29 +58,37 @@
     transform: translateY(-1px);
   }
   
-  .logo-text-codex,
-  .logo-text-md {
-    background: linear-gradient(90deg, 
-      var(--color-prime) 0%, 
-      var(--color-prime) 100%, 
-      var(--color-fourth) 100%
+  
+  /* Brand gradient text */
+  .logo-text :global(.codex-md-brand) {
+    font-weight: 700;
+    background: linear-gradient(135deg, 
+      #00A99D 0%,
+      #00A99D 40%,
+      #F7931E 100%
     );
+    background-size: 400% 400%;
+    animation: gradientFlow 8s ease infinite;
     -webkit-background-clip: text;
     background-clip: text;
     -webkit-text-fill-color: transparent;
-    transition: background 0.3s ease;
+    display: inline-block;
+    position: relative;
+    z-index: 1;
   }
-  
-  .logo-text-md {
-    background: linear-gradient(90deg, 
-      var(--color-fourth) 0%, 
-      var(--color-fourth) 100%
-    );
-    -webkit-background-clip: text;
-    background-clip: text;
-    -webkit-text-fill-color: transparent;
+
+  @keyframes gradientFlow {
+    0% {
+      background-position: 0% 0%;
+    }
+    50% {
+      background-position: 100% 100%;
+    }
+    100% {
+      background-position: 0% 0%;
+    }
   }
-  
+
   /* Sizes */
   .tiny .logo-icon {
     width: 48px;

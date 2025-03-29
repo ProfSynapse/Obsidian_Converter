@@ -14,8 +14,8 @@
       <section class="help-section">
         <h2>🎯 Purpose</h2>
         <p>
-          codex.md helps you convert your digital content into Markdown files optimized for
-          <a href="https://obsidian.md/" target="_blank" rel="noopener noreferrer">codex.md</a>,
+          <span class="codex-md-brand">codex.md</span> helps you convert your digital content into Markdown files optimized for
+          <a href="https://obsidian.md/" target="_blank" rel="noopener noreferrer">Obsidian</a>,
           a powerful personal knowledge management system.
         </p>
         <p>By converting your content into Markdown, you're:</p>
@@ -73,12 +73,12 @@
 
       <section class="help-section resources-section">
         <h2>📚 Resources</h2>
-        <p><strong>New to codex.md?</strong> Check out these resources:</p>
+        <p><strong>New to <span class="codex-md-brand">codex.md</span>?</strong> Check out these resources:</p>
         <ul>
-          <li><a href="https://obsidian.md/" target="_blank" rel="noopener noreferrer">Download codex.md</a> - Free personal knowledge base</li>
-          <li><a href="https://help.obsidian.md/Home" target="_blank" rel="noopener noreferrer">codex.md Help</a> - Official documentation</li>
-          <li><a href="https://forum.obsidian.md/" target="_blank" rel="noopener noreferrer">codex.md Forum</a> - Community support</li>
-          <li><a href="https://www.reddit.com/r/ObsidianMD/" target="_blank" rel="noopener noreferrer">codex.md Reddit</a> - Tips and showcases</li>
+          <li><a href="https://obsidian.md/" target="_blank" rel="noopener noreferrer">Download Obsidian</a> - Free personal knowledge base</li>
+          <li><a href="https://help.obsidian.md/Home" target="_blank" rel="noopener noreferrer">Obsidian Help</a> - Official documentation</li>
+          <li><a href="https://forum.obsidian.md/" target="_blank" rel="noopener noreferrer">Obsidian Forum</a> - Community support</li>
+          <li><a href="https://www.reddit.com/r/ObsidianMD/" target="_blank" rel="noopener noreferrer">Obsidian Reddit</a> - Tips and showcases</li>
         </ul>
       </section>
 
@@ -87,7 +87,7 @@
         
         <div class="faq-item">
           <h3>What file types can I convert?</h3>
-          <p>codex.md supports a wide range of file types:</p>
+          <p><span class="codex-md-brand">codex.md</span> supports a wide range of file types:</p>
           <ul>
             <li><strong>Documents:</strong> PDF, DOCX, PPTX</li>
             <li><strong>Data:</strong> CSV, XLSX</li>
@@ -99,7 +99,7 @@
         
         <div class="faq-item">
           <h3>Is my data secure?</h3>
-          <p>Yes! codex.md processes your files locally on your device. Your files never leave your computer unless you're using the API key for audio/video transcription, in which case only those specific files are sent to OpenAI's servers.</p>
+          <p>Yes! <span class="codex-md-brand">codex.md</span> processes your files locally on your device. Your files never leave your computer unless you're using the API key for audio/video transcription, in which case only those specific files are sent to OpenAI's servers.</p>
         </div>
         
         <div class="faq-item">
@@ -109,7 +109,7 @@
         
         <div class="faq-item">
           <h3>Can I use this offline?</h3>
-          <p>Yes! The desktop version of codex.md works offline for document conversions. Only audio/video transcription and web page conversion require an internet connection.</p>
+          <p>Yes! The desktop version of <span class="codex-md-brand">codex.md</span> works offline for document conversions. Only audio/video transcription and web page conversion require an internet connection.</p>
         </div>
       </section>
     </div>
@@ -117,6 +117,22 @@
 </div>
 
 <style>
+  /* Ensure the codex-md-brand class is properly styled */
+  :global(.help-page .codex-md-brand) {
+    font-weight: 700;
+    background: linear-gradient(135deg, 
+      #00A99D 0%,
+      #00A99D 40%,
+      #F7931E 100%
+    );
+    background-size: 400% 400%;
+    animation: gradientFlow 8s ease infinite;
+    -webkit-background-clip: text;
+    background-clip: text;
+    -webkit-text-fill-color: transparent;
+    display: inline-block;
+  }
+
   .help-page {
     padding: var(--spacing-md) 0;
   }

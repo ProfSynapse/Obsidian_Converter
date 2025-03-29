@@ -11,6 +11,33 @@ const ENV = {
 export const API_BASE_URL = import.meta.env.RAILWAY_API_BASE_URL;
 
 export const CONFIG = {
+    TRANSCRIPTION: {
+        MODELS: {
+            'whisper-1': {
+                name: 'Whisper',
+                description: 'Original Whisper model with full feature support',
+                features: ['timestamps', 'all_formats'],
+                default: true
+            },
+            'gpt-4o-mini-transcribe': {
+                name: 'GPT-4o Mini Transcribe',
+                description: 'Faster transcription with good accuracy',
+                features: ['limited_formats']
+            },
+            'gpt-4o-transcribe': {
+                name: 'GPT-4o Transcribe',
+                description: 'Highest quality transcription with superior accuracy',
+                features: ['limited_formats']
+            }
+        },
+        DEFAULT_MODEL: 'whisper-1',
+        RESPONSE_FORMATS: {
+            'whisper-1': ['json', 'text', 'srt', 'verbose_json', 'vtt'],
+            'gpt-4o-mini-transcribe': ['json', 'text'],
+            'gpt-4o-transcribe': ['json', 'text']
+        }
+    },
+    
     API: {
         MAX_RETRIES: 3,
         RETRY_DELAY: 1000,

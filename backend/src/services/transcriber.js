@@ -1,7 +1,7 @@
 // services/transcriber.js
 
 import fs from 'fs/promises';
-import { createReadStream } from 'fs';  // Add this import
+import { createReadStream } from 'fs';
 import path from 'path';
 import { OpenAI } from 'openai';
 import ffmpeg from 'fluent-ffmpeg';
@@ -9,6 +9,7 @@ import ffmpegStatic from 'ffmpeg-static';
 import { Readable } from 'stream';
 import os from 'os';
 import { v4 as uuidv4 } from 'uuid';
+import transcriptionConfig from '../config/transcription.js';
 
 // Set ffmpeg path only
 ffmpeg.setFfmpegPath(ffmpegStatic);
@@ -16,12 +17,47 @@ ffmpeg.setFfmpegPath(ffmpegStatic);
 class Transcriber {
   constructor() {
     this.openai = null;
+    this.selectedModel = transcriptionConfig.DEFAULT_MODEL;
+  }
+
+  /**
+   * Set the transcription model to use
+   * @param {string} model The model ID to use
+   */
+  setModel(model) {
+    if (transcriptionConfig.MODELS[model]) {
+      this.selectedModel = model;
+    }
+  }
+
+  /**
+   * Get current transcription model
+   * @returns {string} The current model ID
+   */
+  getModel() {
+    return this.selectedModel;
+  }
+
+  /**
+   * Get response format for current model
+   * @returns {string} The response format to use
+   * @private
+   */
+  _getResponseFormat() {
+    const formats = transcriptionConfig.RESPONSE_FORMATS[this.selectedModel] || ['text'];
+    return formats[0]; // Use first available format
   }
 
   initialize(apiKey) {
     this.openai = new OpenAI({ apiKey });
   }
 
+  /**
+   * Transcribe audio content to text
+   * @param {Buffer|string} input Audio content as buffer or file path
+   * @param {string} apiKey OpenAI API key
+   * @returns {Promise<string>} Transcribed text
+   */
   async transcribe(input, apiKey) {
     if (!this.openai) {
       this.initialize(apiKey);
@@ -47,7 +83,8 @@ class Transcriber {
       
       const response = await this.openai.audio.transcriptions.create({
         file: audioStream,
-        model: "whisper-1",
+        model: this.selectedModel,
+        response_format: this._getResponseFormat()
       });
 
       return response.text;
@@ -140,11 +177,12 @@ class Transcriber {
   }
 
   async transcribeAudio(audioPath) {
-    const audioStream = fs.createReadStream(audioPath);
+    const audioStream = createReadStream(audioPath);
     
     const response = await this.openai.audio.transcriptions.create({
       file: audioStream,
-      model: "whisper-1",
+      model: this.selectedModel,
+      response_format: this._getResponseFormat()
     });
 
     return response.text;

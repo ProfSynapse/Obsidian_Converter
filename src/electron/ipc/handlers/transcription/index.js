@@ -11,9 +11,14 @@
 
 const { ipcMain } = require('electron');
 const path = require('path');
+const Store = require('electron-store');
 const transcriptionService = require('../../../services/TranscriptionService');
 const apiKeyService = require('../../../services/ApiKeyService');
 const { IPCChannels } = require('../../types');
+const CONFIG = require('../../../config/transcription');
+
+// Initialize store
+const store = new Store();
 
 /**
  * Register all transcription related IPC handlers
@@ -22,14 +27,6 @@ function registerTranscriptionHandlers() {
   // Transcribe audio file
   ipcMain.handle('mdcode:transcribe:audio', async (event, { filePath }) => {
     try {
-      // Check if API key exists
-      if (!apiKeyService.hasApiKey('openai')) {
-        return {
-          success: false,
-          error: 'OpenAI API key not configured'
-        };
-      }
-
       // Validate file path
       if (!filePath || typeof filePath !== 'string') {
         return {
@@ -78,14 +75,6 @@ function registerTranscriptionHandlers() {
   // Transcribe video file
   ipcMain.handle('mdcode:transcribe:video', async (event, { filePath }) => {
     try {
-      // Check if API key exists
-      if (!apiKeyService.hasApiKey('openai')) {
-        return {
-          success: false,
-          error: 'OpenAI API key not configured'
-        };
-      }
-
       // Validate file path
       if (!filePath || typeof filePath !== 'string') {
         return {
@@ -121,6 +110,41 @@ function registerTranscriptionHandlers() {
       return {
         success: false,
         error: error.message || 'Failed to transcribe video'
+      };
+    }
+  });
+
+  // Get current transcription model
+  ipcMain.handle('mdcode:transcription:get-model', async () => {
+    try {
+      const model = await store.get('transcriptionModel');
+      return {
+        success: true,
+        model: model || CONFIG.DEFAULT_MODEL
+      };
+    } catch (error) {
+      console.error('Error getting transcription model:', error);
+      return {
+        success: false,
+        error: error.message || 'Failed to get transcription model'
+      };
+    }
+  });
+
+  // Set transcription model
+  ipcMain.handle('mdcode:transcription:set-model', async (event, { model }) => {
+    try {
+      if (!CONFIG.MODELS[model]) {
+        throw new Error(`Invalid model: ${model}`);
+      }
+
+      await store.set('transcriptionModel', model);
+      return { success: true };
+    } catch (error) {
+      console.error('Error setting transcription model:', error);
+      return {
+        success: false,
+        error: error.message || 'Failed to set transcription model'
       };
     }
   });

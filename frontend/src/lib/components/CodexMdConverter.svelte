@@ -17,11 +17,11 @@
       type: 'received',
       name: 'Professor Synapse',
       avatar: '🧙🏾‍♂️',
-      text: 'Let me introduce you to <strong class="brand-name">codex<span class="brand-ext">.md</span></strong>, a powerful tool that transforms your digital content into Markdown format. It\'s perfect for building your personal knowledge base!'
+      text: 'Let me introduce you to <span class="codex-md-brand">codex.md</span>, a powerful tool that transforms your digital content into Markdown format. It\'s perfect for building your personal knowledge base!'
     },
     {
       type: 'received',
-      name: 'codex.md',
+      name: '<span class="codex-md-brand">codex.md</span>',
       avatar: '📖',
       text: `
         <p>Hi there! I can help you convert your content in several ways:</p>
@@ -139,26 +139,6 @@
     margin-left: auto;
     margin-right: auto;
     padding: 0 var(--spacing-sm);
-  }
-
-  :global(.brand-name) {
-    background: linear-gradient(90deg,
-      var(--color-prime) 0%,
-      var(--color-prime) 100%
-    );
-    -webkit-background-clip: text;
-    background-clip: text;
-    -webkit-text-fill-color: transparent;
-  }
-
-  :global(.brand-ext) {
-    background: linear-gradient(90deg,
-      var(--color-fourth) 0%,
-      var(--color-fourth) 100%
-    );
-    -webkit-background-clip: text;
-    background-clip: text;
-    -webkit-text-fill-color: transparent;
   }
 
 

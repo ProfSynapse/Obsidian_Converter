@@ -120,7 +120,7 @@
           
           {#if isCompleted && fileCount > 0}
             <p class="summary">
-              Successfully converted {fileCount} {fileCount === 1 ? 'file' : 'files'} to Markdown format for codex.md.
+              Successfully converted {fileCount} {fileCount === 1 ? 'file' : 'files'} to Markdown format for <span class="codex-md-brand">codex.md</span>.
             </p>
           {/if}
           
@@ -244,6 +244,22 @@
 </Container>
 
 <style>
+  /* Ensure the codex-md-brand class is properly styled */
+  :global(.conversion-status .codex-md-brand) {
+    font-weight: var(--font-weight-bold);
+    background: linear-gradient(180deg,
+      var(--color-prime) 0%,
+      var(--color-prime) 60%,
+      var(--color-fourth) 100%
+    );
+    background-size: 100% 300%;
+    animation: gradientFlow 5s ease infinite;
+    -webkit-background-clip: text;
+    background-clip: text;
+    -webkit-text-fill-color: transparent;
+    display: inline-block;
+  }
+
   .conversion-status {
     width: 100%;
     display: flex;

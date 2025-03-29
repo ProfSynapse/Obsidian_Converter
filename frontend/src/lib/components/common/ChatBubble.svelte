@@ -76,8 +76,8 @@
       var(--color-fourth) 50%,
       var(--color-prime) 100%
     );
-    background-size: 200% 200%;
-    animation: gradientFlow 5s ease infinite;
+    background-size: 400% 400%;
+    animation: gradientFlow 8s ease infinite;
     -webkit-mask: 
       linear-gradient(#fff 0 0) content-box,
       linear-gradient(#fff 0 0);
@@ -88,13 +88,13 @@
 
   @keyframes gradientFlow {
     0% {
-      background-position: 0% 50%;
+      background-position: 0% 0%;
     }
     50% {
-      background-position: 100% 50%;
+      background-position: 100% 100%;
     }
     100% {
-      background-position: 0% 50%;
+      background-position: 0% 0%;
     }
   }
 
@@ -111,8 +111,8 @@
       var(--color-fourth) 50%,
       var(--color-prime) 100%
     );
-    background-size: 200% 200%;
-    animation: gradientFlow 5s ease infinite;
+    background-size: 400% 400%;
+    animation: gradientFlow 8s ease infinite;
     box-shadow: 
       0 4px 8px rgba(0, 0, 0, 0.15),
       0 8px 16px rgba(0, 0, 0, 0.1),
@@ -175,6 +175,23 @@
     color: var(--color-text);
     font-size: var(--font-size-base);
     line-height: 1.5;
+  }
+
+  .message :global(.codex-md-brand) {
+    font-weight: 700;
+    background: linear-gradient(135deg, 
+      #00A99D 0%,
+      #00A99D 40%,
+      #F7931E 100%
+    );
+    background-size: 400% 400%;
+    animation: gradientFlow 8s ease infinite;
+    -webkit-background-clip: text;
+    background-clip: text;
+    -webkit-text-fill-color: transparent;
+    display: inline-block;
+    position: relative;
+    z-index: 1;
   }
 
   .message :global(strong) {

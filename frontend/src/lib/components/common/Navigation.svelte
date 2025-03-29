@@ -74,6 +74,7 @@
     padding: 0.5rem;
     border-radius: var(--rounded-md);
     transition: transform 0.3s ease;
+    z-index: 10; /* Ensure the brand is above other elements */
   }
   
   .nav-brand:hover {
