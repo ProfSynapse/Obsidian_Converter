@@ -21,7 +21,7 @@ const { convertUrl } = require('../adapters/urlConverterAdapter');
 const { convertParentUrl } = require('../adapters/parentUrlConverterAdapter');
 const FileSystemService = require('./FileSystemService');
 const { textConverterFactory } = require('../adapters/textConverterFactoryAdapter');
-const { determineCategory } = require('../adapters/fileTypeUtilsAdapter');
+const { getFileCategory } = require('../adapters/fileTypeUtilsAdapter');
 const { extractMetadata } = require('../adapters/metadataExtractorAdapter');
 
 class ElectronConversionService {
@@ -57,7 +57,7 @@ class ElectronConversionService {
       const fileName = path.basename(filePath);
       const fileType = path.extname(fileName).slice(1).toLowerCase();
       const baseName = path.basename(fileName, path.extname(fileName));
-      const category = determineCategory(fileType, fileType);
+      const category = getFileCategory(fileType, fileType);
       
       // Check if user provided an output directory
       const userProvidedOutputDir = !!options.outputDir;
@@ -123,23 +123,65 @@ class ElectronConversionService {
 
       updateProgress(20);
 
-      // Convert content
-      const conversionResult = await this.converter.convertToMarkdown(
+      // Add detailed logging before conversion
+      console.log('🔄 Starting conversion with textConverterFactory:', {
         fileType,
-        fileContent.data,
-        {
-          name: fileName,
-          ...options,
-          onProgress: (progress) => {
-            // Scale progress from 20-90%
-            const scaledProgress = 20 + (progress * 0.7);
-            updateProgress(scaledProgress);
-          }
+        fileName,
+        contentType: typeof fileContent.data,
+        isBuffer: Buffer.isBuffer(fileContent.data),
+        contentLength: fileContent.data ? fileContent.data.length : 'null',
+        converterType: this.converter ? (typeof this.converter === 'object' ? 'object' : typeof this.converter) : 'null',
+        hasConvertToMarkdown: this.converter && typeof this.converter.convertToMarkdown === 'function'
+      });
+      
+      // If content is a buffer, log the first few bytes to help diagnose format issues
+      if (Buffer.isBuffer(fileContent.data) && fileContent.data.length > 0) {
+        console.log('Content preview (first 20 bytes):', fileContent.data.slice(0, 20).toString('hex'));
+        
+        // Check for PDF signature
+        if (fileContent.data.length >= 5 && fileContent.data.slice(0, 5).toString() === '%PDF-') {
+          console.log('Content appears to be a valid PDF (has %PDF- signature)');
+        } else {
+          console.log('Content does not have a PDF signature');
         }
-      );
+      }
 
-      if (!conversionResult || !conversionResult.content) {
-        throw new Error('Conversion failed: Invalid result');
+      // Convert content
+      let conversionResult;
+      try {
+        conversionResult = await this.converter.convertToMarkdown(
+          fileType,
+          fileContent.data,
+          {
+            name: fileName,
+            ...options,
+            onProgress: (progress) => {
+              // Scale progress from 20-90%
+              const scaledProgress = 20 + (progress * 0.7);
+              updateProgress(scaledProgress);
+            }
+          }
+        );
+
+        console.log('📄 Conversion result:', {
+          success: !!conversionResult,
+          hasContent: conversionResult && !!conversionResult.content,
+          contentLength: conversionResult && conversionResult.content ? conversionResult.content.length : 'null',
+          hasImages: conversionResult && Array.isArray(conversionResult.images),
+          imageCount: conversionResult && Array.isArray(conversionResult.images) ? conversionResult.images.length : 0
+        });
+
+        if (!conversionResult || !conversionResult.content) {
+          throw new Error('Conversion failed: Invalid result');
+        }
+      } catch (conversionError) {
+        console.error('❌ Conversion error:', {
+          error: conversionError.message,
+          stack: conversionError.stack,
+          fileType,
+          fileName
+        });
+        throw conversionError;
       }
 
       updateProgress(90);
@@ -159,16 +201,28 @@ class ElectronConversionService {
         metadataPath = path.join(outputBasePath, `${baseName}_metadata.json`);
       }
       
+      // Log file paths
+      console.log('💾 Saving conversion results to:', {
+        mainFilePath,
+        imagesPath,
+        metadataPath
+      });
+      
       // Save markdown content
       await this.fileSystem.writeFile(mainFilePath, conversionResult.content);
+      console.log('📝 Markdown content saved to:', mainFilePath);
 
       // Save images if present
       if (conversionResult.images && conversionResult.images.length > 0) {
+        console.log(`🖼️ Saving ${conversionResult.images.length} images...`);
         for (const [index, image] of conversionResult.images.entries()) {
           const imageFileName = `${baseName}_image_${index}${path.extname(image.name || '') || '.png'}`;
           const imagePath = path.join(imagesPath, imageFileName);
           await this.fileSystem.writeFile(imagePath, image.data);
+          console.log(`  - Image ${index + 1}/${conversionResult.images.length} saved to: ${imagePath}`);
         }
+      } else {
+        console.log('ℹ️ No images to save');
       }
 
       // Save metadata
@@ -179,6 +233,8 @@ class ElectronConversionService {
         converted: new Date().toISOString(),
         imageCount: conversionResult.images?.length || 0
       };
+      
+      console.log('📊 Saving metadata:', metadata);
 
       await this.fileSystem.writeFile(
         metadataPath,

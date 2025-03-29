@@ -8,14 +8,13 @@
  * - preload.js: API exposure to renderer
  */
 
-const Store = require('electron-store');
 const fetch = require('node-fetch');
+const { createStore } = require('../utils/storeFactory');
 
 class ApiKeyService {
   constructor() {
-    // Initialize store with encryption key from environment
-    this.store = new Store({
-      name: 'api-keys',
+    // Initialize store with encryption key from environment and error handling
+    this.store = createStore('api-keys', {
       encryptionKey: process.env.STORE_ENCRYPTION_KEY
     });
   }

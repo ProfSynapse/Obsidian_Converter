@@ -12,13 +12,13 @@
 
 const { app, BrowserWindow } = require('electron');
 const path = require('path');
-const Store = require('electron-store');
 const crypto = require('crypto');
 const machineId = require('node-machine-id');
 const { setupIPCHandlers } = require('./ipc/handlers');
 const { IPCChannels } = require('./ipc/types');
 const TrayManager = require('./features/tray');
 const NotificationManager = require('./features/notifications');
+const { createStore } = require('./utils/storeFactory');
 
 // Generate machine-specific encryption key for the store
 const generateStoreKey = async () => {
@@ -68,10 +68,10 @@ function createWindow() {
 // Initialize app when ready
 app.whenReady().then(async () => {
   try {
-    // First initialize the store
+    // First initialize the store with error handling
     const encryptionKey = await generateStoreKey();
-    store = new Store({ encryptionKey });
     process.env.STORE_ENCRYPTION_KEY = encryptionKey;
+    store = createStore('app-settings', { encryptionKey });
     
     // Set up default settings if they don't exist
     if (!store.has('tempDirectory')) {

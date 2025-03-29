@@ -11,14 +11,14 @@
 
 const { ipcMain } = require('electron');
 const path = require('path');
-const Store = require('electron-store');
+const { createStore } = require('../../../utils/storeFactory');
 const transcriptionService = require('../../../services/TranscriptionService');
 const apiKeyService = require('../../../services/ApiKeyService');
 const { IPCChannels } = require('../../types');
 const CONFIG = require('../../../config/transcription');
 
-// Initialize store
-const store = new Store();
+// Initialize store with error handling
+const store = createStore('transcription-handlers');
 
 /**
  * Register all transcription related IPC handlers

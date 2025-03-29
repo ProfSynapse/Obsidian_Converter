@@ -17,7 +17,7 @@
 const path = require('path');
 const fs = require('fs-extra');
 const { app } = require('electron');
-const Store = require('electron-store');
+const { createStore } = require('../utils/storeFactory');
 const FileSystemService = require('./FileSystemService');
 
 class OfflineService {
@@ -28,9 +28,8 @@ class OfflineService {
     this.isOnline = true;
     this.listeners = new Set();
     
-    // Initialize encrypted store for offline data
-    this.store = new Store({
-      name: 'offline-data',
+    // Initialize encrypted store for offline data with error handling
+    this.store = createStore('offline-data', {
       encryptionKey: process.env.STORE_ENCRYPTION_KEY
     });
     

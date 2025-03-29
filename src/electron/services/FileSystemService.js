@@ -53,11 +53,45 @@ class FileSystemService {
    * @returns {Promise<{success: boolean, data?: any, error?: string}>}
    */
   async readFile(filePath, encoding = 'utf8') {
+    console.log(`📖 Reading file: ${filePath} with encoding: ${encoding}`);
     try {
       const validPath = await this.validatePath(filePath);
+      console.log(`✓ Path validated: ${validPath}`);
+      
+      // Check if file exists before reading
+      try {
+        const stats = await fs.stat(validPath);
+        console.log(`📊 File stats: size=${stats.size}, isFile=${stats.isFile()}`);
+        
+        if (!stats.isFile()) {
+          console.error(`❌ Not a file: ${validPath}`);
+          return { 
+            success: false, 
+            error: `Not a file: ${filePath}` 
+          };
+        }
+      } catch (statError) {
+        console.error(`❌ File stat error: ${statError.message}`);
+        return { 
+          success: false, 
+          error: `File not accessible: ${statError.message}` 
+        };
+      }
+      
+      // Read the file
       const data = await fs.readFile(validPath, { encoding });
+      
+      // Log success with data preview
+      const preview = typeof data === 'string' 
+        ? `${data.substring(0, 50)}${data.length > 50 ? '...' : ''}`
+        : `<Buffer: ${data.length} bytes>`;
+      
+      console.log(`✅ File read successfully: ${validPath} (${typeof data}, ${data.length} bytes)`);
+      console.log(`📄 Data preview: ${preview}`);
+      
       return { success: true, data };
     } catch (error) {
+      console.error(`❌ Failed to read file: ${filePath}`, error);
       return { 
         success: false, 
         error: `Failed to read file: ${error.message}` 
@@ -73,11 +107,32 @@ class FileSystemService {
    * @returns {Promise<{success: boolean, error?: string}>}
    */
   async writeFile(filePath, data, encoding = 'utf8') {
+    console.log(`💾 Writing file: ${filePath}`);
+    console.log(`📊 Data type: ${typeof data}, ${Buffer.isBuffer(data) ? 'Buffer' : 'Not Buffer'}, Length: ${data ? data.length : 'null'}`);
+    
     try {
       const validPath = await this.validatePath(filePath, false);
+      console.log(`✓ Path validated: ${validPath}`);
+      
+      // Ensure directory exists
+      const dirPath = path.dirname(validPath);
+      await fs.mkdir(dirPath, { recursive: true });
+      console.log(`📁 Ensured directory exists: ${dirPath}`);
+      
+      // Write the file
       await fs.writeFile(validPath, data, { encoding });
-      return { success: true };
+      
+      // Verify the file was written
+      try {
+        const stats = await fs.stat(validPath);
+        console.log(`✅ File written successfully: ${validPath} (${stats.size} bytes)`);
+        return { success: true };
+      } catch (verifyError) {
+        console.error(`⚠️ File written but verification failed: ${verifyError.message}`);
+        return { success: true }; // Still return success since write succeeded
+      }
     } catch (error) {
+      console.error(`❌ Failed to write file: ${filePath}`, error);
       return { 
         success: false, 
         error: `Failed to write file: ${error.message}` 

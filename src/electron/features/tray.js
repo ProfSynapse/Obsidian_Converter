@@ -9,7 +9,7 @@
 
 const { app, Tray, Menu, MenuItem, dialog, shell } = require('electron');
 const path = require('path');
-const Store = require('electron-store');
+const { createStore } = require('../utils/storeFactory');
 
 /**
  * Manages the system tray icon and functionality
@@ -22,7 +22,7 @@ class TrayManager {
    */
   constructor(mainWindow, store) {
     this.window = mainWindow;
-    this.store = store || new Store();
+    this.store = store || createStore('tray-manager');
     this.tray = null;
     this.recentFiles = this.store.get('recentFiles', []);
     

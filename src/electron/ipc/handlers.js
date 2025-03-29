@@ -9,7 +9,7 @@
  */
 
 const { shell, ipcMain, app } = require('electron');
-const Store = require('electron-store');
+const { createStore } = require('../utils/storeFactory');
 const { registerFileSystemHandlers } = require('./handlers/filesystem');
 const { registerConversionHandlers } = require('./handlers/conversion');
 const { registerFileWatcherHandlers, cleanupFileWatchers } = require('./handlers/filewatcher');
@@ -17,8 +17,8 @@ const { registerOfflineHandlers, cleanupOfflineHandlers } = require('./handlers/
 const { registerApiKeyHandlers, cleanupApiKeyHandlers } = require('./handlers/apikey');
 const { registerTranscriptionHandlers, cleanupTranscriptionHandlers } = require('./handlers/transcription');
 
-// Initialize encrypted store
-const store = new Store({
+// Initialize encrypted store with error handling
+const store = createStore('ipc-handlers', {
   encryptionKey: process.env.STORE_ENCRYPTION_KEY
 });
 

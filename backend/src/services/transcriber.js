@@ -9,7 +9,7 @@ import ffmpegStatic from 'ffmpeg-static';
 import { Readable } from 'stream';
 import os from 'os';
 import { v4 as uuidv4 } from 'uuid';
-import transcriptionConfig from '../config/transcription.js';
+import transcriptionConfig from '../config/transcription.esm.js';
 
 // Set ffmpeg path only
 ffmpeg.setFfmpegPath(ffmpegStatic);
