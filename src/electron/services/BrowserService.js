@@ -13,15 +13,18 @@
 
 const path = require('path');
 const { app } = require('electron');
-const { pathToFileURL } = require('url');
+const puppeteer = require('puppeteer-extra');
+const StealthPlugin = require('puppeteer-extra-plugin-stealth');
 
 class BrowserService {
   constructor() {
     this.browser = null;
     this.browserPromise = null;
     this.isInitializing = false;
-    this.puppeteer = null;
     this.initializationError = null;
+    
+    // Set up Puppeteer with Stealth plugin
+    puppeteer.use(StealthPlugin());
     
     // Bind methods
     this.initialize = this.initialize.bind(this);
@@ -31,46 +34,43 @@ class BrowserService {
   }
 
   /**
-   * Initialize the Puppeteer browser instance
+   * Initialize the Puppeteer browser instance with stealth measures
    * @returns {Promise<Browser>} The browser instance
    */
   async initialize() {
-    // If already initializing, return the existing promise
-    if (this.isInitializing) {
-      return this.browserPromise;
-    }
+    if (this.isInitializing) return this.browserPromise;
+    if (this.browser) return this.browser;
     
-    // If already initialized, return the existing browser
-    if (this.browser) {
-      return this.browser;
-    }
-    
-    // Reset initialization error
     this.initializationError = null;
-    
-    // Set initializing flag
     this.isInitializing = true;
     
-    // Create a promise for the initialization
     this.browserPromise = (async () => {
       try {
-        console.log('🌐 Initializing Puppeteer browser...');
-        
-        // Import puppeteer from the root node_modules
-        if (!this.puppeteer) {
-          this.puppeteer = require('puppeteer');
-        }
+        console.log('🌐 Initializing enhanced Puppeteer browser...');
         
         // Clear any existing Puppeteer environment variables
         delete process.env.PUPPETEER_SKIP_CHROMIUM_DOWNLOAD;
         delete process.env.PUPPETEER_EXECUTABLE_PATH;
 
-        // Launch the browser with minimal required options
-        this.browser = await this.puppeteer.launch({
+        // Launch browser with enhanced stealth configuration
+        this.browser = await puppeteer.launch({
           headless: 'new',
-          args: ['--no-sandbox', '--disable-setuid-sandbox'],
-          // Let Puppeteer find its own Chrome
-          ignoreDefaultArgs: ['--disable-extensions']
+          args: [
+            '--no-sandbox',
+            '--disable-setuid-sandbox',
+            '--disable-blink-features=AutomationControlled',
+            '--disable-infobars',
+            '--window-size=1920,1080',
+            '--disable-dev-shm-usage'
+          ],
+          defaultViewport: {
+            width: 1920,
+            height: 1080,
+            deviceScaleFactor: 1,
+            isMobile: false,
+            hasTouch: false,
+            isLandscape: true
+          }
         });
         
         // Set up event listeners
@@ -81,7 +81,7 @@ class BrowserService {
           this.isInitializing = false;
         });
         
-        console.log('🌐 Puppeteer browser initialized successfully');
+        console.log('🌐 Enhanced Puppeteer browser initialized successfully');
         return this.browser;
       } catch (error) {
         console.error('🌐 Failed to initialize Puppeteer browser:', error);
@@ -113,12 +113,93 @@ class BrowserService {
   }
 
   /**
-   * Create a new page in the browser
-   * @returns {Promise<Page>} A new page instance
+   * Create a new page with enhanced anti-detection measures
+   * @returns {Promise<Page>} A configured page instance
    */
   async createPage() {
     const browser = await this.getBrowser();
-    return browser.newPage();
+    const page = await browser.newPage();
+
+    // Set up common user agent
+    await page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36');
+
+    // Additional page configurations
+    await page.evaluateOnNewDocument(() => {
+      // Add language configuration
+      Object.defineProperty(navigator, 'languages', {
+        get: () => ['en-US', 'en'],
+      });
+
+      // Add dummy plugins
+      Object.defineProperty(navigator, 'plugins', {
+        get: () => Array(3).fill().map((_, i) => ({
+          name: `Plugin ${i + 1}`,
+          description: `Dummy plugin ${i + 1}`,
+          filename: `plugin${i + 1}.dll`
+        }))
+      });
+
+      // Spoof permissions API
+      const originalQuery = window.navigator.permissions.query;
+      window.navigator.permissions.query = (parameters) => (
+        parameters.name === 'notifications' ?
+        Promise.resolve({ state: Notification.permission }) :
+        originalQuery(parameters)
+      );
+
+      // Override webdriver flag
+      Object.defineProperty(navigator, 'webdriver', {
+        get: () => undefined
+      });
+
+      // Add dummy scheduler
+      window.requestIdleCallback = window.requestIdleCallback || ((cb) => {
+        const start = Date.now();
+        return setTimeout(() => {
+          cb({
+            didTimeout: false,
+            timeRemaining: () => Math.max(0, 50 - (Date.now() - start))
+          });
+        }, 1);
+      });
+
+      // Add chrome object
+      if (!window.chrome) {
+        window.chrome = {
+          runtime: {},
+          webstore: {}
+        };
+      }
+    });
+
+    // Add helper methods for consistent waiting behavior
+    const originalWaitForTimeout = page.waitForTimeout;
+    page.waitForTimeout = async (ms) => {
+      if (!ms) ms = 0;
+      return new Promise(resolve => setTimeout(resolve, ms));
+    };
+
+    const originalWaitForFunction = page.waitForFunction;
+    page.waitForFunction = async (pageFunction, options = {}, ...args) => {
+      // If options is just a number, treat it as timeout
+      if (typeof options === 'number') {
+        options = { timeout: options };
+      }
+      
+      const defaultOptions = {
+        timeout: 30000,
+        polling: 100
+      };
+
+      return originalWaitForFunction.call(
+        page,
+        pageFunction,
+        { ...defaultOptions, ...options },
+        ...args
+      );
+    };
+
+    return page;
   }
 
   /**

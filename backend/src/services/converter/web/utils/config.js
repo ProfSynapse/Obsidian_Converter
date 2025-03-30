@@ -184,7 +184,50 @@ export const DEFAULT_CONTENT_SELECTORS = [
 ];
 
 /**
- * Default selectors to exclude from content extraction
+ * Cookie-related patterns for removal
+ */
+export const COOKIE_PATTERNS = {
+  selectors: [
+    // Cookie consent dialogs
+    '#onetrust-banner-sdk',
+    '#onetrust-consent-sdk',
+    '#cookiebanner',
+    '#cookie-banner',
+    '#cookie-notice',
+    '#cookie-law-info-bar',
+    '#cookie-consent',
+    '.cookie-consent',
+    // GDPR notices
+    '#gdpr-banner',
+    '#gdpr-notice',
+    '.gdpr-banner',
+    // Common class patterns
+    '[class*="cookie-banner"]',
+    '[class*="cookie-dialog"]',
+    '[class*="cookie-notice"]',
+    '[class*="consent-banner"]',
+    // Common ID patterns
+    '[id*="cookie-banner"]',
+    '[id*="cookie-dialog"]',
+    '[id*="cookie-notice"]',
+    '[id*="consent-banner"]'
+  ],
+  buttons: [
+    '#onetrust-accept-btn-handler',
+    '#accept-cookie-consent',
+    '[id*="accept-cookies"]',
+    '[id*="accept-cookie"]',
+    '[id*="accept-consent"]',
+    '.accept-cookies',
+    '.accept-cookie',
+    'button[contains(text(), "Accept")]',
+    'button[contains(text(), "Accept All")]',
+    'button[contains(text(), "Allow")]'
+  ]
+};
+
+/**
+ * Default exclude selectors
  */
 export const DEFAULT_EXCLUDE_SELECTORS = [
   // Navigation
@@ -349,7 +392,8 @@ export const IMAGE_EXTENSIONS = [
  * Default URL converter options
  */
 export const DEFAULT_URL_CONVERTER_OPTIONS = {
-  http: DEFAULT_HTTP_OPTIONS,
+  http: { ...DEFAULT_HTTP_OPTIONS },
+  got: { ...DEFAULT_HTTP_OPTIONS },
   contentSelectors: DEFAULT_CONTENT_SELECTORS,
   excludeSelectors: DEFAULT_EXCLUDE_SELECTORS,
   includeImages: true,

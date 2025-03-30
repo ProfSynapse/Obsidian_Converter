@@ -214,9 +214,47 @@ function removeUnwantedElements(document) {
   const iframes = document.querySelectorAll('iframe');
   iframes.forEach(iframe => iframe.remove());
   
-  // Remove cookie notices and consent banners
-  const cookieElements = document.querySelectorAll('[id*="cookie"], [class*="cookie"], [id*="consent"], [class*="consent"]');
-  cookieElements.forEach(el => el.remove());
+  // Remove cookie notices and consent banners using comprehensive selectors
+  const cookieSelectors = [
+    // Generic patterns
+    '[id*="cookie"]', '[class*="cookie"]',
+    '[id*="consent"]', '[class*="consent"]',
+    '[id*="gdpr"]', '[class*="gdpr"]',
+    // Specific vendor implementations
+    '#onetrust-banner-sdk',
+    '#onetrust-consent-sdk',
+    '#cookiebanner',
+    '#cookie-banner',
+    '#cookie-notice',
+    '#cookie-law-info-bar',
+    '#cookie-consent',
+    '.cookie-consent',
+    // Overlay patterns
+    '.modal[aria-label*="cookie"]',
+    '.dialog[aria-label*="cookie"]',
+    '[role="dialog"][aria-label*="cookie"]',
+    // Button patterns
+    '#onetrust-accept-btn-handler',
+    '#accept-cookie-consent',
+    '[id*="accept-cookies"]',
+    '[id*="accept-cookie"]',
+    '.accept-cookies',
+    '.accept-cookie'
+  ];
+  const cookieElements = document.querySelectorAll(cookieSelectors.join(', '));
+  cookieElements.forEach(el => {
+    try {
+      // Check if element is visible and positioned as an overlay
+      const style = el.ownerDocument.defaultView.getComputedStyle(el);
+      if (style.position === 'fixed' || style.position === 'absolute' || 
+          parseInt(style.zIndex, 10) > 100 || el.matches('[role="dialog"]')) {
+        el.remove();
+      }
+    } catch (e) {
+      // If we can't check styles, remove it anyway
+      el.remove();
+    }
+  });
   
   // Remove HubSpot specific elements
   const hubspotElements = document.querySelectorAll('[class*="hs-"], [id*="hs-"], [data-hs-]');

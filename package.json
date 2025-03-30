@@ -81,7 +81,6 @@
     "chokidar": "^4.0.3",
     "crypto": "^1.0.1",
     "electron-squirrel-startup": "^1.0.0",
-    "puppeteer": "^23.6.0",
     "electron-store": "^8.1.0",
     "electron-updater": "^6.1.7",
     "ffmpeg-static": "^5.2.0",
@@ -91,6 +90,9 @@
     "node-machine-id": "^1.1.12",
     "openai": "^4.28.0",
     "proper-lockfile": "^4.1.2",
+    "puppeteer": "^23.11.1",
+    "puppeteer-extra": "^3.3.6",
+    "puppeteer-extra-plugin-stealth": "^2.11.2",
     "uuid": "^9.0.1"
   },
   "devDependencies": {
