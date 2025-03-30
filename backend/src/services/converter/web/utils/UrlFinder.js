@@ -9,15 +9,58 @@ import { BrowserManager } from './BrowserManager.js';
 import { PageCleaner } from './PageCleaner.js';
 
 /**
- * Normalize URL by removing fragments and query parameters
+ * Normalize a URL by standardizing format and removing unnecessary components
  * @param {string} url - URL to normalize
+ * @param {string} [baseUrl] - Optional base URL for resolving relative paths
  * @returns {string} Normalized URL
  */
-export function normalizeUrl(url) {
+export function normalizeUrl(url, baseUrl = '') {
   try {
-    const urlObj = new URL(url);
-    urlObj.hash = ''; // Remove fragment
-    return urlObj.origin + urlObj.pathname;
+    if (!url) return '';
+
+    // Handle special URLs
+    if (url.startsWith('mailto:') || url.startsWith('tel:') || url.startsWith('javascript:')) {
+      return url;
+    }
+
+    // Try to resolve relative URLs if base URL is provided
+    let resolvedUrl = url;
+    if (baseUrl && !url.startsWith('http')) {
+      try {
+        resolvedUrl = new URL(url, baseUrl).toString();
+      } catch (error) {
+        console.warn(`Failed to resolve relative URL: ${error.message}`);
+        return url;
+      }
+    }
+
+    // Parse and clean the URL
+    const urlObj = new URL(resolvedUrl);
+    
+    // Remove tracking parameters (common analytics and UTM params)
+    const trackingParams = [
+      'utm_source', 'utm_medium', 'utm_campaign', 'utm_term', 'utm_content',
+      'fbclid', 'gclid', '_ga', 'ref', 'source', 'campaign'
+    ];
+    
+    const cleanParams = new URLSearchParams();
+    for (const [key, value] of urlObj.searchParams.entries()) {
+      if (!trackingParams.includes(key.toLowerCase())) {
+        cleanParams.append(key, value);
+      }
+    }
+
+    // Rebuild the URL without tracking params and fragments
+    urlObj.search = cleanParams.toString();
+    urlObj.hash = '';
+    
+    // Ensure consistent trailing slash handling
+    let normalizedPath = urlObj.pathname;
+    if (normalizedPath.endsWith('/index.html')) {
+      normalizedPath = normalizedPath.replace('/index.html', '/');
+    }
+    
+    return `${urlObj.origin}${normalizedPath}${urlObj.search}`;
   } catch (error) {
     console.error('Error normalizing URL:', error);
     return url;

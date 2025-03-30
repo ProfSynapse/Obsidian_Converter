@@ -104,6 +104,7 @@
 <div class="app-container">
   <div class="converter-app">
     {#if mode === 'upload'}
+      <FileUploader />
       <div class="chat-container">
         {#each visibleMessages as message, index (index)}
           <ChatBubble
@@ -116,7 +117,6 @@
           />
         {/each}
       </div>
-      <FileUploader />
       {#if $files.length > 0}
         <div class="button-container">
           <Button
@@ -162,7 +162,7 @@
   }
 
   .chat-container {
-    margin-bottom: var(--spacing-lg);
+    margin-top: var(--spacing-lg);
     max-width: 800px;
     margin-left: auto;
     margin-right: auto;

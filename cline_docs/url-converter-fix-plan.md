@@ -1,270 +1,99 @@
-# URL Converter Fix Plan
+# Obsidian Converter Fix Plan
 
-## Overview
+## Issues Identified
 
-This document outlines a comprehensive plan to fix issues in the URL converter and related files in the Obsidian Converter application. The primary issue is that the `extractContent` method in ContentExtractor.js doesn't include metadata in its return object, causing the "Cannot read properties of undefined (reading 'title')" error when trying to access `metadata.title` in the `generateMarkdown` function.
+Based on the error logs and code analysis, I've identified two main issues:
 
-## Identified Issues
+1. **URL Processing Error**: The application is failing to handle fragment identifiers (URLs starting with '#') correctly. This is causing `TypeError [ERR_INVALID_URL]: Invalid URL` errors.
 
-1. **Primary Issue**: Missing metadata in ContentExtractor.js return object
-2. **Related Issues**:
-   - Inconsistencies between URL converter and parent URL converter implementations
-   - Insufficient error handling in several places
-   - Missing functionality that was in the parent URL converter but not properly transferred
-   - Limited fallback mechanisms when parts of the conversion process fail
-   - Inadequate logging for debugging purposes
+2. **Table Processing Error**: There's an error with `service.runRule is not a function` when processing tables in the HTML content.
 
-## Implementation Plan
+## Detailed Plan
+
+### 1. Fix URL Processing Issue
+
+The problem is in the `UrlProcessor.js` file. When processing URLs that are fragment identifiers (like '#section-name'), the code is trying to create a URL object without a proper base URL, which is invalid according to the URL specification.
+
+Steps to fix:
+1. Modify the `processUrl` function to properly handle fragment identifiers
+2. Update the `formatLink` function to handle these special cases
+3. Ensure the `isExternalUrl` function doesn't try to process fragments as full URLs
+
+### 2. Fix Table Processing Issue
+
+The error `service.runRule is not a function` indicates that the TurndownService instance doesn't have a method called `runRule`. This is likely because:
+- The method doesn't exist in the Turndown library
+- The method has been renamed or removed in a newer version
+- There's a custom implementation issue
+
+Steps to fix:
+1. Check the TurndownService API documentation to find the correct method to use
+2. Update the table processing code to use the correct method
+3. If no equivalent method exists, implement a workaround using available TurndownService methods
+
+### 3. Testing and Validation
+
+After implementing the fixes:
+1. Test with simple pages first
+2. Test with complex pages containing fragment identifiers
+3. Test with pages containing tables
+4. Verify that all content is properly converted to Markdown optimized for Obsidian
+
+## Implementation Diagram
 
 ```mermaid
 flowchart TD
-    A[Identify Issues] --> B[Fix Primary Issue: Metadata Extraction]
-    B --> C[Improve Error Handling]
-    C --> D[Enhance Content Detection]
-    D --> E[Standardize Interfaces]
-    E --> F[Add Robust Fallbacks]
-    F --> G[Improve Logging]
-    G --> H[Test with Multiple Websites]
+    A[Start] --> B[Fix URL Processing]
+    B --> C[Fix Table Processing]
+    C --> D[Testing]
+    D --> E[Deployment]
+    
+    subgraph "URL Processing Fix"
+    B1[Update processUrl function] --> B2[Update formatLink function]
+    B2 --> B3[Update isExternalUrl function]
+    end
+    
+    subgraph "Table Processing Fix"
+    C1[Identify correct method] --> C2[Update table rule implementation]
+    C2 --> C3[Implement fallback if needed]
+    end
+    
+    B --> B1
+    C --> C1
 ```
 
-### 1. Fix Primary Issue: Metadata Extraction
+## Code Changes Overview
 
-The root cause of the error is that the `extractContent` method in ContentExtractor.js doesn't include metadata in its return object. When `generateMarkdown` in htmlToMarkdown.js tries to access `metadata.title`, it fails because metadata is undefined.
-
-#### Implementation Steps:
-
-1. **Update ContentExtractor.js**:
-   - Modify the `extractContent` method to call `this.extractMetadataFromPage(page, baseUrl)` to extract metadata
-   - Include metadata in the returned object: `{ content, images, metadata }`
-   - Ensure the error handling path also returns a default metadata object
-
-2. **Update htmlToMarkdown.js**:
-   - Add defensive coding to handle cases where metadata might be undefined or null
-   - Initialize metadata to an empty object if it's undefined: `metadata = metadata || {}`
-
-### 2. Improve Error Handling
-
-The current error handling could be improved to provide more specific error messages and better recovery from failures.
-
-#### Implementation Steps:
-
-1. **Enhance urlConverter.js error handling**:
-   - Add more specific error types and messages
-   - Improve error recovery to provide fallback content when possible
-   - Add context to errors to help with debugging
-
-2. **Update htmlToMarkdown.js error handling**:
-   - Add try/catch blocks around critical sections
-   - Provide fallback behavior when parts of the conversion process fail
-   - Ensure errors don't propagate and crash the entire conversion process
-
-### 3. Enhance Content Detection
-
-The content detection logic could be improved to better handle different types of websites.
-
-#### Implementation Steps:
-
-1. **Improve ContentExtractor.js**:
-   - Enhance the content detection algorithm to better handle modern websites
-   - Add support for more content selectors
-   - Improve scoring for content relevance
-
-2. **Add fallback strategies**:
-   - Implement multiple fallback strategies when main content detection fails
-   - Add better handling for single-page applications (SPAs)
-
-### 4. Standardize Interfaces
-
-Ensure consistent interfaces between the URL converter and parent URL converter to prevent future issues.
-
-#### Implementation Steps:
-
-1. **Standardize return objects**:
-   - Ensure both converters return objects with the same structure
-   - Document the expected return structure
-
-2. **Create shared utility functions**:
-   - Move common functionality to shared utility files
-   - Reduce code duplication between converters
-
-### 5. Add Robust Fallbacks
-
-Add fallback mechanisms to handle cases where parts of the conversion process fail.
-
-#### Implementation Steps:
-
-1. **Add fallback content extraction**:
-   - If main content extraction fails, fall back to using the entire page
-   - Add fallback metadata extraction from URL if page metadata is unavailable
-
-2. **Add fallback title generation**:
-   - If metadata title is missing, generate a title from the URL
-   - Add multiple fallback sources for title extraction
-
-### 6. Improve Logging
-
-Enhance logging to make debugging easier and provide more insight into the conversion process.
-
-#### Implementation Steps:
-
-1. **Add structured logging**:
-   - Use a consistent logging format
-   - Include context information in logs
-
-2. **Add performance metrics**:
-   - Log timing information for key operations
-   - Track success rates and failure points
-
-### 7. Test with Multiple Websites
-
-Implement a testing strategy to ensure the converter works with a variety of websites.
-
-#### Implementation Steps:
-
-1. **Create a test suite**:
-   - Test with a variety of websites
-   - Include edge cases and problematic sites
-
-2. **Add automated testing**:
-   - Create automated tests for the converter
-   - Add regression tests for fixed issues
-
-## Specific Code Changes
-
-### 1. Update ContentExtractor.js - extractContent method:
-
+### For URL Processing:
 ```javascript
-async extractContent(page, baseUrl, options = {}) {
-  console.log(`📄 Extracting content from: ${baseUrl}`);
-  
-  try {
-    // Get initial state
-    const initialRawHtml = await page.content();
-    console.log(`Initial raw HTML length: ${initialRawHtml.length}`);
-    
-    // Get cleaned state
-    const cleanedRawHtml = await page.content();
-    console.log(`Cleaned raw HTML length: ${cleanedRawHtml.length}`);
-    
-    let content = '';
-    let score = 0;
-    let images = [];
-    let metadata = {};
-    
-    // Extract metadata
-    try {
-      metadata = await this.extractMetadataFromPage(page, baseUrl);
-      console.log('Extracted metadata:', metadata);
-    } catch (metadataError) {
-      console.error('Error extracting metadata:', metadataError);
-      // Create fallback metadata
-      metadata = {
-        title: this.extractTitleFromUrl(baseUrl),
-        source: baseUrl,
-        captured: new Date().toISOString()
-      };
-    }
-    
-    // Try enhanced content detection first
-    try {
-      const result = await this.findMainContent(page);
-      if (result.content && result.score > 50) {
-        content = result.content;
-        score = result.score;
-        console.log(`Found main content with score: ${score}`);
-      }
-    } catch (e) {
-      console.error('Error in main content detection:', e);
-    }
-    
-    // If no good content found, try fallback approaches
-    if (!content || content.length < 1000 || score < 30) {
-      console.log('Content too short or low quality, using fallback content');
-      content = cleanedRawHtml;
-    }
-    
-    // Extract images if requested
-    if (options.includeImages) {
-      images = await this.extractImages(page, baseUrl);
-    }
-    
-    return { content, images, metadata };
-  } catch (error) {
-    console.error('Error extracting content:', error);
-    return {
-      content: `<html><body><p>Failed to extract content: ${error.message}</p></body></html>`,
-      images: [],
-      metadata: { 
-        title: this.extractTitleFromUrl(baseUrl) || 'Error Page', 
-        source: baseUrl, 
-        captured: new Date().toISOString() 
-      }
-    };
-  }
+// In processUrl function
+if (url.startsWith('#')) {
+  // Return fragment as-is, don't try to process it as a URL
+  return url;
+}
+
+// In formatLink function
+if (url.startsWith('#')) {
+  // Handle fragment identifiers specially for Obsidian
+  return `[[${text || url.substring(1)}]]`;
+}
+
+// In isExternalUrl function
+if (url.startsWith('#') || url.startsWith('/')) {
+  return false; // These are always internal
 }
 ```
 
-### 2. Update htmlToMarkdown.js - generateMarkdown function:
-
+### For Table Processing:
 ```javascript
-export async function generateMarkdown(content, metadata, images, url, options) {
-  try {
-    console.log('Starting markdown generation...');
-    
-    // Ensure metadata is an object to prevent "undefined" errors
-    metadata = metadata || {};
-    images = images || [];
-    
-    // Check if content is valid
-    if (!content || content.length < 10) {
-      console.error('Invalid content received for markdown generation:', content);
-      return `# ${metadata.title || 'Page Content'}\n\nNo content could be extracted from this page.`;
-    }
-    
-    // Rest of the function remains the same...
-```
+// Replace service.runRule with appropriate method
+// Option 1: If turndown() can be used on individual cells
+const headerMarkdown = '| ' + headerCells.map(cell => {
+  return ` ${service.turndown(cell).trim()} `;
+}).join('|') + ' |';
 
-### 3. Add defensive coding in urlConverter.js - convertToMarkdown method:
-
-```javascript
-// Extract content, metadata, and images
-let content = '', metadata = {}, images = [];
-try {
-  const extractionResult = await this.contentExtractor.extractContent(
-    page,
-    finalUrl,
-    {
-      includeMeta: options.metadata.includeMeta,
-      includeImages: options.images.includeImages,
-      imageExtensions: options.images.extensions
-    }
-  );
-  
-  content = extractionResult.content || '';
-  metadata = extractionResult.metadata || {};
-  images = extractionResult.images || [];
-  
-  // Ensure metadata has at least a title
-  if (!metadata.title) {
-    metadata.title = this.contentExtractor.extractTitleFromUrl(finalUrl);
-  }
-} catch (extractionError) {
-  console.error('Content extraction failed:', extractionError);
-  content = `<html><body><p>Failed to extract content: ${extractionError.message}</p></body></html>`;
-  metadata = { 
-    title: this.contentExtractor.extractTitleFromUrl(finalUrl), 
-    source: finalUrl, 
-    captured: new Date().toISOString() 
-  };
-  images = [];
+// Option 2: Create a custom cell processor
+function processCellContent(cell) {
+  // Process cell content manually or use available methods
+  return service.turndown(cell);
 }
-
-// Generate markdown
-const markdown = await generateMarkdown(content, metadata, images, finalUrl, options);
-```
-
-## Next Steps
-
-1. Implement the changes outlined in this plan
-2. Test with multiple websites to ensure the fixes work correctly
-3. Document the changes and update any related documentation

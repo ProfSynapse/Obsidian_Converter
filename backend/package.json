@@ -19,7 +19,7 @@
     "file-type": "^19.6.0",
     "got": "^14.4.6",
     "jszip": "^3.10.1",
-    "mammoth": "^1.4.21",
+    "mammoth": "^1.9.0",
     "node-fetch": "^3.3.2",
     "p-limit": "^3.1.0",
     "sanitize-filename": "^1.6.3",

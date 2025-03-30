@@ -61,6 +61,26 @@ export const DEFAULT_URL_CONVERTER_OPTIONS = {
     handleSPA: true,
     cleanupJavaScript: true
   },
+
+  // URL options
+  url: {
+    // Parameters to remove from URLs
+    trackingParams: [
+      'utm_source', 'utm_medium', 'utm_campaign', 'utm_term', 'utm_content',
+      'fbclid', 'gclid', '_ga', 'ref', 'source', 'campaign', '_hsenc', '_hsmi',
+      'mc_cid', 'mc_eid', 'mkt_tok', 'trk', '_openstat', 'yclid', 'fb_action_ids',
+      'action_object_map', 'action_type_map', 'action_ref_map', 'gs_l', 'pd_rd_r',
+      'pd_rd_w', 'pd_rd_wg', 'pf_rd_p', 'pf_rd_r', 'qid', 'sr', 'spm', 'psc'
+    ],
+    // Remove fragments from URLs unless they're used for routing
+    removeFragments: true,
+    // Convert relative URLs to absolute
+    resolveRelative: true,
+    // Remove /index.html from URLs
+    cleanupIndexFiles: true,
+    // Handle trailing slashes consistently
+    trailingSlash: 'add'
+  },
   
   // Image options
   images: {
@@ -84,7 +104,18 @@ export const DEFAULT_URL_CONVERTER_OPTIONS = {
     linkStyle: 'inlined',
     linkReferenceStyle: 'full',
     includeImageAlt: true,
-    includeImageTitle: true
+    includeImageTitle: true,
+    // Options for link formatting
+    links: {
+      // Use wiki-style links for internal pages
+      useWikiLinks: true,
+      // Keep original URLs in link text if no meaningful text is available
+      keepUrlAsText: true,
+      // Clean link text by removing redundant parts
+      cleanLinkText: true,
+      // Preserve anchor links
+      preserveAnchors: true
+    }
   }
 };
 
