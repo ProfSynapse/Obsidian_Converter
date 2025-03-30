@@ -137,7 +137,7 @@ export const DEFAULT_PARENT_URL_CONVERTER_OPTIONS = {
  * @param {Object} userOptions - User-provided options
  * @returns {Object} Merged options
  */
-export function mergeOptions(userOptions = {}) {
+export function mergeOptions(userOptions = {}, isParentUrlConverter = false) {
   // Deep merge for nested objects
   const deepMerge = (target, source) => {
     const result = { ...target };
@@ -153,7 +153,11 @@ export function mergeOptions(userOptions = {}) {
     return result;
   };
   
-  return deepMerge(DEFAULT_URL_CONVERTER_OPTIONS, userOptions);
+  const defaultOptions = isParentUrlConverter ? 
+    DEFAULT_PARENT_URL_CONVERTER_OPTIONS : 
+    DEFAULT_URL_CONVERTER_OPTIONS;
+  
+  return deepMerge(defaultOptions, userOptions);
 }
 
 /**
@@ -208,13 +212,18 @@ export function generateNameFromUrl(url) {
     // Remove file extension if present
     filename = filename.replace(/\.[^/.]+$/, '');
     
-    // Sanitize the filename
+    // Sanitize the filename and add .md extension
     filename = filename
       .toLowerCase()
       .replace(/[^a-z0-9]+/g, '-')
       .replace(/^-+|-+$/g, '');
     
-    return filename || 'untitled';
+    // Always append .md extension if not present
+    if (!filename.endsWith('.md')) {
+      filename = `${filename}.md`;
+    }
+    
+    return filename || 'untitled.md';
   } catch (error) {
     console.error('Error generating name from URL:', error);
     return 'untitled';

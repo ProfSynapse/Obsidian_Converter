@@ -8,7 +8,7 @@ import { AppError } from '../../../utils/errorHandler.js';
 import { BrowserManager } from './utils/BrowserManager.js';
 import { PageCleaner } from './utils/PageCleaner.js';
 import { ContentExtractor } from './utils/ContentExtractor.js';
-import { mergeOptions } from './utils/converterConfig.js';
+import { mergeOptions, generateNameFromUrl } from './utils/converterConfig.js';
 import pLimit from 'p-limit';
 
 class UrlFinder {
@@ -367,7 +367,7 @@ class UrlProcessor {
 export async function convertParentUrlToMarkdown(parentUrl, userOptions = {}) {
   const finder = new UrlFinder();
   const processor = new UrlProcessor();
-  const options = mergeOptions(userOptions);
+  const options = mergeOptions(userOptions, true);
 
   try {
     // Validate and normalize URL
@@ -403,21 +403,22 @@ export async function convertParentUrlToMarkdown(parentUrl, userOptions = {}) {
     // Generate index content and metadata
     const { content: indexContent, metadata } = processor.generateIndex(parentUrl, processedPages, hostname);
 
-    // Create files array
+    // Create files array with properly named files
     const files = [
       {
-        name: `index.md`,
+        name: `index.md`, // Main index file
         content: indexContent,
         type: 'text'
       }
     ];
     
-    // Add page files
+    // Add page files with consistent naming
     const uniquePages = new Map();
     processedPages.filter(p => p.success).forEach(page => {
       if (!uniquePages.has(page.normalizedUrl)) {
+        const pageName = generateNameFromUrl(page.url); // Use centralized naming function
         uniquePages.set(page.normalizedUrl, {
-          name: `pages/${page.name}`,
+          name: `pages/${pageName}`,
           content: page.content,
           type: 'text'
         });

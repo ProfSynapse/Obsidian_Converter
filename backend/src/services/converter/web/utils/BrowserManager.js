@@ -37,9 +37,10 @@ export class BrowserManager {
       console.log('🌐 Launching new Puppeteer browser instance...');
       
       try {
-        browserInstance = await puppeteer.launch({
+        // Ensure options are properly structured
+        const launchOptions = {
           headless: options.headless || 'new',
-          args: options.args || [
+          args: Array.isArray(options.args) ? options.args : [
             '--no-sandbox',
             '--disable-setuid-sandbox',
             '--disable-dev-shm-usage',
@@ -47,16 +48,23 @@ export class BrowserManager {
             '--disable-gpu',
             '--window-size=1280,800'
           ],
-          defaultViewport: options.defaultViewport || {
+          defaultViewport: {
             width: 1280,
             height: 800,
             deviceScaleFactor: 1,
             isMobile: false,
             hasTouch: false,
-            isLandscape: true
-          },
-          ...options.browserOptions
-        });
+            isLandscape: true,
+            ...(options.defaultViewport || {})
+          }
+        };
+
+        // Only spread browserOptions if it exists and is an object
+        if (options.browserOptions && typeof options.browserOptions === 'object') {
+          Object.assign(launchOptions, options.browserOptions);
+        }
+
+        browserInstance = await puppeteer.launch(launchOptions);
         
         // Set up event listeners
         browserInstance.on('disconnected', () => {

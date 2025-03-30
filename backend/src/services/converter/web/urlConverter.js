@@ -8,7 +8,7 @@ import { generateMarkdown } from './utils/htmlToMarkdown.js';
 import { BrowserManager } from './utils/BrowserManager.js';
 import { PageCleaner } from './utils/PageCleaner.js';
 import { ContentExtractor } from './utils/ContentExtractor.js';
-import { mergeOptions } from './utils/converterConfig.js';
+import { mergeOptions, generateNameFromUrl } from './utils/converterConfig.js';
 
 export class UrlConverter {
   constructor() {
@@ -209,28 +209,7 @@ export class UrlConverter {
    * @returns {string} Generated filename
    */
   generateName(url) {
-    try {
-      const urlObj = new URL(url);
-      const parts = urlObj.pathname.split('/').filter(Boolean);
-      const lastPart = parts.pop() || 'index';
-      
-      return lastPart
-        .toLowerCase()
-        .replace(/\.[^.]+$/, '')
-        .split('?')[0]
-        .replace(/[^a-z0-9]+/g, '-')
-        .replace(/^-+|-+$/g, '')
-        .split('-')
-        .reduce((acc, part) => {
-          if ((acc + (acc ? '-' : '') + part).length <= 100) {
-            return acc + (acc ? '-' : '') + part;
-          }
-          return acc;
-        }, '') || 'index';
-    } catch (error) {
-      console.error('Error generating name:', error);
-      return 'page';
-    }
+    return generateNameFromUrl(url);
   }
 }
 

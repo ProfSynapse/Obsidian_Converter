@@ -221,9 +221,10 @@ export class PageCleaner {
    * Remove overlays, cookie notices, and popups
    * @param {Page} page - Puppeteer page object
    * @returns {Promise<void>}
-   async removeOverlays(page) {
-     try {
-       await page.evaluate(() => {
+   */
+  async removeOverlays(page) {
+    try {
+      await page.evaluate(() => {
          // First pass: try to find and click common close buttons
          const closeButtonSelectors = [
            'button[aria-label*="close" i]',
@@ -399,7 +400,6 @@ export class PageCleaner {
        console.error('Error removing overlays:', error);
      }
    }
-  }
 
   /**
    * Detect if a page is a Single Page Application (SPA)
