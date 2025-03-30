@@ -17,6 +17,11 @@ export async function generateMarkdown(content, metadata, images, url, options) 
   try {
     console.log('Starting markdown generation...');
     
+    // Ensure parameters are defined to prevent "undefined" errors
+    metadata = metadata || {};
+    images = images || [];
+    options = options || {};
+    
     // Check if content is valid
     if (!content || content.length < 10) {
       console.error('Invalid content received for markdown generation:', content);
@@ -87,7 +92,7 @@ export async function generateMarkdown(content, metadata, images, url, options) 
     // Double check if document.body exists now
     if (!document.body) {
       console.error('Failed to create document body');
-      return `# ${metadata.title || 'Page Content'}\n\nFailed to parse page content.`;
+      return `# ${metadata && metadata.title ? metadata.title : 'Page Content'}\n\nFailed to parse page content.`;
     }
     
     // Remove script and style elements
@@ -96,8 +101,11 @@ export async function generateMarkdown(content, metadata, images, url, options) 
     // Convert the content to Markdown
     let markdown = '';
     
+    // Ensure metadata exists
+    metadata = metadata || {};
+    
     // Add title
-    let title = metadata.title || document.title || extractTitleFromDocument(document) || '';
+    let title = (metadata && metadata.title) || document.title || extractTitleFromDocument(document) || 'Untitled Page';
     if (title.startsWith('temp_')) {
       title = title.replace(/^temp_\d+_/, '');
     }

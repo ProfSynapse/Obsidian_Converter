@@ -1,191 +1,32 @@
 /**
  * URL Converter Module
+ * Handles conversion of single web pages to markdown format
  */
 
-import puppeteer from 'puppeteer';
-import path from 'path';
-import { extractMetadata } from '../../../utils/metadataExtractor.js';
 import { AppError } from '../../../utils/errorHandler.js';
-import { 
-  DEFAULT_URL_CONVERTER_OPTIONS, 
-  IMAGE_EXTENSIONS 
-} from './utils/config.js';
-import { generateNameFromUrl, extractTitleFromUrl } from './utils/contentExtractor.js';
-import { generateMarkdown, cleanMarkdown } from './utils/htmlToMarkdown.js';
-
-// Browser instance cache to avoid launching multiple browsers
-let browserInstance = null;
+import { generateMarkdown } from './utils/htmlToMarkdown.js';
+import { BrowserManager } from './utils/BrowserManager.js';
+import { PageCleaner } from './utils/PageCleaner.js';
+import { ContentExtractor } from './utils/ContentExtractor.js';
+import { mergeOptions } from './utils/converterConfig.js';
 
 export class UrlConverter {
   constructor() {
-    this.externalBrowser = null;
-    this.shouldCloseBrowser = false;
-  }
-  
-  /**
-   * Removes annoying overlays, cookie notices, and popups
-   */
-  async removeOverlays(page) {
-    try {
-      await page.evaluate(() => {
-        const overlayPatterns = [
-          // Cookie-related
-          '[id*="cookie" i]',
-          '[class*="cookie" i]',
-          '[id*="consent" i]',
-          '[class*="consent" i]',
-          // Popups and modals
-          '[id*="popup" i]',
-          '[class*="popup" i]',
-          '[role="dialog"]',
-          '[aria-modal="true"]',
-          // Notifications and banners
-          '[id*="banner" i]',
-          '[class*="banner" i]',
-          '[id*="notification" i]',
-          '[class*="notification" i]',
-          // Common overlay patterns
-          '[class*="overlay" i]',
-          '[id*="overlay" i]',
-          // Newsletter and subscription
-          '[class*="newsletter" i]',
-          '[id*="newsletter" i]',
-          '[class*="subscribe" i]',
-          '[id*="subscribe" i]',
-        ];
-
-        overlayPatterns.forEach(pattern => {
-          document.querySelectorAll(pattern).forEach(element => {
-            // Check if it's likely an overlay
-            const style = window.getComputedStyle(element);
-            const position = style.position;
-            const zIndex = parseInt(style.zIndex, 10);
-            
-            // Remove if it looks like an overlay
-            if ((position === 'fixed' || position === 'absolute') && 
-                (zIndex > 100 || element.matches('[role="dialog"]'))) {
-              element.remove();
-            }
-          });
-        });
-
-        // Remove body classes that might prevent scrolling
-        document.body.classList.forEach(className => {
-          if (className.includes('modal-open') || 
-              className.includes('no-scroll') || 
-              className.includes('overflow-hidden')) {
-            document.body.classList.remove(className);
-          }
-        });
-
-        // Reset body styles
-        document.body.style.overflow = '';
-        document.body.style.position = '';
-      });
-    } catch (error) {
-      console.error('Error removing overlays:', error);
-    }
+    this.browserManager = new BrowserManager();
+    this.pageCleaner = new PageCleaner();
+    this.contentExtractor = new ContentExtractor();
   }
 
   /**
-   * Enhanced strategy for finding the main content
+   * Convert a URL to markdown format
+   * @param {string} url - URL to convert
+   * @param {Object} options - Conversion options
+   * @returns {Promise<Object>} Conversion result
    */
-  async findMainContent(page) {
-    try {
-      return await page.evaluate(() => {
-        // Helper function to get text density
-        const getTextDensity = (element) => {
-          if (!element) return 0;
-          const text = element.textContent || '';
-          const html = element.innerHTML || '';
-          return text.length / (html.length || 1);
-        };
-
-        // Helper function to get content value
-        const getContentValue = (element) => {
-          if (!element) return 0;
-          
-          const text = element.textContent || '';
-          const words = text.split(/\s+/).filter(Boolean);
-          
-          // Skip empty or very short elements
-          if (words.length < 20) return 0;
-          
-          // Count various content indicators
-          const paragraphs = element.querySelectorAll('p');
-          const headings = element.querySelectorAll('h1, h2, h3, h4, h5, h6');
-          const lists = element.querySelectorAll('ul, ol');
-          const codeBlocks = element.querySelectorAll('pre, code');
-          const links = element.querySelectorAll('a');
-          const images = element.querySelectorAll('img');
-          
-          // Calculate density scores
-          const textDensity = getTextDensity(element);
-          const linkDensity = Array.from(links).reduce((sum, link) => 
-            sum + (link.textContent || '').length, 0) / (text.length || 1);
-          
-          // Calculate base score
-          let score = 0;
-          score += words.length * 0.3;
-          score += paragraphs.length * 15;
-          score += headings.length * 20;
-          score += lists.length * 10;
-          score += codeBlocks.length * 15;
-          score += images.length * 5;
-          score += textDensity * 100;
-          score -= linkDensity * 50;
-          
-          // Semantic meaning bonuses
-          if (element.tagName === 'ARTICLE' || element.closest('article')) score += 150;
-          if (element.tagName === 'MAIN' || element.closest('main')) score += 150;
-          if (element.getAttribute('role') === 'main') score += 100;
-          
-          // Content-related class bonuses
-          const className = element.className || '';
-          if (/content|article|post|entry|body/i.test(className)) score += 50;
-          
-          // Penalize navigation, header, footer areas
-          if (/nav|header|footer|menu|sidebar/i.test(className) || 
-              /nav|header|footer/i.test(element.tagName)) {
-            score -= 200;
-          }
-          
-          // Bonus for deep article structure
-          if (element.querySelectorAll('article p').length > 3) score += 100;
-          
-          return score;
-        };
-
-        // Find best content element
-        const allElements = document.querySelectorAll('body *');
-        let bestElement = null;
-        let bestScore = 0;
-
-        allElements.forEach(element => {
-          const score = getContentValue(element);
-          if (score > bestScore) {
-            bestElement = element;
-            bestScore = score;
-          }
-        });
-
-        // Return the best content found
-        return {
-          content: bestElement ? bestElement.outerHTML : document.body.outerHTML,
-          score: bestScore
-        };
-      });
-    } catch (error) {
-      console.error('Error finding main content:', error);
-      return { content: '', score: 0 };
-    }
-  }
-
-  async convertToMarkdown(url, options = {}) {
-    console.log(`🔄 Converting URL to Markdown: ${url}`);
-    
-    let browser = null;
+  async convertToMarkdown(url, userOptions = {}) {
     let page = null;
+    let browser = null;
+    const options = mergeOptions(userOptions);
     
     try {
       // Validate URL
@@ -193,59 +34,127 @@ export class UrlConverter {
         throw new AppError('URL is required', 400);
       }
       
-      // Normalize URL if needed
-      if (!url.startsWith('http://') && !url.startsWith('https://')) {
-        url = 'https://' + url;
+      // Normalize URL with proper error handling
+      let normalizedUrl;
+      try {
+        const urlObj = new URL(url.startsWith('http') ? url : `https://${url}`);
+        normalizedUrl = urlObj.toString();
+      } catch (error) {
+        throw new AppError(`Invalid URL format: ${error.message}`, 400);
+      }
+
+      // Create browser instance
+      try {
+        const browserOptions = {
+          args: options.browser?.args,
+          defaultViewport: options.browser?.defaultViewport,
+          browserOptions: options.browser?.browserOptions
+        };
+        browser = await this.browserManager.getBrowser(browserOptions);
+      } catch (error) {
+        throw new AppError(`Browser initialization failed: ${error.message}`, 500);
+      }
+
+      // Create and set up page
+      try {
+        page = await this.browserManager.createPage(browser, options.page);
+      } catch (error) {
+        throw new AppError(`Page creation failed: ${error.message}`, 500);
       }
       
-      // Merge options with defaults
-      const mergedOptions = this.mergeOptions(options);
-      
-      // Get or create browser instance
-      browser = await this.getBrowser(options.browser);
-      
-      // Create a new page
-      page = await browser.newPage();
-      
-      // Set viewport
-      await page.setViewport({ width: 1280, height: 800 });
-      
-      // Set user agent
-      await page.setUserAgent(mergedOptions.got?.headers?.['User-Agent'] || 
-        'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36');
-      
-      // Navigate to URL with timeout and wait for content
-      await page.goto(url, { 
-        waitUntil: 'networkidle2',
-        timeout: mergedOptions.got?.timeout || 30000
-      });
-      
-      // Get the final URL after redirects
+      // Navigate to URL with proper error handling
+      try {
+        await page.goto(normalizedUrl, options.navigation);
+      } catch (error) {
+        throw new AppError(`Navigation failed: ${error.message}`, 500);
+      }
+
       const finalUrl = page.url();
       
-      // Extract metadata if requested
-      let metadata = {};
-      if (mergedOptions.includeMeta) {
-        metadata = await this.extractMetadataFromPage(page, finalUrl);
+      // Clean up the page
+      try {
+        await this.pageCleaner.removeOverlays(page);
+        await this.pageCleaner.cleanupPage(page);
+      } catch (error) {
+        console.error('Error cleaning page:', error);
+        // Continue with extraction even if cleanup fails
       }
       
-      // Wait for dynamic content and remove overlays
-      await this.removeOverlays(page);
-      await page.waitForTimeout(1000); // Brief pause for any remaining dynamics
+      // Check for SPA and wait for dynamic content to load
+      await this.contentExtractor.waitForDynamicContent(page);
       
-      // Extract content
-      const { content, images } = await this.extractContent(page, finalUrl, mergedOptions);
+      // Extract content, metadata, and images
+      let content = '', metadata = {}, images = [];
+      try {
+        const extractionResult = await this.contentExtractor.extractContent(
+          page,
+          finalUrl,
+          {
+            includeMeta: options.metadata.includeMeta,
+            includeImages: options.images.includeImages,
+            imageExtensions: options.images.extensions
+          }
+        );
+        
+        content = extractionResult.content || '';
+        metadata = extractionResult.metadata || {};
+        images = extractionResult.images || [];
+        
+        // Ensure metadata has at least a title
+        if (!metadata.title) {
+          metadata.title = this.contentExtractor.extractTitleFromUrl(finalUrl);
+        }
+      } catch (extractionError) {
+        console.error('Content extraction failed:', extractionError);
+        content = `<html><body><p>Failed to extract content: ${extractionError.message}</p></body></html>`;
+        metadata = {
+          title: this.contentExtractor.extractTitleFromUrl(finalUrl) || 'Untitled Page',
+          source: finalUrl,
+          captured: new Date().toISOString()
+        };
+        images = [];
+      }
       
-      // Log content size for debugging
-      console.log(`Content length: ${content.length}`);
+      // Generate markdown
+      let markdown = '';
+      try {
+        console.log('Starting markdown generation...');
+        console.log('Content length before cleaning:', content.length);
+        
+        // Clean content if it's too large
+        if (content.length > 1000000) {
+          console.log('Content too large, truncating...');
+          content = content.substring(0, 1000000);
+        }
+        
+        // Clean content for logging
+        const contentPreview = content.substring(0, 200);
+        console.log('Content length after cleaning:', content.length);
+        console.log('Content preview after cleaning:', contentPreview);
+        
+        // Ensure metadata is valid
+        if (!metadata || typeof metadata !== 'object') {
+          console.log('Invalid metadata, creating default metadata');
+          metadata = {
+            title: this.contentExtractor.extractTitleFromUrl(finalUrl),
+            source: finalUrl,
+            captured: new Date().toISOString()
+          };
+        }
+        
+        markdown = await generateMarkdown(content, metadata, images, finalUrl, options);
+      } catch (markdownError) {
+        console.error('Error generating Markdown:', markdownError);
+        // Create a simple markdown as fallback
+        markdown = `# ${metadata && metadata.title ? metadata.title : 'Untitled Page'}\n\n` +
+                  `Source: ${finalUrl}\n\n` +
+                  `Captured: ${new Date().toISOString()}\n\n` +
+                  `Failed to generate Markdown: ${markdownError.message}\n\n`;
+        
+        throw new AppError(`Failed to generate Markdown: ${markdownError.message}`, 500);
+      }
       
-      // Generate Markdown
-      const markdown = await generateMarkdown(content, metadata, images, finalUrl, mergedOptions);
-      
-      // Log markdown size for debugging
-      console.log(`Markdown length: ${markdown.length}`);
-      
-      // Generate file name
+      // Generate name from URL
       const name = this.generateName(finalUrl);
       
       return {
@@ -256,205 +165,85 @@ export class UrlConverter {
         images,
         success: true
       };
+
     } catch (error) {
       console.error('URL conversion failed:', error);
-      throw new AppError(
-        error instanceof AppError ? error.message : `Failed to convert URL: ${error.message}`,
-        error instanceof AppError ? error.statusCode : 500
-      );
+      
+      // Create a more user-friendly error message
+      let errorMessage = 'Failed to convert URL';
+      let statusCode = 500;
+      
+      if (error instanceof AppError) {
+        errorMessage = error.message;
+        statusCode = error.statusCode;
+      } else if (error.name === 'TimeoutError') {
+        errorMessage = 'The page took too long to load. Please try again later.';
+        statusCode = 408;
+      } else if (error.message.includes('net::ERR_NAME_NOT_RESOLVED')) {
+        errorMessage = 'The website could not be found. Please check the URL and try again.';
+        statusCode = 404;
+      } else if (error.message.includes('net::ERR_CONNECTION_REFUSED')) {
+        errorMessage = 'The connection to the website was refused. The server might be down.';
+        statusCode = 503;
+      } else {
+        errorMessage = `Failed to convert URL: ${error.message}`;
+      }
+      
+      throw new AppError(errorMessage, statusCode);
     } finally {
+      // Clean up resources
       if (page) {
-        await page.close().catch(err => console.error('Error closing page:', err));
-      }
-    }
-  }
-  
-  async getBrowser(externalBrowser = null) {
-    if (externalBrowser) {
-      this.externalBrowser = externalBrowser;
-      return externalBrowser;
-    }
-    
-    if (this.externalBrowser) {
-      return this.externalBrowser;
-    }
-    
-    if (!browserInstance) {
-      console.log('🌐 Launching new Puppeteer browser instance...');
-      browserInstance = await puppeteer.launch({
-        headless: 'new',
-        args: [
-          '--no-sandbox',
-          '--disable-setuid-sandbox',
-          '--disable-dev-shm-usage',
-          '--disable-blink-features=AutomationControlled',
-          '--disable-infobars',
-          '--window-size=1920,1080'
-        ],
-        defaultViewport: {
-          width: 1920,
-          height: 1080,
-          deviceScaleFactor: 1,
-          isMobile: false,
-          hasTouch: false,
-          isLandscape: true
-        }
-      });
-      
-      browserInstance.on('disconnected', () => {
-        console.log('🌐 Browser disconnected, clearing instance');
-        browserInstance = null;
-      });
-      
-      this.shouldCloseBrowser = true;
-    }
-    
-    return browserInstance;
-  }
-  
-  mergeOptions(options) {
-    return {
-      ...DEFAULT_URL_CONVERTER_OPTIONS,
-      ...options,
-      got: {
-        ...(DEFAULT_URL_CONVERTER_OPTIONS.http || {}),
-        ...(options.got || {}),
-        headers: {
-          ...(DEFAULT_URL_CONVERTER_OPTIONS.http?.headers || {}),
-          ...(options.got?.headers || {})
-        },
-        timeout: {
-          ...(DEFAULT_URL_CONVERTER_OPTIONS.http?.timeout || {}),
-          ...(options.got?.timeout || {})
+        try {
+          await page.close();
+          console.log('Page closed successfully');
+        } catch (err) {
+          console.error('Error closing page:', err);
         }
       }
-    };
-  }
-  
-  async extractMetadataFromPage(page, url) {
-    // ... (unchanged extractMetadataFromPage method)
-  }
-  
-  async cleanupPage(page, options) {
-    // ... (unchanged cleanupPage method)
-  }
-  
-  async extractContent(page, baseUrl, options) {
-    console.log(`📄 Extracting content from: ${baseUrl}`);
-    
-    try {
-      // Get initial state
-      const initialRawHtml = await page.content();
-      console.log(`Initial raw HTML length: ${initialRawHtml.length}`);
-      
-      // Remove overlays and cookie notices first
-      await this.removeOverlays(page);
-      
-      // General cleanup
-      await this.cleanupPage(page, options);
-      
-      // Get cleaned state
-      const cleanedRawHtml = await page.content();
-      console.log(`Cleaned raw HTML length: ${cleanedRawHtml.length}`);
-      
-      let content = '';
-      let score = 0;
-      let images = [];
-
-      // Try enhanced content detection first
-      try {
-        const result = await this.findMainContent(page);
-        if (result.content && result.score > 50) {
-          content = result.content;
-          score = result.score;
-          console.log(`Found main content with score: ${score}`);
-        }
-      } catch (e) {
-        console.error('Error in main content detection:', e);
-      }
-
-      // If no good content found, try fallback approaches
-      if (!content || content.length < 1000 || score < 30) {
-        console.log('Content too short or low quality, using fallback content');
-        content = cleanedRawHtml;
-      }
-      
-      // Extract images if requested
-      if (options.includeImages) {
-        images = await this.extractImages(page, baseUrl);
-      }
-      
-      return { content, images };
-    } catch (error) {
-      console.error('Error extracting content:', error);
-      return {
-        content: `<html><body><p>Failed to extract content: ${error.message}</p></body></html>`,
-        images: []
-      };
     }
   }
 
-  async extractImages(page, baseUrl) {
-    try {
-      return await page.evaluate((baseUrl, imageExtensions) => {
-        if (!document || !document.querySelectorAll) return [];
-        
-        return Array.from(document.querySelectorAll('img'))
-          .filter(img => {
-            try {
-              const src = img.src;
-              if (!src) return false;
-              const url = new URL(src, baseUrl);
-              const ext = url.pathname.split('.').pop().toLowerCase();
-              return imageExtensions.includes(`.${ext}`);
-            } catch (e) {
-              return false;
-            }
-          })
-          .map(img => ({
-            src: new URL(img.src, baseUrl).href,
-            alt: img.alt || '',
-            title: img.title || img.alt || ''
-          }));
-      }, baseUrl, IMAGE_EXTENSIONS);
-    } catch (error) {
-      console.error('Error extracting images:', error);
-      return [];
-    }
-  }
-  
+  /**
+   * Generate a filename from a URL
+   * @param {string} url - URL to generate name from
+   * @returns {string} Generated filename
+   */
   generateName(url) {
-    return generateNameFromUrl(url);
-  }
-  
-  extractTitleFromUrl(url) {
-    return extractTitleFromUrl(url);
-  }
-  
-  async closeBrowser() {
-    if (browserInstance && !this.externalBrowser) {
-      await browserInstance.close();
-      browserInstance = null;
-    }
-  }
-  
-  static async closeBrowser() {
-    if (browserInstance) {
-      await browserInstance.close();
-      browserInstance = null;
+    try {
+      const urlObj = new URL(url);
+      const parts = urlObj.pathname.split('/').filter(Boolean);
+      const lastPart = parts.pop() || 'index';
+      
+      return lastPart
+        .toLowerCase()
+        .replace(/\.[^.]+$/, '')
+        .split('?')[0]
+        .replace(/[^a-z0-9]+/g, '-')
+        .replace(/^-+|-+$/g, '')
+        .split('-')
+        .reduce((acc, part) => {
+          if ((acc + (acc ? '-' : '') + part).length <= 100) {
+            return acc + (acc ? '-' : '') + part;
+          }
+          return acc;
+        }, '') || 'index';
+    } catch (error) {
+      console.error('Error generating name:', error);
+      return 'page';
     }
   }
 }
 
+// Factory function to create converter
 export async function convertUrlToMarkdown(url, options = {}) {
   const converter = new UrlConverter();
   return converter.convertToMarkdown(url, options);
 }
 
+// Singleton instance
 export const urlConverter = {
   convertToMarkdown: async (url, options = {}) => {
     const converter = new UrlConverter();
     return converter.convertToMarkdown(url, options);
-  },
-  closeBrowser: UrlConverter.closeBrowser
+  }
 };

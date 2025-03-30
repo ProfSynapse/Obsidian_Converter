@@ -1,456 +1,537 @@
 /**
  * Content Extractor Module
- * 
- * This module provides functionality for extracting content from HTML pages.
- * It includes methods for finding the main content element, scoring elements,
- * cleaning content, and extracting images.
- * 
- * Related files:
- * - ../urlConverter.js: Main URL converter implementation
- * - ./config.js: Configuration settings
- * - ./spaHandler.js: SPA detection and handling
- * - ./htmlToMarkdown.js: HTML to Markdown conversion
+ * Handles extracting content from web pages
  */
 
-import * as cheerio from 'cheerio';
+import { IMAGE_EXTENSIONS } from './config.js';
 import path from 'path';
-import { AppError } from '../../../../utils/errorHandler.js';
-import { DEFAULT_CONTENT_SELECTORS, DEFAULT_EXCLUDE_SELECTORS, IMAGE_EXTENSIONS } from './config.js';
 
-/**
- * Extracts content from HTML
- * @param {string} html - The HTML to extract content from
- * @param {string} baseUrl - The base URL for resolving relative URLs
- * @param {Object} options - Extraction options
- * @returns {Promise<{content: string, images: Array}>} - The extracted content and images
- */
-export async function extractContent(html, baseUrl, options) {
-  console.log(`📄 Extracting content from: ${baseUrl}`);
-  
-  try {
-    // Load HTML with cheerio
-    const $ = cheerio.load(html);
-    
-    // Remove excluded elements
-    const excludeSelectors = options.excludeSelectors || DEFAULT_EXCLUDE_SELECTORS;
-    if (excludeSelectors && excludeSelectors.length > 0) {
-      excludeSelectors.forEach(selector => {
-        try {
-          $(selector).remove();
-        } catch (e) {
-          console.log(`⚠️ Error removing selector ${selector}: ${e.message}`);
-        }
-      });
-    }
-    
-    // Find the main content element
-    let mainContent = null;
-    let mainContentScore = 0;
-    
-    // Try each content selector in order of priority
-    const contentSelectors = options.contentSelectors || DEFAULT_CONTENT_SELECTORS;
-    for (const selector of contentSelectors) {
-      try {
-        const elements = $(selector);
-        if (elements.length > 0) {
-          // For each matching element, score it
-          elements.each((_, el) => {
-            const $el = $(el);
-            
-            // Skip if this element is empty or very small
-            if ($el.text().trim().length < 50) return;
-            
-            // Score this element
-            const score = scoreElement($, $el);
-            
-            // If this is the highest scoring element so far, use it
-            if (score > mainContentScore) {
-              mainContent = $el;
-              mainContentScore = score;
-            }
-          });
+export class ContentExtractor {
+  /**
+   * Extract main content from a page
+   * @param {Page} page - Puppeteer page object
+   * @returns {Promise<Object>} Object containing content and score
+   */
+  async findMainContent(page) {
+    try {
+      return await page.evaluate(() => {
+        // Helper function to get text density
+        const getTextDensity = (element) => {
+          if (!element) return 0;
+          const text = element.textContent || '';
+          const html = element.innerHTML || '';
+          return text.length / (html.length || 1);
+        };
+
+        // Helper function to get content value
+        const getContentValue = (element) => {
+          if (!element) return 0;
           
-          // If we found a good content element, stop looking
-          if (mainContentScore > 100) break;
-        }
-      } catch (e) {
-        console.log(`⚠️ Error with selector ${selector}: ${e.message}`);
-      }
-    }
-    
-    // If we didn't find any content, use the body
-    if (!mainContent) {
-      mainContent = $('body');
-    }
-    
-    // Extract images if requested
-    const images = [];
-    if (options.includeImages) {
-      mainContent.find('img').each((_, img) => {
-        const $img = $(img);
-        const src = $img.attr('src');
-        const alt = $img.attr('alt') || '';
+          const text = element.textContent || '';
+          const words = text.split(/\s+/).filter(Boolean);
+          
+          // Skip empty or very short elements
+          if (words.length < 20) return 0;
+          
+          // Count various content indicators
+          const paragraphs = element.querySelectorAll('p');
+          const headings = element.querySelectorAll('h1, h2, h3, h4, h5, h6');
+          const lists = element.querySelectorAll('ul, ol');
+          const codeBlocks = element.querySelectorAll('pre, code');
+          const links = element.querySelectorAll('a');
+          const images = element.querySelectorAll('img');
+          const tables = element.querySelectorAll('table');
+          const divs = element.querySelectorAll('div > div'); // Nested divs often contain content
+          
+          // Calculate density scores
+          const textDensity = getTextDensity(element);
+          const linkDensity = Array.from(links).reduce((sum, link) =>
+            sum + (link.textContent || '').length, 0) / (text.length || 1);
+          
+          // Calculate base score
+          let score = 0;
+          score += words.length * 0.3;
+          score += paragraphs.length * 15;
+          score += headings.length * 20;
+          score += lists.length * 10;
+          score += codeBlocks.length * 15;
+          score += images.length * 5;
+          score += tables.length * 15;
+          score += divs.length * 2;
+          score += textDensity * 100;
+          score -= linkDensity * 50;
+          
+          // Semantic meaning bonuses - prioritize modern semantic HTML5 elements
+          if (element.tagName === 'ARTICLE' || element.closest('article')) score += 150;
+          if (element.tagName === 'MAIN' || element.closest('main')) score += 150;
+          if (element.getAttribute('role') === 'main') score += 100;
+          if (element.tagName === 'SECTION' || element.closest('section')) score += 50;
+          
+          // Content-related class and ID bonuses - expanded for modern websites
+          const className = element.className || '';
+          const idName = element.id || '';
+          const attributeText = className + ' ' + idName;
+          
+          if (/content|article|post|entry|body|text|blog/i.test(attributeText)) score += 50;
+          if (/main|primary|central/i.test(attributeText)) score += 40;
+          if (/container|wrapper|inner/i.test(attributeText)) score += 30;
+          
+          // Penalize navigation, header, footer areas
+          if (/nav|header|footer|menu|sidebar|comment|ad|banner|promo/i.test(attributeText) ||
+              /nav|header|footer/i.test(element.tagName)) {
+            score -= 200;
+          }
+          
+          // Bonus for deep article structure
+          if (element.querySelectorAll('article p').length > 3) score += 100;
+          if (element.querySelectorAll('section p').length > 3) score += 50;
+          
+          // Bonus for structured content
+          if (headings.length > 0 && paragraphs.length > headings.length * 2) score += 100;
+          
+          return score;
+        };
+
+        // Try specific selectors first for common website layouts
+        const commonSelectors = [
+          'main[role="main"]',
+          'div[role="main"]',
+          'article',
+          'main',
+          '.main-content',
+          '.article-content',
+          '.post-content',
+          '.entry-content',
+          '.content-main',
+          '#content',
+          '.content'
+        ];
         
-        if (src) {
-          try {
-            // Resolve relative URLs
-            const absoluteSrc = new URL(src, baseUrl).href;
-            
-            // Only include images with supported extensions
-            const ext = path.extname(absoluteSrc.split('?')[0].toLowerCase());
-            if (IMAGE_EXTENSIONS.includes(ext)) {
-              images.push({
-                src: absoluteSrc,
-                alt,
-                title: $img.attr('title') || alt
-              });
+        for (const selector of commonSelectors) {
+          const element = document.querySelector(selector);
+          if (element && element.textContent.trim().length > 200) {
+            const score = getContentValue(element);
+            if (score > 100) {
+              return {
+                content: element.outerHTML,
+                score: score
+              };
             }
-          } catch (e) {
-            console.log(`⚠️ Error processing image ${src}: ${e.message}`);
           }
         }
+
+        // If no good match with common selectors, scan all elements
+        const allElements = document.querySelectorAll('body *');
+        let bestElement = null;
+        let bestScore = 0;
+
+        allElements.forEach(element => {
+          const score = getContentValue(element);
+          if (score > bestScore) {
+            bestElement = element;
+            bestScore = score;
+          }
+        });
+
+        // Return the best content found
+        return {
+          content: bestElement ? bestElement.outerHTML : document.body.outerHTML,
+          score: bestScore
+        };
       });
+    } catch (error) {
+      console.error('Error finding main content:', error);
+      return { content: '', score: 0 };
     }
-    
-    // Clean up the content
-    cleanContent($, mainContent, baseUrl);
-    
-    // Get the HTML content
-    const contentHtml = mainContent.html();
-    
-    return {
-      content: contentHtml || '',
-      images
-    };
-  } catch (error) {
-    console.error('Error extracting content:', error);
-    throw new AppError(`Failed to extract content: ${error.message}`, 500);
   }
-}
 
-/**
- * Scores an element for content quality
- * @param {CheerioStatic} $ - Cheerio instance
- * @param {Cheerio} $el - Element to score
- * @returns {number} - Score (higher is better)
- */
-export function scoreElement($, $el) {
-  // Count paragraphs
-  const paragraphCount = $el.find('p').length;
-  
-  // Count headings
-  const headingCount = $el.find('h1, h2, h3, h4, h5, h6').length;
-  
-  // Count images
-  const imageCount = $el.find('img').length;
-  
-  // Count links
-  const linkCount = $el.find('a[href]').length;
-  
-  // Count words
-  const text = $el.text();
-  const wordCount = text.trim().split(/\s+/).length;
-  
-  // Count code blocks
-  const codeBlockCount = $el.find('pre, code').length;
-  
-  // Calculate text density (text length / HTML length)
-  const htmlLength = $el.html()?.length || 1;
-  const textDensity = text.length / htmlLength;
-  
-  // Calculate link density (link text / total text)
-  let linkText = 0;
-  $el.find('a').each((_, link) => {
-    linkText += $(link).text().length;
-  });
-  const linkDensity = linkText / (text.length || 1);
-  
-  // Count list items
-  const listItemCount = $el.find('li').length;
-  
-  // Count tables
-  const tableCount = $el.find('table').length;
-  
-  // Count blockquotes
-  const blockquoteCount = $el.find('blockquote').length;
-  
-  // Calculate final score
-  let score = paragraphCount * 15 + 
-             headingCount * 20 + 
-             imageCount * 5 + 
-             (linkCount * (1 - linkDensity)) + // Penalize high link density
-             wordCount * 0.5 +
-             codeBlockCount * 15 +
-             listItemCount * 3 +
-             tableCount * 20 +
-             blockquoteCount * 10 +
-             textDensity * 100; // Reward high text density
-  
-  // Bonus for nested structure (indicates real content)
-  if ($el.find('ul li, ol li').length > 0) score += 30;
-  if ($el.find('blockquote').length > 0) score += 20;
-  if ($el.find('table').length > 0) score += 40;
-  
-  // Bonus for article elements
-  if ($el.is('article') || $el.closest('article').length > 0) score += 50;
-  if ($el.is('main') || $el.closest('main').length > 0) score += 40;
-  if ($el.is('section') || $el.closest('section').length > 0) score += 30;
-  
-  // Bonus for content-related classes and IDs
-  const classAttr = $el.attr('class') || '';
-  const idAttr = $el.attr('id') || '';
-  const attrs = (classAttr + ' ' + idAttr).toLowerCase();
-  
-  if (/\b(content|article|post|entry|blog|main|body)\b/.test(attrs)) score += 50;
-  if (/\b(sidebar|comment|menu|nav|footer|header|banner|ad)\b/.test(attrs)) score -= 50;
-  
-  return score;
-}
-
-/**
- * Cleans up content for better Markdown conversion
- * @param {CheerioStatic} $ - Cheerio instance
- * @param {Cheerio} $content - Content to clean
- * @param {string} baseUrl - Base URL for resolving relative links
- */
-export function cleanContent($, $content, baseUrl) {
-  // Remove empty paragraphs
-  $content.find('p').each((_, el) => {
-    const $el = $(el);
-    if ($el.text().trim() === '') {
-      $el.remove();
-    }
-  });
-  
-  // Remove hidden elements
-  $content.find('[style*="display: none"], [style*="display:none"], [hidden], [aria-hidden="true"]').remove();
-  
-  // Remove script and style tags
-  $content.find('script, style, noscript').remove();
-  
-  // Remove tracking pixels and tiny images
-  $content.find('img').each((_, el) => {
-    const $el = $(el);
-    const width = parseInt($el.attr('width') || '100', 10);
-    const height = parseInt($el.attr('height') || '100', 10);
+  /**
+   * Extract content from a page
+   * @param {Page} page - Puppeteer page object
+   * @param {string} baseUrl - Base URL of the page
+   * @param {Object} options - Extraction options
+   * @returns {Promise<Object>} Object containing content and images
+   */
+  async extractContent(page, baseUrl, options = {}) {
+    console.log(`📄 Extracting content from: ${baseUrl}`);
     
-    if (width <= 1 || height <= 1) {
-      $el.remove();
-    }
-  });
-  
-  // Fix relative URLs in links and images
-  $content.find('a[href]').each((_, el) => {
-    const $el = $(el);
-    const href = $el.attr('href');
-    
-    // Skip if it's a fragment or javascript link
-    if (href && !href.startsWith('#') && !href.startsWith('javascript:')) {
+    try {
+      // Get initial state
+      const initialRawHtml = await page.content();
+      console.log(`Initial raw HTML length: ${initialRawHtml.length}`);
+      
+      // Get cleaned state
+      const cleanedRawHtml = await page.content();
+      console.log(`Cleaned raw HTML length: ${cleanedRawHtml.length}`);
+      
+      let content = '';
+      let score = 0;
+      let images = [];
+      let metadata = {};
+      
+      // Extract metadata
       try {
-        // Try to make it absolute
-        const absoluteUrl = new URL(href, baseUrl).href;
-        $el.attr('href', absoluteUrl);
-      } catch (e) {
-        // If it fails, leave it as is
+        metadata = await this.extractMetadataFromPage(page, baseUrl);
+        console.log('Extracted metadata:', metadata);
+      } catch (metadataError) {
+        console.error('Error extracting metadata:', metadataError);
+        // Create fallback metadata
+        metadata = {
+          title: this.extractTitleFromUrl(baseUrl),
+          source: baseUrl,
+          captured: new Date().toISOString()
+        };
       }
-    }
-  });
-  
-  // Fix relative URLs in images
-  $content.find('img[src]').each((_, el) => {
-    const $el = $(el);
-    const src = $el.attr('src');
-    
-    if (src && !src.startsWith('data:')) {
-      try {
-        // Try to make it absolute
-        const absoluteSrc = new URL(src, baseUrl).href;
-        $el.attr('src', absoluteSrc);
-      } catch (e) {
-        // If it fails, leave it as is
-      }
-    }
-  });
-  
-  // Remove empty divs and spans
-  $content.find('div, span').each((_, el) => {
-    const $el = $(el);
-    if ($el.text().trim() === '' && $el.children().length === 0) {
-      $el.remove();
-    }
-  });
-  
-  // Remove comments
-  $content.contents().filter(function() {
-    return this.type === 'comment';
-  }).remove();
-  
-  // Remove social media widgets
-  $content.find('[class*="social"], [id*="social"], [class*="share"], [id*="share"]').remove();
-  
-  // Remove newsletter signup forms
-  $content.find('form, [class*="newsletter"], [id*="newsletter"], [class*="subscribe"], [id*="subscribe"]').remove();
-  
-  // Remove "related articles" sections
-  $content.find('[class*="related"], [id*="related"], [class*="recommended"], [id*="recommended"]').remove();
-  
-  // Remove "read more" links
-  $content.find('a').filter(function() {
-    const text = $(this).text().toLowerCase();
-    return /\b(read more|continue reading|more|next|previous)\b/.test(text);
-  }).remove();
-}
 
-/**
- * Generates a file name from a URL
- * @param {string} url - URL to generate name from
- * @returns {string} - Generated name
- */
-export function generateNameFromUrl(url) {
-  try {
-    const urlObj = new URL(url);
-    
-    // Try to use the path first
-    let name = urlObj.pathname;
-    
-    // Remove trailing slash
-    name = name.replace(/\/$/, '');
-    
-    // If path is empty or just a slash, use hostname
-    if (!name || name === '/') {
-      name = urlObj.hostname;
+      // Try enhanced content detection first
+      try {
+        const result = await this.findMainContent(page);
+        if (result.content && result.score > 50) {
+          content = result.content;
+          score = result.score;
+          console.log(`Found main content with score: ${score}`);
+        }
+      } catch (e) {
+        console.error('Error in main content detection:', e);
+      }
+
+      // If no good content found, try fallback approaches
+      if (!content || content.length < 1000 || score < 30) {
+        console.log('Content too short or low quality, trying fallback strategies');
+        
+        // Try to get content from article or main elements
+        try {
+          const articleContent = await page.evaluate(() => {
+            const article = document.querySelector('article');
+            if (article && article.textContent.length > 500) {
+              return article.outerHTML;
+            }
+            
+            const main = document.querySelector('main');
+            if (main && main.textContent.length > 500) {
+              return main.outerHTML;
+            }
+            
+            return null;
+          });
+          
+          if (articleContent) {
+            console.log('Found content in article/main element');
+            content = articleContent;
+          } else {
+            console.log('No article/main content found, using body content');
+            content = cleanedRawHtml;
+          }
+        } catch (fallbackError) {
+          console.error('Error in fallback content extraction:', fallbackError);
+          content = cleanedRawHtml;
+        }
+      }
+      
+      // Extract images if requested
+      if (options.includeImages) {
+        images = await this.extractImages(page, baseUrl);
+      }
+      
+      return { content, images, metadata };
+    } catch (error) {
+      console.error('Error extracting content:', error);
+      return {
+        content: `<html><body><p>Failed to extract content: ${error.message}</p></body></html>`,
+        images: [],
+        metadata: {
+          title: this.extractTitleFromUrl(baseUrl) || 'Error Page',
+          source: baseUrl,
+          captured: new Date().toISOString()
+        }
+      };
     }
-    
-    // Extract the last part of the path
-    const parts = name.split('/').filter(Boolean);
-    const lastPart = parts.pop() || urlObj.hostname;
-    
-    // Clean up the name
-    let cleanName = lastPart
-      .toLowerCase()
-      // Remove file extensions
-      .replace(/\.[^.]+$/, '')
-      // Remove query parameters
-      .split('?')[0]
-      // Remove special characters
-      .replace(/[^a-z0-9]+/g, '-')
-      // Clean up dashes
-      .replace(/^-+|-+$/g, '');
-    
-    // If the name is empty after cleaning, use the hostname
-    if (!cleanName) {
-      cleanName = urlObj.hostname.replace(/\./g, '-');
-    }
-    
-    // Limit length
-    if (cleanName.length > 50) {
-      cleanName = cleanName.substring(0, 50);
-    }
-    
-    return cleanName;
-  } catch (error) {
-    console.error('Error generating name from URL:', error);
-    return 'page';
   }
-}
 
-/**
- * Extracts a title from a URL when metadata is missing
- * @param {string} url - URL to extract title from
- * @returns {string} - Extracted title
- */
-export function extractTitleFromUrl(url) {
-  try {
-    const urlObj = new URL(url);
-    
-    // Try to use the path first
-    let title = urlObj.pathname;
-    
-    // Remove trailing slash
-    title = title.replace(/\/$/, '');
-    
-    // If path is empty or just a slash, use hostname
-    if (!title || title === '/') {
-      // Format the hostname nicely
-      return urlObj.hostname
-        .replace(/^www\./, '')
-        .split('.')
-        .map(part => part.charAt(0).toUpperCase() + part.slice(1))
-        .join(' ');
+  /**
+   * Extract images from a page
+   * @param {Page} page - Puppeteer page object
+   * @param {string} baseUrl - Base URL of the page
+   * @returns {Promise<Array>} Array of image objects
+   */
+  async extractImages(page, baseUrl) {
+    try {
+      return await page.evaluate((baseUrl, imageExtensions) => {
+        if (!document || !document.querySelectorAll) return [];
+        
+        return Array.from(document.querySelectorAll('img'))
+          .filter(img => {
+            try {
+              const src = img.src;
+              if (!src) return false;
+              const url = new URL(src, baseUrl);
+              const ext = url.pathname.split('.').pop().toLowerCase();
+              return imageExtensions.includes(`.${ext}`);
+            } catch (e) {
+              return false;
+            }
+          })
+          .map(img => ({
+            src: new URL(img.src, baseUrl).href,
+            alt: img.alt || '',
+            title: img.title || img.alt || ''
+          }));
+      }, baseUrl, IMAGE_EXTENSIONS);
+    } catch (error) {
+      console.error('Error extracting images:', error);
+      return [];
     }
-    
-    // Extract the last part of the path
-    const parts = title.split('/').filter(Boolean);
-    const lastPart = parts.pop() || '';
-    
-    // Clean up the title
-    let cleanTitle = lastPart
-      // Remove file extensions
-      .replace(/\.[^.]+$/, '')
+  }
+
+  /**
+   * Extract metadata from a page
+   * @param {Page} page - Puppeteer page object
+   * @param {string} url - URL of the page
+   * @returns {Promise<Object>} Metadata object
+   */
+  async extractMetadataFromPage(page, url) {
+    try {
+      // Extract metadata directly from the page using Puppeteer
+      const metadata = await page.evaluate(() => {
+        // Base metadata object
+        const meta = {
+          title: '',
+          description: '',
+          author: '',
+          date: '',
+          site: '',
+          captured: new Date().toISOString()
+        };
+
+        // Extract title (try multiple sources)
+        meta.title = 
+          document.querySelector('meta[property="og:title"]')?.getAttribute('content') ||
+          document.querySelector('meta[name="twitter:title"]')?.getAttribute('content') ||
+          document.querySelector('title')?.textContent ||
+          document.querySelector('h1')?.textContent ||
+          'Untitled Page';
+
+        // Extract description
+        meta.description = 
+          document.querySelector('meta[property="og:description"]')?.getAttribute('content') ||
+          document.querySelector('meta[name="description"]')?.getAttribute('content') ||
+          document.querySelector('meta[name="twitter:description"]')?.getAttribute('content') ||
+          '';
+
+        // Extract author
+        meta.author = 
+          document.querySelector('meta[name="author"]')?.getAttribute('content') ||
+          document.querySelector('meta[property="article:author"]')?.getAttribute('content') ||
+          '';
+
+        // Extract publication date
+        meta.date = 
+          document.querySelector('meta[property="article:published_time"]')?.getAttribute('content') ||
+          document.querySelector('meta[name="publication_date"]')?.getAttribute('content') ||
+          '';
+
+        // Extract site name
+        meta.site = 
+          document.querySelector('meta[property="og:site_name"]')?.getAttribute('content') ||
+          '';
+
+        // Clean up the data
+        Object.keys(meta).forEach(key => {
+          if (typeof meta[key] === 'string') {
+            meta[key] = meta[key]
+              .trim()
+              .replace(/[\r\n\t]+/g, ' ')
+              .replace(/\s+/g, ' ');
+          }
+        });
+
+        // Remove empty fields
+        Object.keys(meta).forEach(key => {
+          if (meta[key] === '' || meta[key] === null || meta[key] === undefined) {
+            delete meta[key];
+          }
+        });
+
+        return meta;
+      });
+
+      // Add URL-based metadata
+      metadata.source = url;
+      if (!metadata.site) {
+        try {
+          metadata.site = new URL(url).hostname;
+        } catch (e) {
+          metadata.site = url;
+        }
+      }
+
+      // Ensure title is always present
+      if (!metadata.title) {
+        try {
+          metadata.title = new URL(url).hostname;
+        } catch (e) {
+          metadata.title = 'Untitled Page';
+        }
+      }
+
+      console.log('Extracted metadata:', metadata);
+      return metadata;
+    } catch (error) {
+      console.error('Metadata extraction error:', error);
+      // Return basic metadata even if extraction fails
+      return {
+        title: 'Untitled Page',
+        source: url,
+        captured: new Date().toISOString()
+      };
+    }
+  }
+
+  /**
+   * Generate a filename from a URL
+   * @param {string} url - URL to generate filename from
+   * @returns {string} Generated filename
+   */
+  generateNameFromUrl(url) {
+    try {
+      const urlObj = new URL(url);
+      const pathname = urlObj.pathname;
+      
+      // If pathname is empty or just '/', use the hostname
+      if (!pathname || pathname === '/') {
+        return urlObj.hostname.replace(/\./g, '-');
+      }
+      
+      // Get the last part of the pathname
+      const parts = pathname.split('/').filter(Boolean);
+      let filename = parts.pop() || urlObj.hostname.replace(/\./g, '-');
+      
+      // Remove file extension if present
+      filename = filename.replace(/\.[^.]+$/, '');
+      
       // Remove query parameters
-      .split('?')[0]
-      // Replace dashes and underscores with spaces
-      .replace(/[-_]+/g, ' ')
+      filename = filename.split('?')[0];
+      
+      // Clean up the filename
+      filename = filename
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, '-')
+        .replace(/^-+|-+$/g, '');
+      
+      // If filename is empty, use the hostname
+      if (!filename) {
+        filename = urlObj.hostname.replace(/\./g, '-');
+      }
+      
+      return filename;
+    } catch (error) {
+      console.error('Error generating name from URL:', error);
+      return 'untitled-page';
+    }
+  }
+
+  /**
+   * Extract a title from a URL
+   * @param {string} url - URL to extract title from
+   * @returns {string} Extracted title
+   */
+  extractTitleFromUrl(url) {
+    try {
+      const urlObj = new URL(url);
+      const hostname = urlObj.hostname;
+      const pathname = urlObj.pathname;
+      
+      // If pathname is empty or just '/', use the hostname
+      if (!pathname || pathname === '/') {
+        return hostname;
+      }
+      
+      // Get the last part of the pathname
+      const parts = pathname.split('/').filter(Boolean);
+      let title = parts.pop() || hostname;
+      
+      // Remove file extension if present
+      title = title.replace(/\.[^.]+$/, '');
+      
+      // Replace hyphens and underscores with spaces
+      title = title.replace(/[-_]/g, ' ');
+      
       // Capitalize words
-      .split(' ')
-      .map(word => word.charAt(0).toUpperCase() + word.slice(1))
-      .join(' ');
-    
-    // If the title is empty after cleaning, use the hostname
-    if (!cleanTitle) {
-      cleanTitle = urlObj.hostname
-        .replace(/^www\./, '')
-        .split('.')
-        .map(part => part.charAt(0).toUpperCase() + part.slice(1))
+      title = title.split(' ')
+        .map(word => word.charAt(0).toUpperCase() + word.slice(1))
         .join(' ');
-    }
-    
-    return cleanTitle;
-  } catch (error) {
-    console.error('Error extracting title from URL:', error);
-    return 'Untitled Page';
-  }
-}
-
-/**
- * Extracts the main heading from HTML content
- * @param {string} html - HTML content
- * @returns {string} - Extracted heading
- */
-export function extractMainHeading(html) {
-  try {
-    const $ = cheerio.load(html);
-    
-    // Try to find the first h1
-    const h1 = $('h1').first();
-    if (h1.length && h1.text().trim()) {
-      return h1.text().trim();
-    }
-    
-    // If no h1, try the title tag
-    const title = $('title').text().trim();
-    if (title) {
+      
       return title;
+    } catch (error) {
+      console.error('Error extracting title from URL:', error);
+      return 'Untitled Page';
     }
-    
-    // If no title, try the first h2
-    const h2 = $('h2').first();
-    if (h2.length && h2.text().trim()) {
-      return h2.text().trim();
+  }
+
+  /**
+   * Wait for dynamic content to load in SPAs
+   * @param {Page} page - Puppeteer page object
+   * @returns {Promise<boolean>} Whether content was detected as dynamic
+   */
+  async waitForDynamicContent(page) {
+    try {
+      console.log('Checking for dynamic content loading...');
+      
+      // First check if it's an SPA
+      const isSpa = await page.evaluate(() => {
+        // Check for common SPA frameworks
+        return !!(
+          window.angular ||
+          window.React ||
+          window.Vue ||
+          document.querySelector('[ng-app]') ||
+          document.querySelector('[data-reactroot]') ||
+          document.querySelector('#app') ||
+          document.querySelector('#root')
+        );
+      });
+      
+      if (isSpa) {
+        console.log('Detected SPA, waiting for content to stabilize...');
+        
+        // Wait for network to be idle
+        await page.waitForNetworkIdle({ idleTime: 1000, timeout: 5000 }).catch(() => {
+          console.log('Network idle timeout reached, continuing anyway');
+        });
+        
+        // Wait a bit more for rendering
+        await new Promise(resolve => setTimeout(resolve, 2000));
+        
+        // Check if content has changed
+        const initialContentLength = await page.evaluate(() => document.body.textContent.length);
+        await new Promise(resolve => setTimeout(resolve, 1000));
+        const finalContentLength = await page.evaluate(() => document.body.textContent.length);
+        
+        const contentChanged = Math.abs(finalContentLength - initialContentLength) > 50;
+        if (contentChanged) {
+          console.log(`Content changed during wait (${initialContentLength} -> ${finalContentLength})`);
+          // Wait a bit more for final rendering
+          await new Promise(resolve => setTimeout(resolve, 1000));
+        }
+        
+        return true;
+      }
+      
+      return false;
+    } catch (error) {
+      console.error('Error waiting for dynamic content:', error);
+      return false;
     }
-    
-    return '';
-  } catch (error) {
-    console.error('Error extracting main heading:', error);
-    return '';
   }
 }
 
-export default {
-  extractContent,
-  scoreElement,
-  cleanContent,
-  generateNameFromUrl,
-  extractTitleFromUrl,
-  extractMainHeading
+// Export utility functions for backward compatibility
+export const generateNameFromUrl = (url) => {
+  const extractor = new ContentExtractor();
+  return extractor.generateNameFromUrl(url);
+};
+
+export const extractTitleFromUrl = (url) => {
+  const extractor = new ContentExtractor();
+  return extractor.extractTitleFromUrl(url);
 };
